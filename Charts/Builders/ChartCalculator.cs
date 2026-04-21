@@ -1,8 +1,9 @@
+using RTAnalyzer.Core;
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace RTAnalyzer.Builders
+namespace RTAnalyzer.Charts.Builders
 {
     public static class ChartCalculator
     {
@@ -15,9 +16,9 @@ namespace RTAnalyzer.Builders
         public static int GetAdaptiveBucketSize(List<ResponseRecord> items)
         {
             var sorted = items.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
-            int p5 = sorted[(int)(sorted.Count * 0.05)];
-            int p95 = sorted[(int)(sorted.Count * 0.95)];
-            int range = p95 - p5;
+            var p5 = sorted[(int)(sorted.Count * 0.05)];
+            var p95 = sorted[(int)(sorted.Count * 0.95)];
+            var range = p95 - p5;
 
             if (range <= 50) return 2;
             if (range <= 100) return 5;
@@ -32,7 +33,7 @@ namespace RTAnalyzer.Builders
 
             foreach (var r in items)
             {
-                int bucket = (int)Math.Floor(r.ResponseTime / (double)bucketSize) * bucketSize;
+                var bucket = (int)Math.Floor(r.ResponseTime / (double)bucketSize) * bucketSize;
                 if (distribution.ContainsKey(bucket)) distribution[bucket]++;
                 else distribution[bucket] = 1;
             }
@@ -42,7 +43,7 @@ namespace RTAnalyzer.Builders
 
         public static int GetMaxCount(List<ChartBucket> buckets)
         {
-            int maxCount = 0;
+            var maxCount = 0;
             foreach (var b in buckets)
                 if ((int)b.Count > maxCount)
                     maxCount = (int)b.Count;

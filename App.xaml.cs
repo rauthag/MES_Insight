@@ -8,9 +8,15 @@ namespace RTAnalyzer
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
-            
+
+            var culture = new System.Globalization.CultureInfo("sk-SK");
+            System.Threading.Thread.CurrentThread.CurrentCulture = culture;
+            System.Threading.Thread.CurrentThread.CurrentUICulture = culture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = culture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = culture;
+
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
-            Application.Current.DispatcherUnhandledException += OnDispatcherUnhandledException;
+            Current.DispatcherUnhandledException += OnDispatcherUnhandledException;
         }
 
         private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -19,7 +25,8 @@ namespace RTAnalyzer
             ShowErrorDialog(exception);
         }
 
-        private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+        private void OnDispatcherUnhandledException(object sender,
+            System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
         {
             ShowErrorDialog(e.Exception);
             e.Handled = true;
@@ -37,9 +44,12 @@ namespace RTAnalyzer
             };
 
             var grid = new System.Windows.Controls.Grid();
-            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
-            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+                { Height = new GridLength(1, GridUnitType.Auto) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+                { Height = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+                { Height = new GridLength(1, GridUnitType.Auto) });
 
             var messagePanel = new System.Windows.Controls.StackPanel
             {
@@ -64,16 +74,11 @@ namespace RTAnalyzer
                 Margin = new Thickness(0, 0, 0, 10)
             };
 
-            string userMessage = "An error occurred in the application.";
-            
+            var userMessage = "An error occurred in the application.";
+
             if (ex?.Message.Contains("invalid range") == true || ex?.Message.Contains("axis") == true)
-            {
                 userMessage = "Not enough data to display charts. Please adjust your filters and try again.";
-            }
-            else if (ex?.Message != null)
-            {
-                userMessage = ex.Message;
-            }
+            else if (ex?.Message != null) userMessage = ex.Message;
 
             var errorMessage = new System.Windows.Controls.TextBlock
             {
@@ -131,7 +136,8 @@ namespace RTAnalyzer
                 try
                 {
                     Clipboard.SetText(ex?.ToString() ?? "No error details available");
-                    MessageBox.Show("Error details copied to clipboard", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("Error details copied to clipboard", "Success", MessageBoxButton.OK,
+                        MessageBoxImage.Information);
                 }
                 catch
                 {
@@ -143,7 +149,8 @@ namespace RTAnalyzer
             {
                 Content = "OK",
                 Padding = new Thickness(30, 8, 30, 8),
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(149, 165, 166)),
+                Background =
+                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(149, 165, 166)),
                 Foreground = System.Windows.Media.Brushes.White,
                 BorderThickness = new Thickness(0),
                 Cursor = System.Windows.Input.Cursors.Hand,

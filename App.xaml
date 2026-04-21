@@ -1,9 +1,10 @@
 ﻿<Application x:Class="RTAnalyzer.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:RTAnalyzer"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <FontFamily x:Key="InterFont">pack://application:,,,/Fonts/#Inter 18pt</FontFamily>
+        <FontFamily x:Key="InterThin">pack://application:,,,/Fonts/#Inter 18pt Thin</FontFamily>
+        <FontFamily x:Key="InterLight">pack://application:,,,/Fonts/#Inter 18pt Light</FontFamily>
     </Application.Resources>
 </Application>

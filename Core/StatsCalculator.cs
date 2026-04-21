@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows.Media;
 
-namespace RTAnalyzer
+namespace RTAnalyzer.Core
 {
     public class StatsResult
     {
@@ -19,8 +19,26 @@ namespace RTAnalyzer
 
     public class StatsCalculator
     {
+        // Cache: key = (recordCount, firstTimestamp, lastTimestamp, messageType)
+        // This uniquely identifies a filtered dataset without hashing every record
+        private readonly Dictionary<(int, long, long, MessageType), StatsResult> _cache
+            = new Dictionary<(int, long, long, MessageType), StatsResult>();
+
+        public void InvalidateCache() => _cache.Clear();
+
+        private static (int, long, long, MessageType) MakeKey(List<ResponseRecord> records, MessageType type)
+        {
+            if (records.Count == 0) return (0, 0, 0, type);
+            long first = records[0].TimestampParsed.Ticks;
+            long last  = records[records.Count - 1].TimestampParsed.Ticks;
+            return (records.Count, first, last, type);
+        }
+
         public StatsResult Calculate(List<ResponseRecord> records, MessageType type)
         {
+            var key = MakeKey(records, type);
+            if (_cache.TryGetValue(key, out var cached)) return cached;
+
             var values = new List<double>();
             foreach (var r in records)
             {
@@ -43,7 +61,7 @@ namespace RTAnalyzer
             double cv  = avg > 0 ? (stdDev / avg) * 100 : 0;
             double p95 = values[(int)(values.Count * 0.95)];
 
-            return new StatsResult
+            var result = new StatsResult
             {
                 Count          = values.Count,
                 Average        = avg,
@@ -55,6 +73,9 @@ namespace RTAnalyzer
                 StabilityLabel = GetStabilityLabel(cv),
                 StabilityColor = GetStabilityColor(cv)
             };
+
+            _cache[key] = result;
+            return result;
         }
 
         private string GetStabilityLabel(double cv)

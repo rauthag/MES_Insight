@@ -1,13 +1,15 @@
+using System;
 using System.Collections.Generic;
 using System.Windows.Media;
 using LiveCharts;
 
-namespace RTAnalyzer
+namespace RTAnalyzer.Core
 {
     
     public class ResponseRecord
     {
         public string Timestamp { get; set; }
+        public DateTime TimestampParsed { get; set; }
         public int ResponseTime { get; set; }
         public string FileName { get; set; }
         public MessageType Type { get; set; }
@@ -27,12 +29,18 @@ namespace RTAnalyzer
         public string Name { get; set; }
         public SeriesCollection Series { get; set; }
         public string[] Labels { get; set; }
+        public List<ChartBucket> Buckets { get; set; }
+        public List<(long From, long To)> RemappedGaps { get; set; }
+        public List<string> GapLabels { get; set; }
+        public List<long> GapCenterAxisValues { get; set; }
+        public Dictionary<long, DateTime> CompressedAxisValueToCalendarDate { get; set; }
     }
 
     public class ChartData
     {
         public List<ChartSeries> Charts { get; set; }
         public ChartSeries TrendChart { get; set; }
+        public List<TimelineEvent> TimelineEvents { get; set; }
         public List<ResponseRecord> FilteredRecords { get; set; }
     }
 
@@ -43,10 +51,41 @@ namespace RTAnalyzer
         public double Count { get; set; }
         public double DisplayCount { get; set; }
         public bool IsScaled { get; set; }
-        public string Label { get; set; }
+        public string Label    { get; set; }
+        public string BarLabel { get; set; }
         public int RangeStart { get; set; }
         public int RangeEnd   { get; set; }
         public SolidColorBrush BarColor { get; set; }
+    }
+
+    public enum TimelineEventType
+    {
+        Production,
+        ProductionFail,
+        OeeStop,
+        Error,
+        MaterialChange,
+        SetupChange,
+        Idle
+    }
+
+    public class TimelineEvent
+    {
+        public DateTime          Start          { get; set; }
+        public DateTime?         End            { get; set; }
+        public TimelineEventType EventType      { get; set; }
+        public string            Label          { get; set; }
+        public string            Uid            { get; set; }
+        public string            Detail         { get; set; }
+        public string            ErrorCode      { get; set; }
+        public int               ResponseTimeMs { get; set; }
+    }
+
+        public enum ChartType
+    {
+        Trend,
+        Histogram,
+        Timeline
     }
 
     public enum MessageType
@@ -60,6 +99,7 @@ namespace RTAnalyzer
         LOAD_MATERIAL,
         REQ_MATERIAL_INFO,
         REQ_SETUP_CHANGE2,
-        OTHER
+        OTHER,
+        ALL
     }
 }
