@@ -1,13 +1,12 @@
-using RTAnalyzer.Core;
 using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using RTAnalyzer.Charts;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts.Renderers
+namespace MESInsight.Charts.Renderers
 {
     public class TimelineChartRenderer : ChartRenderer
     {

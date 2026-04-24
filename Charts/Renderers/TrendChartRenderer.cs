@@ -1,7 +1,3 @@
-using RTAnalyzer.Core;
-using RTAnalyzer.Charts;
-using RTAnalyzer.Charts.Builders;
-using RTAnalyzer.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,8 +9,11 @@ using System.Windows.Shapes;
 using LiveCharts;
 using LiveCharts.Defaults;
 using LiveCharts.Wpf;
+using MESInsight.Charts.Builders;
+using MESInsight.Core;
+using MESInsight.UI;
 
-namespace RTAnalyzer.Charts.Renderers
+namespace MESInsight.Charts.Renderers
 {
     public class TrendChartRenderer : ChartRenderer
     {

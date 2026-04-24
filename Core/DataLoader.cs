@@ -6,15 +6,19 @@ using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MESInsight.Core;
 
 namespace RTAnalyzer.Core
 {
+    public enum StationCategory { GHP, LCS, Backflush, Unknown }
+
     public class StationInfo
     {
         public string FolderPath   { get; set; }
         public string StationName  { get; set; } = "";
         public string LineName     { get; set; } = "";
         public string ComputerName { get; set; } = "";
+        public StationCategory Category { get; set; } = StationCategory.GHP;
 
         public string DisplayTitle =>
             !string.IsNullOrEmpty(LineName) && !string.IsNullOrEmpty(ComputerName)
@@ -52,12 +56,13 @@ namespace RTAnalyzer.Core
 
         private static void ScanForStations(string rootPath, string currentPath, List<StationInfo> stations, int depth)
         {
-            if (depth > 6) return;
+            if (depth > 8) return;
 
             foreach (string dir in Directory.GetDirectories(currentPath))
             {
-                string name = Path.GetFileName(dir);
-                if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^MON\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                string name = System.IO.Path.GetFileName(dir);
+
+                if (IsStationFolder(name, dir))
                 {
                     stations.Add(BuildStationInfo(rootPath, dir));
                 }
@@ -66,6 +71,35 @@ namespace RTAnalyzer.Core
                     ScanForStations(rootPath, dir, stations, depth + 1);
                 }
             }
+        }
+
+        private static bool IsStationFolder(string name, string dirPath)
+        {
+            var opts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"(?:^|[_\s])MON\d+", opts)) return true;
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"(?:^|[_\s])OVN\d+", opts)) return true;
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^OR_[A-Z]{2,4}\d+",  opts)) return true;
+
+            if (HasDirectLogFiles(dirPath)) return true;
+
+            return false;
+        }
+
+        private static bool HasDirectLogFiles(string dirPath)
+        {
+            try
+            {
+                foreach (string f in Directory.GetFiles(dirPath))
+                {
+                    string fname = System.IO.Path.GetFileName(f);
+                    string ext   = System.IO.Path.GetExtension(fname).ToLowerInvariant();
+                    if ((ext == ".txt" || ext == ".log" || ext == "" || ext == ".zip") && IsLogFile(fname))
+                        return true;
+                }
+                return false;
+            }
+            catch { return false; }
         }
 
         private static StationInfo BuildStationInfo(string rootPath, string stationPath)
@@ -79,22 +113,35 @@ namespace RTAnalyzer.Core
 
             foreach (string part in parts)
             {
-                if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^L\d{3}"))
+                // Line name: starts with L + digits, may have longer description e.g. "L214 OneBox BFT-HT"
+                if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^L\d{3}", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     lineName = part;
+                // Computer name: uppercase letters + digits, no spaces e.g. OHD0004N
                 else if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^[A-Z]{2,4}\d{3,}[A-Z0-9]*$") &&
-                         !System.Text.RegularExpressions.Regex.IsMatch(part, @"^MON\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                         !System.Text.RegularExpressions.Regex.IsMatch(part, @"^MON\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+                         !System.Text.RegularExpressions.Regex.IsMatch(part, @"^LCS\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     computerName = part;
             }
 
             if (string.IsNullOrEmpty(stationName) || stationName == relativePath)
                 stationName = Path.GetFileName(stationPath).Replace("_", " ");
 
+            var category = StationCategory.GHP;
+            string fullLower = stationPath.ToLowerInvariant();
+
+            if (fullLower.Contains("\\lcs") || fullLower.Contains("/lcs") ||
+                System.Text.RegularExpressions.Regex.IsMatch(stationName, @"(?:^|[ _-])LCS[0-9]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                category = StationCategory.LCS;
+            else if (fullLower.Contains("backflush") || stationName.ToLowerInvariant().Contains("backflush"))
+                category = StationCategory.Backflush;
+
             return new StationInfo
             {
                 FolderPath   = stationPath,
                 StationName  = stationName,
                 LineName     = lineName,
-                ComputerName = computerName
+                ComputerName = computerName,
+                Category     = category
             };
         }
 
@@ -128,19 +175,28 @@ namespace RTAnalyzer.Core
 
                 var localResult = new DataLoadResult();
 
-                if (ext == ".txt")
-                {
-                    using (Stream fs = File.OpenRead(file))
-                        ReadOldFormatLines(fs, fileName, localResult);
-                }
-                else if (ext == ".log" && IsGhpLogFile(fileName))
-                {
-                    using (Stream fs = File.OpenRead(file))
-                        ReadGhpFormatLines(fs, fileName, localResult);
-                }
-                else if (ext == ".zip")
+                if (ext == ".zip")
                 {
                     LoadFromZip(file, localResult);
+                }
+                else if (IsLogFile(fileName))
+                {
+                    if (ext == ".log" && IsGhpLogFile(fileName))
+                    {
+                        using (Stream fs = File.OpenRead(file))
+                            ReadGhpFormatLines(fs, fileName, localResult);
+                    }
+                    else
+                    {
+                        using (Stream fs = File.OpenRead(file))
+                            ReadOldFormatLines(fs, fileName, localResult);
+
+                        if (localResult.Records.Count == 0)
+                        {
+                            using (Stream fs = File.OpenRead(file))
+                                ReadGhpFormatLines(fs, fileName, localResult);
+                        }
+                    }
                 }
 
                 foreach (var r in localResult.Records)
@@ -185,6 +241,31 @@ namespace RTAnalyzer.Core
             return fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsLogFile(string fileName)
+        {
+            string ext   = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+            string lower = fileName.ToLowerInvariant();
+
+            string[] blocked = { ".dll", ".exe", ".config", ".xml", ".json",
+                                 ".db", ".ini", ".bat", ".ps1", ".msi", ".pdb",
+                                 ".manifest", ".resx", ".cs", ".csproj", ".sln" };
+
+            foreach (string b in blocked)
+                if (ext == b) return false;
+
+            if (fileName.StartsWith("FraMES",   StringComparison.OrdinalIgnoreCase)) return false;
+
+            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
+            if (fileName.StartsWith("GHP",     StringComparison.OrdinalIgnoreCase)) return true;
+            if (fileName.StartsWith("Logging", StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(fileName, @"^\d{8}_\d+_messages")) return true;
+
+            if (lower.Contains("message") || lower.Contains("_log") || lower.Contains("vitesco")) return true;
+
+            return false;
+        }
+
         private static void LoadFromZip(string zipFile, DataLoadResult result)
         {
             try
@@ -193,19 +274,35 @@ namespace RTAnalyzer.Core
                 {
                     foreach (ZipArchiveEntry entry in zip.Entries)
                     {
-                        string entryName = entry.Name;
+                        string entryName  = entry.Name;
                         string sourceName = Path.GetFileName(zipFile) + " > " + entryName;
+                        string ext        = Path.GetExtension(entryName).ToLowerInvariant();
 
-                        if (entryName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
-                        {
-                            using (Stream stream = entry.Open())
-                                ReadOldFormatLines(stream, sourceName, result);
-                        }
-                        else if (entryName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)
-                                 && IsGhpLogFile(entryName))
+                        if (!IsLogFile(entryName)) continue;
+
+                        if (ext == ".log" && IsGhpLogFile(entryName))
                         {
                             using (Stream stream = entry.Open())
                                 ReadGhpFormatLines(stream, sourceName, result);
+                        }
+                        else if (ext == ".txt" || ext == "" || ext == ".log")
+                        {
+                            var tempResult = new DataLoadResult();
+
+                            using (Stream stream = entry.Open())
+                                ReadOldFormatLines(stream, sourceName, tempResult);
+
+                            if (tempResult.Records.Count == 0)
+                            {
+                                using (Stream stream = entry.Open())
+                                    ReadGhpFormatLines(stream, sourceName, tempResult);
+                            }
+
+                            foreach (var r in tempResult.Records)
+                                result.Records.Add(r);
+
+                            if (!string.IsNullOrEmpty(tempResult.StationName) && string.IsNullOrEmpty(result.StationName))
+                                result.StationName = tempResult.StationName;
                         }
                     }
                 }

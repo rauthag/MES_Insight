@@ -1,13 +1,14 @@
-using RTAnalyzer.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using LiveCharts;
-using LiveCharts.Wpf;
-using LiveCharts.Defaults;
 using System.Windows.Media;
+using LiveCharts;
+using LiveCharts.Defaults;
+using LiveCharts.Wpf;
+using MESInsight.Charts.Interfaces;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts.Builders
+namespace MESInsight.Charts.Builders
 {
     public class TrendChart : IChartDataBuilder
     {

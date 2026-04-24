@@ -1,7 +1,7 @@
-using RTAnalyzer.Core;
 using System.Collections.Generic;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts
+namespace MESInsight.Charts.Interfaces
 {
     public interface IChartDataBuilder
     {

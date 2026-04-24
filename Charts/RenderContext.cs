@@ -1,6 +1,6 @@
-using RTAnalyzer.Core;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts
+namespace MESInsight.Charts
 {
     public class RenderContext
     {

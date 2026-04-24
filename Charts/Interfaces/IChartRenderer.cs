@@ -1,7 +1,7 @@
 using System.Windows;
-using RTAnalyzer.Core;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts
+namespace MESInsight.Charts.Interfaces
 {
     public interface IChartRenderer
     {

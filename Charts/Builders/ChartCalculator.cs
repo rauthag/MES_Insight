@@ -1,9 +1,9 @@
-using RTAnalyzer.Core;
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts.Builders
+namespace MESInsight.Charts.Builders
 {
     public static class ChartCalculator
     {

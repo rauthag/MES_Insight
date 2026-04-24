@@ -1,7 +1,7 @@
-using RTAnalyzer.UI;
-using RTAnalyzer.Charts.Renderers;
-using RTAnalyzer.Charts.Builders;
-using RTAnalyzer.Core;
+using MESInsight.UI;
+using MESInsight.Charts.Renderers;
+using MESInsight.Charts.Builders;
+using MESInsight.Core;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -12,51 +12,68 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using LiveCharts.Wpf;
-using RTAnalyzer.Charts;
+using MESInsight.Charts;
+using RTAnalyzer.Core;
 
-namespace RTAnalyzer
+namespace MESInsight
 {
+    public class LoadingStationLogEntry : System.ComponentModel.INotifyPropertyChanged
+    {
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+
+        private string _statusIcon = "○";
+        private string _iconColor  = "#4E5A4E";
+        private string _line1Color = "#8B949E";
+
+        public string StatusIcon
+        {
+            get => _statusIcon;
+            set { _statusIcon = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(StatusIcon))); }
+        }
+        public string IconColor
+        {
+            get => _iconColor;
+            set { _iconColor = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconColor))); }
+        }
+        public string Line1       { get; set; }
+        public string Line2       { get; set; }
+        public string Line1Color
+        {
+            get => _line1Color;
+            set { _line1Color = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Line1Color))); }
+        }
+        public bool IsHeader { get; set; } = false;
+        public System.Windows.Visibility Line2Visibility =>
+            string.IsNullOrEmpty(Line2) ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+    }
+
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
         #region Fields
 
-        private readonly DataLoader _dataLoader = new DataLoader();
+        private readonly DataLoader    _dataLoader    = new DataLoader();
         private readonly StatsCalculator _statsCalculator = new StatsCalculator();
         private readonly DayRecordsPanelBuilder _dayRecordsPanelBuilder = new DayRecordsPanelBuilder();
         private ChartFactory _chartFactory;
         private TrendChartRenderer _trendChartRenderer;
 
-        private List<ResponseRecord> _allRecords = new List<ResponseRecord>();
+        private List<ResponseRecord> _allRecords      = new List<ResponseRecord>();
         private List<ResponseRecord> _filteredRecords = new List<ResponseRecord>();
 
-        private List<StationInfo> _loadedStations = new List<StationInfo>();
-        private StationInfo _activeStation = null;
-
+        private List<StationInfo>    _loadedStations  = new List<StationInfo>();
+        private StationInfo          _activeStation   = null;
         private Dictionary<string, (List<ResponseRecord> records, string stationName)> _stationDataCache
             = new Dictionary<string, (List<ResponseRecord>, string)>();
-
         private Dictionary<string, Dictionary<(MessageType, ChartType), ChartData>> _stationChartCache
             = new Dictionary<string, Dictionary<(MessageType, ChartType), ChartData>>();
 
-        private Dictionary<(MessageType, ChartType), ChartData> _chartCache =
-            new Dictionary<(MessageType, ChartType), ChartData>();
-
-        private Dictionary<DateTime, List<ResponseRecord>> _recordsGroupedByDay =
-            new Dictionary<DateTime, List<ResponseRecord>>();
-
-        private Dictionary<MessageType, (Border panel, ColumnDefinition col, bool open)> _dayRecordsPanelByMessageType =
-            new Dictionary<MessageType, (Border, ColumnDefinition, bool)>();
-
-        private Dictionary<MessageType, CartesianChart> _trendChartByMessageType =
-            new Dictionary<MessageType, CartesianChart>();
-
-        private Dictionary<MessageType, LiveCharts.Wpf.AxisSection> _selectedDayHighlightByMessageType =
-            new Dictionary<MessageType, LiveCharts.Wpf.AxisSection>();
-
-        private Dictionary<MessageType, (Border container, StackPanel panel)> _timelineContainerByMessageType =
-            new Dictionary<MessageType, (Border, StackPanel)>();
-
-        private HashSet<MessageType> _tabsUserHasAlreadySeen = new HashSet<MessageType>();
+        private Dictionary<(MessageType, ChartType), ChartData>                           _chartCache                        = new Dictionary<(MessageType, ChartType), ChartData>();
+        private Dictionary<DateTime, List<ResponseRecord>>                                _recordsGroupedByDay               = new Dictionary<DateTime, List<ResponseRecord>>();
+        private Dictionary<MessageType, (Border panel, ColumnDefinition col, bool open)>  _dayRecordsPanelByMessageType       = new Dictionary<MessageType, (Border, ColumnDefinition, bool)>();
+        private Dictionary<MessageType, CartesianChart>                                   _trendChartByMessageType           = new Dictionary<MessageType, CartesianChart>();
+        private Dictionary<MessageType, LiveCharts.Wpf.AxisSection>                      _selectedDayHighlightByMessageType  = new Dictionary<MessageType, LiveCharts.Wpf.AxisSection>();
+        private Dictionary<MessageType, (Border container, StackPanel panel)>             _timelineContainerByMessageType     = new Dictionary<MessageType, (Border, StackPanel)>();
+        private HashSet<MessageType>                                                       _tabsUserHasAlreadySeen             = new HashSet<MessageType>();
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -68,8 +85,8 @@ namespace RTAnalyzer
         {
             InitializeComponent();
             ValidateLoadingControls();
-            DataContext = this;
-            WindowState = WindowState.Maximized;
+            DataContext  = this;
+            WindowState  = WindowState.Maximized;
 
             _chartFactory = new ChartFactory(
                 _dayRecordsPanelBuilder,
@@ -85,6 +102,9 @@ namespace RTAnalyzer
 
             Loaded += (s, e) =>
             {
+                if (LoadingStationLog != null)
+                    LoadingStationLog.ItemsSource = _stationLogEntries;
+
                 var startup = new StartupWindow();
                 bool? result = startup.ShowDialog();
                 if (result == true && !string.IsNullOrEmpty(startup.SelectedPath))
@@ -95,10 +115,10 @@ namespace RTAnalyzer
 
         private void ValidateLoadingControls()
         {
-            if (LoadingOverlay == null) throw new Exception("LoadingOverlay not found");
-            if (LoadingTitle == null) throw new Exception("LoadingTitle not found");
-            if (LoadingStatus == null) throw new Exception("LoadingStatus not found");
-            if (LoadingProgress == null) throw new Exception("LoadingProgress not found");
+            if (LoadingOverlay    == null) throw new Exception("LoadingOverlay not found");
+            if (LoadingTitle      == null) throw new Exception("LoadingTitle not found");
+            if (LoadingStatus     == null) throw new Exception("LoadingStatus not found");
+            if (LoadingProgress   == null) throw new Exception("LoadingProgress not found");
             if (LoadingPercentage == null) throw new Exception("LoadingPercentage not found");
         }
 
@@ -117,15 +137,82 @@ namespace RTAnalyzer
 
             await Task.Yield();
 
-            var stations = await Task.Run(() => DataLoader.FindStations(rootPath));
+            var allStations = await Task.Run(() => DataLoader.FindStations(rootPath));
 
-            if (stations.Count == 0)
-                stations.Add(new StationInfo
-                    { FolderPath = rootPath, StationName = System.IO.Path.GetFileName(rootPath) });
+            if (allStations.Count == 0)
+                allStations.Add(new StationInfo { FolderPath = rootPath, StationName = System.IO.Path.GetFileName(rootPath) });
+
+            var rxOpts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            foreach (var st in allStations)
+            {
+                if (st.Category != StationCategory.GHP) continue;
+                string n = st.StationName + " " + st.FolderPath;
+                if (System.Text.RegularExpressions.Regex.IsMatch(n, @"(?:^|[ _-])LCS[0-9]+", rxOpts))
+                    st.Category = StationCategory.LCS;
+                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"backflush", rxOpts))
+                    st.Category = StationCategory.Backflush;
+            }
+
+            int ghpCount       = allStations.Count(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown);
+            int lcsCount       = allStations.Count(s => s.Category == StationCategory.LCS);
+            int backflushCount = allStations.Count(s => s.Category == StationCategory.Backflush);
+
+            HideLoadingOverlay();
+
+            var optDlg = new LoadOptionsDialog(ghpCount, lcsCount, backflushCount);
+            optDlg.Owner = this;
+            if (optDlg.ShowDialog() != true) return;
+
+            var stations = allStations
+                .Where(s =>
+                    (s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown) ||
+                    (optDlg.IncludeLcs       && s.Category == StationCategory.LCS) ||
+                    (optDlg.IncludeBackflush && s.Category == StationCategory.Backflush))
+                .ToList();
+
+            _pendingOptionalStations = new List<StationInfo>();
+
+            ShowLoadingOverlay("Loading...", "Preparing...", 0);
+            await Task.Yield();
 
             _loadedStations = stations;
             _stationDataCache.Clear();
             _stationChartCache.Clear();
+            _stationLogEntries.Clear();
+
+            var ghpList       = stations.Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
+            var lcsList       = stations.Where(s => s.Category == StationCategory.LCS).ToList();
+            var backflushList = stations.Where(s => s.Category == StationCategory.Backflush).ToList();
+
+            void AddSection(string header, List<StationInfo> list)
+            {
+                if (list.Count == 0) return;
+                _stationLogEntries.Add(new LoadingStationLogEntry
+                {
+                    StatusIcon = "",
+                    IconColor  = "#3FB950",
+                    Line1      = header,
+                    Line2      = "",
+                    Line1Color = "#3FB950",
+                    IsHeader   = true
+                });
+                foreach (var st in list)
+                {
+                    _stationLogEntries.Add(new LoadingStationLogEntry
+                    {
+                        StatusIcon = "○",
+                        IconColor  = "#4E5A4E",
+                        Line1      = st.StationName,
+                        Line2      = string.Join("  ·  ", new[] { st.LineName, st.ComputerName }
+                                         .Where(x => !string.IsNullOrEmpty(x))),
+                        Line1Color = "#8B949E"
+                    });
+                }
+            }
+
+            AddSection("GHP STATIONS", ghpList);
+            AddSection("LCS STATIONS", lcsList);
+            AddSection("BACKFLUSH STATIONS", backflushList);
 
             ShowLoadingOverlay(
                 "Found " + stations.Count + " station" + (stations.Count != 1 ? "s" : ""),
@@ -133,8 +220,9 @@ namespace RTAnalyzer
                 5,
                 typeCount: stations.Count);
 
-            await Task.Delay(400);
+            await Task.Delay(300);
 
+            // Build station bar immediately with all stations showing as pending
             RebuildStationBar();
 
             int totalFiles = 0;
@@ -142,6 +230,9 @@ namespace RTAnalyzer
             for (int i = 0; i < stations.Count; i++)
             {
                 var st = stations[i];
+
+                // Mark current station as loading in bar
+                UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
 
                 int liveFileCount = 0;
 
@@ -151,25 +242,23 @@ namespace RTAnalyzer
                         if (status.StartsWith("Reading "))
                             System.Threading.Interlocked.Increment(ref liveFileCount);
 
-                        int fc = liveFileCount;
+                        int fc       = liveFileCount;
                         int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
 
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            bool isReading = status.StartsWith("Reading ");
-                            string fileName = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
+                            bool   isReading = status.StartsWith("Reading ");
+                            string fileName  = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
 
                             string detail = isReading && fc > 0
                                 ? "Loading file " + fc + (fileName != null ? "  —  " + fileName : "")
-                                : status.StartsWith("Scanning")
-                                    ? "Scanning files..."
-                                    : "Processing...";
+                                : status.StartsWith("Scanning") ? "Scanning files..." : "Processing...";
 
                             ShowLoadingOverlay(
                                 "Station " + (i + 1) + " / " + stations.Count,
                                 st.StationName,
                                 innerPct,
-                                detail: detail,
+                                detail:    detail,
                                 fileCount: fc,
                                 typeCount: stations.Count);
                         }));
@@ -182,6 +271,15 @@ namespace RTAnalyzer
                 if (!string.IsNullOrEmpty(loadResult.StationName))
                     st.StationName = loadResult.StationName;
 
+                if (i < _stationLogEntries.Count)
+                {
+                    _stationLogEntries[i].StatusIcon = "✓";
+                    _stationLogEntries[i].IconColor  = "#3FB950";
+                    _stationLogEntries[i].Line1Color = "#C9D1D9";
+                    _stationLogEntries[i].Line1      = displayName +
+                        (loadResult.Records.Count > 0 ? "  —  " + loadResult.Records.Count.ToString("N0") + " records" : "  —  no records");
+                }
+
                 totalFiles += liveFileCount;
 
                 ShowLoadingOverlay(
@@ -189,9 +287,9 @@ namespace RTAnalyzer
                     st.StationName,
                     5 + ((i * 88 + 44) / stations.Count),
                     detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
-                    fileCount: totalFiles,
+                    fileCount:   totalFiles,
                     recordCount: loadResult.Records.Count,
-                    typeCount: stations.Count);
+                    typeCount:   stations.Count);
 
                 await Task.Yield();
 
@@ -199,31 +297,168 @@ namespace RTAnalyzer
 
                 _stationChartCache[st.FolderPath] = stationCharts;
 
-                UpdateActiveStationButton();
+                UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
+
+                // First station ready — switch to it immediately
+                if (i == 0)
+                {
+                    bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
+                    await SwitchToStation(st);
+                    if (overlayWasVisible)
+                        ShowLoadingOverlay("Loading " + (i + 2) + " / " + stations.Count + "...", "", 5 + ((i + 1) * 88 / stations.Count), typeCount: stations.Count);
+                }
+
+                RebuildStationBar();
             }
 
             int totalRecords = stations.Sum(s => _stationDataCache.ContainsKey(s.FolderPath)
-                ? _stationDataCache[s.FolderPath].records.Count
-                : 0);
+                ? _stationDataCache[s.FolderPath].records.Count : 0);
 
             ShowLoadingOverlay(
                 "All stations ready",
                 stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
                 100,
-                fileCount: totalFiles,
+                fileCount:   totalFiles,
                 recordCount: totalRecords,
-                typeCount: stations.Count);
+                typeCount:   stations.Count);
 
             await Task.Delay(400);
 
             await SwitchToStation(stations[0]);
+
+            if (_pendingOptionalStations.Count > 0)
+                RebuildStationBarWithOptionalButton();
+        }
+
+        private async Task LoadOptionalStations()
+        {
+            var toLoad = _pendingOptionalStations.ToList();
+            _pendingOptionalStations.Clear();
+
+            RebuildStationBar();
+
+            int totalFiles = 0;
+
+            for (int i = 0; i < toLoad.Count; i++)
+            {
+                var st = toLoad[i];
+
+                int liveFileCount = 0;
+
+                var loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
+                    (status, percent, extra) =>
+                    {
+                        if (status.StartsWith("Reading "))
+                            System.Threading.Interlocked.Increment(ref liveFileCount);
+
+                        int fc       = liveFileCount;
+                        int innerPct = (i * 88 / toLoad.Count) + (percent * 88 / 100 / toLoad.Count);
+
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            bool   isReading = status.StartsWith("Reading ");
+                            string fileName  = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
+                            string detail    = isReading && fc > 0
+                                ? "Loading file " + fc + (fileName != null ? "  —  " + fileName : "")
+                                : status.StartsWith("Scanning") ? "Scanning files..." : "Processing...";
+
+                            ShowLoadingOverlay(
+                                "Loading optional  " + (i + 1) + " / " + toLoad.Count,
+                                st.StationName,
+                                innerPct,
+                                detail:    detail,
+                                fileCount: fc,
+                                typeCount: toLoad.Count);
+                        }));
+                    }));
+
+                string displayName = loadResult.StationName.Length > 0 ? loadResult.StationName : st.StationName;
+
+                _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
+                _loadedStations.Add(st);
+
+                if (!string.IsNullOrEmpty(loadResult.StationName))
+                    st.StationName = loadResult.StationName;
+
+                totalFiles += liveFileCount;
+
+                ShowLoadingOverlay(
+                    "Building charts  " + (i + 1) + " / " + toLoad.Count,
+                    st.StationName,
+                    (i * 88 / toLoad.Count) + 44,
+                    detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
+                    fileCount:   totalFiles,
+                    recordCount: loadResult.Records.Count,
+                    typeCount:   toLoad.Count);
+
+                await Task.Yield();
+
+                var stationCharts = await BuildChartsForRecords(loadResult.Records, displayName);
+                _stationChartCache[st.FolderPath] = stationCharts;
+            }
+
+            HideLoadingOverlay();
+            RebuildStationBar();
+        }
+
+        private readonly Dictionary<string, bool> _stationLoadingState = new Dictionary<string, bool>();
+
+        private void UpdateStationBarLoadingState(string folderPath, bool isLoading)
+        {
+            _stationLoadingState[folderPath] = isLoading;
+        }
+
+        private void BtnMinimizeLoadingOverlay_Click(object sender, RoutedEventArgs e)
+        {
+            _isOverlayMinimized = true;
+            LoadingOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void RebuildStationBarWithOptionalButton()
+        {
+            if (StationBarPanel == null) return;
+
+            RebuildStationBar();
+
+            bool hasLcs       = _pendingOptionalStations.Any(s => s.Category == StationCategory.LCS);
+            bool hasBackflush = _pendingOptionalStations.Any(s => s.Category == StationCategory.Backflush);
+
+            string label = "＋ Load ";
+            if (hasLcs && hasBackflush)  label += "LCS & Backflush";
+            else if (hasLcs)             label += "LCS";
+            else if (hasBackflush)       label += "Backflush";
+
+            label += "  (" + _pendingOptionalStations.Count + ")";
+
+            var btn = new Button
+            {
+                Content         = label,
+                FontSize        = 10,
+                FontWeight      = FontWeights.SemiBold,
+                Foreground      = new SolidColorBrush(Color.FromRgb(255, 210, 130)),
+                Background      = new SolidColorBrush(Color.FromRgb(80, 45, 8)),
+                BorderBrush     = new SolidColorBrush(Color.FromRgb(180, 100, 20)),
+                BorderThickness = new Thickness(1),
+                Padding         = new Thickness(10, 0, 10, 0),
+                Height          = 44,
+                Cursor          = System.Windows.Input.Cursors.Hand,
+                Margin          = new Thickness(8, 0, 0, 0)
+            };
+
+            btn.Click += async (s, e) =>
+            {
+                btn.IsEnabled = false;
+                await LoadOptionalStations();
+            };
+
+            StationBarPanel.Children.Add(btn);
         }
 
         private async Task<Dictionary<(MessageType, ChartType), ChartData>> BuildChartsForRecords(
             List<ResponseRecord> records,
             string stationName)
         {
-            var result = new Dictionary<(MessageType, ChartType), ChartData>();
+            var result       = new Dictionary<(MessageType, ChartType), ChartData>();
             var messageTypes = GetAllSupportedMessageTypes();
 
             var preparedInputs = await Task.Run(() =>
@@ -253,6 +488,8 @@ namespace RTAnalyzer
                     if (data != null)
                         result[(messageType, chartType)] = data;
                 }
+
+                await Task.Yield();
             }
 
             return result;
@@ -260,7 +497,8 @@ namespace RTAnalyzer
 
         private async Task SwitchToStation(StationInfo station)
         {
-            _activeStation = station;
+            _activeStation       = station;
+            _isOverlayMinimized  = false;
 
             UpdateActiveStationButton();
 
@@ -316,25 +554,25 @@ namespace RTAnalyzer
             if (_allRecords.Count == 0) return;
 
             DateTime earliest = DateTime.MaxValue;
-            DateTime latest = DateTime.MinValue;
+            DateTime latest   = DateTime.MinValue;
 
             foreach (var r in _allRecords)
             {
                 if (r.TimestampParsed == DateTime.MinValue) continue;
                 if (r.TimestampParsed < earliest) earliest = r.TimestampParsed;
-                if (r.TimestampParsed > latest) latest = r.TimestampParsed;
+                if (r.TimestampParsed > latest)   latest   = r.TimestampParsed;
             }
 
             if (earliest == DateTime.MaxValue) return;
 
             DatePickerFrom.DisplayDateStart = earliest.Date;
-            DatePickerFrom.DisplayDateEnd = latest.Date;
-            DatePickerTo.DisplayDateStart = earliest.Date;
-            DatePickerTo.DisplayDateEnd = latest.Date;
-            DatePickerFrom.SelectedDate = earliest.Date;
-            DatePickerTo.SelectedDate = latest.Date;
-            DatePickerFrom.DisplayDate = earliest.Date;
-            DatePickerTo.DisplayDate = latest.Date;
+            DatePickerFrom.DisplayDateEnd   = latest.Date;
+            DatePickerTo.DisplayDateStart   = earliest.Date;
+            DatePickerTo.DisplayDateEnd     = latest.Date;
+            DatePickerFrom.SelectedDate     = earliest.Date;
+            DatePickerTo.SelectedDate       = latest.Date;
+            DatePickerFrom.DisplayDate      = earliest.Date;
+            DatePickerTo.DisplayDate        = latest.Date;
         }
 
         #endregion
@@ -343,9 +581,9 @@ namespace RTAnalyzer
 
         private async void BtnSelectFolder_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new System.Windows.Forms.FolderBrowserDialog();
-            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-            await LoadAllStationsFromRoot(dialog.SelectedPath);
+            var startup = new StartupWindow();
+            if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
+            await LoadAllStationsFromRoot(startup.SelectedPath);
         }
 
         private async void BtnResetFilter_Click(object sender, RoutedEventArgs e)
@@ -374,7 +612,7 @@ namespace RTAnalyzer
             if (_tabsUserHasAlreadySeen.Contains(type.Value)) return;
 
             _tabsUserHasAlreadySeen.Add(type.Value);
-            var chart = _trendChartByMessageType[type.Value];
+            var chart    = _trendChartByMessageType[type.Value];
             var clipRect = new System.Windows.Media.RectangleGeometry();
             TrendChartRenderer.PlayRevealAnimation(chart, clipRect, 2000);
         }
@@ -385,13 +623,8 @@ namespace RTAnalyzer
             {
                 string tag = item.Tag.ToString();
                 foreach (TabItem t in MainTabControl.Items)
-                    if (t.Tag?.ToString() == tag)
-                    {
-                        MainTabControl.SelectedItem = t;
-                        break;
-                    }
+                    if (t.Tag?.ToString() == tag) { MainTabControl.SelectedItem = t; break; }
             }
-
             RefreshChartsWithoutLoadingOverlay();
         }
 
@@ -407,8 +640,7 @@ namespace RTAnalyzer
                 return;
             }
 
-            _dayRecordsPanelBuilder.ShowLoadingSpinner(state.panel, DateTime.Today, records.Count,
-                showingAllRecords: true);
+            _dayRecordsPanelBuilder.ShowLoadingSpinner(state.panel, DateTime.Today, records.Count, showingAllRecords: true);
 
             if (!state.open)
             {
@@ -417,8 +649,7 @@ namespace RTAnalyzer
                 await Task.Delay(480);
             }
 
-            _dayRecordsPanelBuilder.PopulateWithDayRecords(state.panel, DateTime.Today, records,
-                showingAllRecords: true);
+            _dayRecordsPanelBuilder.PopulateWithDayRecords(state.panel, DateTime.Today, records, showingAllRecords: true);
         }
 
         #endregion
@@ -427,23 +658,23 @@ namespace RTAnalyzer
 
         private void ClearAllFilters()
         {
-            TxtFilterUid.Text = "";
-            TxtFilterUidIn.Text = "";
-            TxtFilterUidOut.Text = "";
-            TxtFilterMaterial.Text = "";
+            TxtFilterUid.Text       = "";
+            TxtFilterUidIn.Text     = "";
+            TxtFilterUidOut.Text    = "";
+            TxtFilterMaterial.Text  = "";
             TxtFilterCarrierId.Text = "";
-            TxtTimeFrom.Text = "00:00";
-            TxtTimeTo.Text = "23:59";
-            CmbFilterResult.SelectedIndex = 0;
+            TxtTimeFrom.Text        = "00:00";
+            TxtTimeTo.Text          = "23:59";
+            CmbFilterResult.SelectedIndex      = 0;
             CmbFilterMessageType.SelectedIndex = 0;
         }
 
         private bool AnyNonDateFilterIsActive()
         {
-            if (!string.IsNullOrWhiteSpace(TxtFilterUid.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterUidIn.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterUidOut.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterMaterial.Text)) return true;
+            if (!string.IsNullOrWhiteSpace(TxtFilterUid.Text))       return true;
+            if (!string.IsNullOrWhiteSpace(TxtFilterUidIn.Text))     return true;
+            if (!string.IsNullOrWhiteSpace(TxtFilterUidOut.Text))    return true;
+            if (!string.IsNullOrWhiteSpace(TxtFilterMaterial.Text))  return true;
             if (!string.IsNullOrWhiteSpace(TxtFilterCarrierId.Text)) return true;
             var result = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
             return !string.IsNullOrEmpty(result) && result != "All";
@@ -502,16 +733,16 @@ namespace RTAnalyzer
         private async Task ApplyActiveFiltersToAllRecords()
         {
             TimeSpan.TryParse(TxtTimeFrom.Text, out TimeSpan ts1);
-            TimeSpan.TryParse(TxtTimeTo.Text, out TimeSpan ts2);
+            TimeSpan.TryParse(TxtTimeTo.Text,   out TimeSpan ts2);
             DateTime start = (DatePickerFrom.SelectedDate ?? DateTime.MinValue).Add(ts1);
-            DateTime end = (DatePickerTo.SelectedDate ?? DateTime.MaxValue).Add(ts2);
+            DateTime end   = (DatePickerTo.SelectedDate   ?? DateTime.MaxValue).Add(ts2);
 
-            string filterUid = TxtFilterUid.Text.Trim();
-            string filterUidIn = TxtFilterUidIn.Text.Trim();
-            string filterUidOut = TxtFilterUidOut.Text.Trim();
-            string filterMaterial = TxtFilterMaterial.Text.Trim();
+            string filterUid       = TxtFilterUid.Text.Trim();
+            string filterUidIn     = TxtFilterUidIn.Text.Trim();
+            string filterUidOut    = TxtFilterUidOut.Text.Trim();
+            string filterMaterial  = TxtFilterMaterial.Text.Trim();
             string filterCarrierId = TxtFilterCarrierId.Text.Trim();
-            string filterResult = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
+            string filterResult    = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
             if (filterResult == "All") filterResult = null;
 
             await Task.Run(() =>
@@ -521,16 +752,12 @@ namespace RTAnalyzer
                 {
                     if (r.TimestampParsed == DateTime.MinValue) continue;
                     if (r.TimestampParsed < start || r.TimestampParsed > end) continue;
-                    if (!string.IsNullOrEmpty(filterUid) && (r.Uid == null || !r.Uid.Contains(filterUid))) continue;
-                    if (!string.IsNullOrEmpty(filterUidIn) &&
-                        (r.UidIn == null || !r.UidIn.Contains(filterUidIn))) continue;
-                    if (!string.IsNullOrEmpty(filterUidOut) &&
-                        (r.UidOut == null || !r.UidOut.Contains(filterUidOut))) continue;
-                    if (!string.IsNullOrEmpty(filterMaterial) &&
-                        (r.Material == null || !r.Material.Contains(filterMaterial))) continue;
-                    if (!string.IsNullOrEmpty(filterCarrierId) &&
-                        (r.CarrierId == null || !r.CarrierId.Contains(filterCarrierId))) continue;
-                    if (!string.IsNullOrEmpty(filterResult) && r.Result != filterResult) continue;
+                    if (!string.IsNullOrEmpty(filterUid)       && (r.Uid       == null || !r.Uid.Contains(filterUid)))             continue;
+                    if (!string.IsNullOrEmpty(filterUidIn)     && (r.UidIn     == null || !r.UidIn.Contains(filterUidIn)))         continue;
+                    if (!string.IsNullOrEmpty(filterUidOut)    && (r.UidOut    == null || !r.UidOut.Contains(filterUidOut)))       continue;
+                    if (!string.IsNullOrEmpty(filterMaterial)  && (r.Material  == null || !r.Material.Contains(filterMaterial)))   continue;
+                    if (!string.IsNullOrEmpty(filterCarrierId) && (r.CarrierId == null || !r.CarrierId.Contains(filterCarrierId))) continue;
+                    if (!string.IsNullOrEmpty(filterResult)    && r.Result != filterResult) continue;
                     _filteredRecords.Add(r);
                 }
 
@@ -552,19 +779,33 @@ namespace RTAnalyzer
         private async Task BuildAllChartDataFromFilteredRecords()
         {
             var messageTypes = GetAllSupportedMessageTypes();
-            int totalSteps = messageTypes.Length * 3;
-            int doneCount = 0;
+            int totalSteps   = messageTypes.Length * 3;
+            int doneCount    = 0;
 
-            string station = TxtStationName.Text;
+            string station        = TxtStationName.Text;
+            bool   hasPrebuilt    = _chartCache.Count > 0;
 
-            ShowLoadingOverlay(station, "Clearing chart cache...", 13,
-                detail: "Invalidating " + _chartCache.Count + " cached charts from previous state");
+            ShowLoadingOverlay(station,
+                hasPrebuilt ? "Using pre-built charts from cache..." : "Clearing chart cache...",
+                13,
+                detail: hasPrebuilt
+                    ? _chartCache.Count + " charts loaded from station cache"
+                    : "Invalidating " + _chartCache.Count + " cached charts from previous state");
+
             await Task.Yield();
+
+            if (hasPrebuilt)
+            {
+                ShowLoadingOverlay(station, "Using pre-built charts from cache...", 80,
+                    detail: _chartCache.Count + " charts ready");
+                await Task.Yield();
+                return;
+            }
+
             _chartCache.Clear();
 
             ShowLoadingOverlay(station, "Preparing data for all message types...", 15,
                 detail: string.Join("  ·  ", messageTypes.Select(t => t.ToString().Replace("_", " "))));
-            await Task.Delay(400);
 
             var preparedInputs = await Task.Run(() =>
                 _chartFactory.PrepareAllInputs(_filteredRecords, messageTypes));
@@ -573,8 +814,7 @@ namespace RTAnalyzer
 
             var typeLines = preparedInputs
                 .OrderByDescending(kv => kv.Value.Records.Count)
-                .Select(kv =>
-                    kv.Key.ToString().Replace("_", " ") + ":  " + kv.Value.Records.Count.ToString("N0") + " records");
+                .Select(kv => kv.Key.ToString().Replace("_", " ") + ":  " + kv.Value.Records.Count.ToString("N0") + " records");
 
             string typeDetail = string.Join(Environment.NewLine, typeLines);
 
@@ -582,7 +822,6 @@ namespace RTAnalyzer
                 nonEmpty + " message types ready  —  " + _filteredRecords.Count.ToString("N0") + " records total",
                 20,
                 detail: typeDetail);
-            await Task.Delay(900);
 
             foreach (var messageType in messageTypes)
             {
@@ -594,14 +833,12 @@ namespace RTAnalyzer
                 foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
                 {
                     int pct = 20 + (doneCount * 60 / totalSteps);
-                    ShowLoadingOverlay(
-                        station,
+                    ShowLoadingOverlay(station,
                         "Building  " + typeName + "  —  " + chartType,
                         pct,
                         detail: "Chart " + (doneCount + 1) + " / " + totalSteps
-                                + "   ·   " + input.Records.Count.ToString("N0") + " records"
-                                + "   ·   " + typeName);
-                    await Task.Delay(160);
+                            + "   ·   " + input.Records.Count.ToString("N0") + " records"
+                            + "   ·   " + typeName);
 
                     var data = _chartFactory.BuildSingle(chartType, input);
                     if (data != null)
@@ -609,19 +846,20 @@ namespace RTAnalyzer
 
                     doneCount++;
                 }
+
+                await Task.Yield();
             }
 
             ShowLoadingOverlay(station,
                 "Chart cache built  —  " + doneCount + " charts ready",
                 80,
                 detail: "Cached:  " + _chartCache.Count + " charts  ·  " + nonEmpty + " message types");
-            await Task.Delay(300);
         }
 
         private async Task RenderAllCachedChartsToUI()
         {
             string station = TxtStationName.Text;
-            var types = GetAllSupportedMessageTypes();
+            var types      = GetAllSupportedMessageTypes();
 
             ShowLoadingOverlay(station, "Rendering charts to UI...", 82,
                 detail: "Writing " + _chartCache.Count + " charts into " + types.Length + " tabs");
@@ -642,6 +880,9 @@ namespace RTAnalyzer
                 detail: "Setting first available day for each tab");
             foreach (var mt in types)
                 _trendChartRenderer.InitializeTimelineWithFirstAvailableDay(mt);
+
+            Dispatcher.BeginInvoke(new Action(UpdateTabEmptyState),
+                System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private async Task CycleThroughAllTabsToTriggerWpfLayoutRendering()
@@ -651,12 +892,7 @@ namespace RTAnalyzer
             foreach (var messageType in GetAllSupportedMessageTypes())
             {
                 foreach (TabItem tab in MainTabControl.Items)
-                    if (tab.Tag?.ToString() == messageType.ToString())
-                    {
-                        MainTabControl.SelectedItem = tab;
-                        break;
-                    }
-
+                    if (tab.Tag?.ToString() == messageType.ToString()) { MainTabControl.SelectedItem = tab; break; }
                 await Task.Delay(80);
             }
 
@@ -684,10 +920,9 @@ namespace RTAnalyzer
                 targetPanel.Children.Clear();
 
                 double availableHeight = ActualHeight - 160;
-                var context = new RenderContext
-                    { AvailableHeightPixels = (int)availableHeight, MessageType = messageType };
+                var context = new RenderContext { AvailableHeightPixels = (int)availableHeight, MessageType = messageType };
 
-                _chartCache.TryGetValue((messageType, ChartType.Trend), out ChartData trendData);
+                _chartCache.TryGetValue((messageType, ChartType.Trend),     out ChartData trendData);
                 _chartCache.TryGetValue((messageType, ChartType.Histogram), out ChartData histogramData);
 
                 if (trendData?.TrendChart != null)
@@ -707,13 +942,13 @@ namespace RTAnalyzer
         {
             switch (type)
             {
-                case MessageType.UNIT_INFO: return PanelUnitInfo;
-                case MessageType.NEXT_OPERATION: return PanelNextOperation;
-                case MessageType.UNIT_CHECKIN: return PanelUnitCheckin;
-                case MessageType.UNIT_RESULT: return PanelUnitResult;
-                case MessageType.LOAD_MATERIAL: return PanelLoadMaterial;
-                case MessageType.REQ_MATERIAL_INFO: return PanelReqMaterialInfo;
-                case MessageType.REQ_SETUP_CHANGE2: return PanelReqSetupChange2;
+                case MessageType.UNIT_INFO:          return PanelUnitInfo;
+                case MessageType.NEXT_OPERATION:     return PanelNextOperation;
+                case MessageType.UNIT_CHECKIN:       return PanelUnitCheckin;
+                case MessageType.UNIT_RESULT:        return PanelUnitResult;
+                case MessageType.LOAD_MATERIAL:      return PanelLoadMaterial;
+                case MessageType.REQ_MATERIAL_INFO:  return PanelReqMaterialInfo;
+                case MessageType.REQ_SETUP_CHANGE2:  return PanelReqSetupChange2;
                 default: return null;
             }
         }
@@ -726,31 +961,27 @@ namespace RTAnalyzer
         {
             if (!(MainTabControl.SelectedItem is TabItem selected) || selected.Tag == null) return;
 
-            MessageType type = (MessageType)Enum.Parse(typeof(MessageType), selected.Tag.ToString());
+            MessageType type  = (MessageType)Enum.Parse(typeof(MessageType), selected.Tag.ToString());
             StatsResult stats = _statsCalculator.Calculate(_filteredRecords, type);
 
-            if (stats == null)
-            {
-                ClearSidebarStats();
-                return;
-            }
+            if (stats == null) { ClearSidebarStats(); return; }
 
-            TxtTabRecords.Text = "Message Records: " + stats.Count;
-            TxtTabAvg.Text = Math.Round(stats.Average, 1) + " ms";
-            TxtTabP95.Text = stats.P95 + " ms";
-            TxtTabMin.Text = "Min Time: " + stats.Min + " ms";
-            TxtTabMax.Text = "Max Time: " + stats.Max + " ms";
+            TxtTabRecords.Text   = "Message Records: " + stats.Count;
+            TxtTabAvg.Text       = Math.Round(stats.Average, 1) + " ms";
+            TxtTabP95.Text       = stats.P95 + " ms";
+            TxtTabMin.Text       = "Min Time: " + stats.Min + " ms";
+            TxtTabMax.Text       = "Max Time: " + stats.Max + " ms";
             TxtTabStability.Text = stats.StabilityLabel + " (" + Math.Round(stats.CV, 1) + "%)";
             TxtTabStability.Foreground = new SolidColorBrush(stats.StabilityColor);
         }
 
         private void ClearSidebarStats()
         {
-            TxtTabRecords.Text = "Records: 0";
-            TxtTabAvg.Text = "0 ms";
-            TxtTabP95.Text = "0 ms";
-            TxtTabMin.Text = "Min: 0 ms";
-            TxtTabMax.Text = "Max: 0 ms";
+            TxtTabRecords.Text   = "Records: 0";
+            TxtTabAvg.Text       = "0 ms";
+            TxtTabP95.Text       = "0 ms";
+            TxtTabMin.Text       = "Min: 0 ms";
+            TxtTabMax.Text       = "Max: 0 ms";
             TxtTabStability.Text = "N/A";
             TxtTabStability.Foreground = Brushes.Gray;
         }
@@ -758,6 +989,7 @@ namespace RTAnalyzer
         private void UpdateTabHighlightsForActiveFilter()
         {
             bool anyActive = AnyNonDateFilterIsActive();
+
             foreach (TabItem tab in MainTabControl.Items)
             {
                 if (tab.Tag == null) continue;
@@ -765,20 +997,67 @@ namespace RTAnalyzer
                 if (type == null) continue;
                 bool highlight = anyActive && _filteredRecords.Any(r => r.Type == type.Value);
                 tab.FontWeight = highlight ? FontWeights.Bold : FontWeights.Normal;
-                tab.FontSize = highlight ? 13 : 11;
+                tab.FontSize   = highlight ? 13               : 11;
             }
+
+            UpdateTabEmptyState();
+        }
+
+        private void UpdateTabEmptyState()
+        {
+            var tabs = MainTabControl.Items.OfType<TabItem>()
+                .Where(t => t.Tag != null && TryParseMessageType(t.Tag.ToString()) != null)
+                .ToList();
+
+            var withData    = tabs.Where(t => HasRecordsForTab(t)).ToList();
+            var withoutData = tabs.Where(t => !HasRecordsForTab(t)).ToList();
+
+            foreach (var tab in withData)
+            {
+                tab.Opacity    = 1.0;
+                tab.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+                tab.FontSize   = tab.FontSize > 0 ? tab.FontSize : 11;
+                if (MainTabControl.Items.IndexOf(tab) > withData.Count - 1)
+                    MoveTabTo(tab, withData.Count - 1);
+            }
+
+            foreach (var tab in withoutData)
+            {
+                tab.Opacity    = 0.38;
+                tab.Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129));
+                tab.FontSize   = 10;
+            }
+
+            // Move empty tabs to end
+            int targetIndex = withData.Count;
+            foreach (var tab in withoutData)
+            {
+                int current = MainTabControl.Items.IndexOf(tab);
+                if (current < targetIndex)
+                    MoveTabTo(tab, Math.Min(targetIndex, MainTabControl.Items.Count - 1));
+                targetIndex++;
+            }
+        }
+
+        private bool HasRecordsForTab(TabItem tab)
+        {
+            var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
+            if (type == null) return false;
+            return _allRecords.Any(r => r.Type == type.Value);
+        }
+
+        private void MoveTabTo(TabItem tab, int index)
+        {
+            int current = MainTabControl.Items.IndexOf(tab);
+            if (current < 0 || current == index) return;
+            MainTabControl.Items.RemoveAt(current);
+            MainTabControl.Items.Insert(Math.Min(index, MainTabControl.Items.Count), tab);
         }
 
         private MessageType? TryParseMessageType(string tag)
         {
-            try
-            {
-                return (MessageType)Enum.Parse(typeof(MessageType), tag);
-            }
-            catch
-            {
-                return null;
-            }
+            try   { return (MessageType)Enum.Parse(typeof(MessageType), tag); }
+            catch { return null; }
         }
 
         #endregion
@@ -796,17 +1075,17 @@ namespace RTAnalyzer
             // Dropdown button
             var dropdown = new Button
             {
-                Content = "▾  Stations",
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Color.FromRgb(100, 190, 130)),
-                Background = new SolidColorBrush(Color.FromRgb(8, 32, 18)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 80, 44)),
+                Content         = "▾  Stations",
+                FontSize        = 11,
+                FontWeight      = FontWeights.SemiBold,
+                Foreground      = new SolidColorBrush(Color.FromRgb(100, 190, 130)),
+                Background      = new SolidColorBrush(Color.FromRgb(8, 32, 18)),
+                BorderBrush     = new SolidColorBrush(Color.FromRgb(22, 80, 44)),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(12, 0, 12, 0),
-                Height = 44,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Margin = new Thickness(0, 0, 4, 0)
+                Padding         = new Thickness(12, 0, 12, 0),
+                Height          = 44,
+                Cursor          = System.Windows.Input.Cursors.Hand,
+                Margin          = new Thickness(0, 0, 4, 0)
             };
 
             var contextMenu = new ContextMenu { Background = new SolidColorBrush(Color.FromRgb(13, 30, 18)) };
@@ -816,8 +1095,8 @@ namespace RTAnalyzer
                 var captured = st;
                 var item = new MenuItem
                 {
-                    Header = st.StationName + (!string.IsNullOrEmpty(st.LineName) ? "  ·  " + st.LineName : ""),
-                    FontSize = 11,
+                    Header     = st.StationName + (!string.IsNullOrEmpty(st.LineName) ? "  ·  " + st.LineName : ""),
+                    FontSize   = 11,
                     Foreground = new SolidColorBrush(Color.FromRgb(180, 230, 195)),
                     Background = new SolidColorBrush(Color.FromRgb(13, 30, 18))
                 };
@@ -852,11 +1131,9 @@ namespace RTAnalyzer
             // Show from _stationScrollOffset, fitting as many as possible
             int visibleCount = Math.Min(8, _loadedStations.Count - _stationScrollOffset);
 
-            for (int i = _stationScrollOffset;
-                 i < _stationScrollOffset + visibleCount && i < _loadedStations.Count;
-                 i++)
+            for (int i = _stationScrollOffset; i < _stationScrollOffset + visibleCount && i < _loadedStations.Count; i++)
             {
-                var station = _loadedStations[i];
+                var station  = _loadedStations[i];
                 bool isFirst = i == _stationScrollOffset;
 
                 StationBarPanel.Children.Add(BuildChevron(station, isFirst));
@@ -879,17 +1156,17 @@ namespace RTAnalyzer
         {
             var btn = new Button
             {
-                Content = label,
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(100, 190, 130)),
-                Background = new SolidColorBrush(Color.FromRgb(8, 32, 18)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 80, 44)),
+                Content         = label,
+                FontSize        = 12,
+                Foreground      = new SolidColorBrush(Color.FromRgb(100, 190, 130)),
+                Background      = new SolidColorBrush(Color.FromRgb(8, 32, 18)),
+                BorderBrush     = new SolidColorBrush(Color.FromRgb(22, 80, 44)),
                 BorderThickness = new Thickness(1),
-                Width = 28,
-                Height = 44,
-                Padding = new Thickness(0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Margin = new Thickness(2, 0, 2, 0)
+                Width           = 28,
+                Height          = 44,
+                Padding         = new Thickness(0),
+                Cursor          = System.Windows.Input.Cursors.Hand,
+                Margin          = new Thickness(2, 0, 2, 0)
             };
 
             btn.Click += (s, e) => onClick();
@@ -901,29 +1178,24 @@ namespace RTAnalyzer
         {
             bool isActive = _activeStation?.FolderPath == station.FolderPath;
 
-            const double h = 44;
+            const double h   = 44;
             const double tip = 12;
 
             // Active = orange (7-day avg line colour), inactive = light green
-            var fillColor = isActive ? Color.FromRgb(140, 80, 10) : Color.FromRgb(22, 110, 55);
-            var hoverColor = isActive ? Color.FromRgb(170, 100, 15) : Color.FromRgb(30, 140, 70);
-            var strokeColor = isActive ? Color.FromRgb(220, 140, 40) : Color.FromRgb(56, 190, 100);
-            var nameColor = isActive ? Color.FromRgb(255, 220, 160) : Color.FromRgb(210, 245, 220);
-            var subColor = isActive ? Color.FromRgb(220, 170, 100) : Color.FromRgb(130, 210, 155);
+            var fillColor   = isActive ? Color.FromRgb(140, 80, 10)   : Color.FromRgb(22, 110, 55);
+            var hoverColor  = isActive ? Color.FromRgb(170, 100, 15)  : Color.FromRgb(30, 140, 70);
+            var strokeColor = isActive ? Color.FromRgb(220, 140, 40)  : Color.FromRgb(56, 190, 100);
+            var nameColor   = isActive ? Color.FromRgb(255, 220, 160) : Color.FromRgb(210, 245, 220);
+            var subColor    = isActive ? Color.FromRgb(220, 170, 100) : Color.FromRgb(130, 210, 155);
 
-            bool hasSub = !string.IsNullOrEmpty(station.LineName) || !string.IsNullOrEmpty(station.ComputerName);
+            // Use LineName + ComputerName, fallback to ComputerName alone
+            string subText = string.Join("  ·  ", new[] { station.LineName, station.ComputerName }
+                .Where(x => !string.IsNullOrEmpty(x)));
 
-            string subText = hasSub
-                ? string.Join("  ·  ", new[] { station.LineName, station.ComputerName }
-                    .Where(x => !string.IsNullOrEmpty(x)))
-                : "";
+            bool hasSub = !string.IsNullOrEmpty(subText);
 
             // Measure text to size canvas
-            var measureBlock = new TextBlock
-            {
-                Text = station.StationName, FontSize = 11,
-                FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal
-            };
+            var measureBlock = new TextBlock { Text = station.StationName, FontSize = 11, FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal };
             measureBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             double nameW = measureBlock.DesiredSize.Width;
 
@@ -934,12 +1206,12 @@ namespace RTAnalyzer
                 nameW = Math.Max(nameW, subMeasure.DesiredSize.Width);
             }
 
-            double leftPad = isFirst ? 14 : 22;
-            double canvasW = nameW + leftPad + tip + 14;
+            double leftPad  = isFirst ? 14 : 22;
+            double canvasW  = nameW + leftPad + tip + 14;
 
             var canvas = new Canvas
             {
-                Width = canvasW,
+                Width  = canvasW,
                 Height = h,
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Margin = new Thickness(isFirst ? 0 : -1, 0, 0, 0)
@@ -947,69 +1219,101 @@ namespace RTAnalyzer
 
             var poly = new System.Windows.Shapes.Polygon
             {
-                Fill = new SolidColorBrush(fillColor),
-                Stroke = new SolidColorBrush(strokeColor),
+                Fill            = new SolidColorBrush(fillColor),
+                Stroke          = new SolidColorBrush(strokeColor),
                 StrokeThickness = 1
             };
 
             if (isFirst)
             {
-                poly.Points.Add(new Point(0, 0));
+                poly.Points.Add(new Point(0,           0));
                 poly.Points.Add(new Point(canvasW - tip, 0));
-                poly.Points.Add(new Point(canvasW, h / 2));
+                poly.Points.Add(new Point(canvasW,       h / 2));
                 poly.Points.Add(new Point(canvasW - tip, h));
-                poly.Points.Add(new Point(0, h));
+                poly.Points.Add(new Point(0,             h));
             }
             else
             {
-                poly.Points.Add(new Point(0, 0));
+                poly.Points.Add(new Point(0,             0));
                 poly.Points.Add(new Point(canvasW - tip, 0));
-                poly.Points.Add(new Point(canvasW, h / 2));
+                poly.Points.Add(new Point(canvasW,       h / 2));
                 poly.Points.Add(new Point(canvasW - tip, h));
-                poly.Points.Add(new Point(0, h));
-                poly.Points.Add(new Point(tip, h / 2));
+                poly.Points.Add(new Point(0,             h));
+                poly.Points.Add(new Point(tip,           h / 2));
             }
 
             canvas.Children.Add(poly);
 
             double topPad = hasSub ? (h - 24) / 2.0 : (h - 14) / 2.0;
 
+            bool isCurrentlyLoading = _stationLoadingState.ContainsKey(station.FolderPath) &&
+                                      _stationLoadingState[station.FolderPath];
+
             var nameBlock = new TextBlock
             {
-                Text = station.StationName,
-                FontSize = 11,
+                Text       = station.StationName,
+                FontSize   = 11,
                 FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = new SolidColorBrush(nameColor)
+                Foreground = new SolidColorBrush(isCurrentlyLoading
+                    ? Color.FromRgb(180, 140, 60)
+                    : nameColor)
             };
             Canvas.SetLeft(nameBlock, leftPad);
-            Canvas.SetTop(nameBlock, topPad);
+            Canvas.SetTop(nameBlock,  topPad);
             canvas.Children.Add(nameBlock);
+
+            if (isCurrentlyLoading)
+            {
+                var loadingTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(150)
+                };
+                string[] frames = { "  ↻", "  ↺" };
+                int frame = 0;
+                loadingTimer.Tick += (s, e) =>
+                {
+                    frame = (frame + 1) % frames.Length;
+                    nameBlock.Text = station.StationName + frames[frame];
+                    if (!_stationLoadingState.ContainsKey(station.FolderPath) ||
+                        !_stationLoadingState[station.FolderPath])
+                    {
+                        nameBlock.Text = station.StationName;
+                        nameBlock.Foreground = new SolidColorBrush(nameColor);
+                        loadingTimer.Stop();
+                    }
+                };
+                loadingTimer.Start();
+            }
 
             if (hasSub)
             {
                 var subBlock = new TextBlock
                 {
-                    Text = subText,
-                    FontSize = 9,
+                    Text       = subText,
+                    FontSize   = 9,
                     Foreground = new SolidColorBrush(subColor)
                 };
                 Canvas.SetLeft(subBlock, leftPad);
-                Canvas.SetTop(subBlock, topPad + 15);
+                Canvas.SetTop(subBlock,  topPad + 15);
                 canvas.Children.Add(subBlock);
             }
 
-            poly.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverColor);
-            poly.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fillColor);
+            poly.MouseEnter   += (s, e) => poly.Fill = new SolidColorBrush(hoverColor);
+            poly.MouseLeave   += (s, e) => poly.Fill = new SolidColorBrush(fillColor);
             canvas.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverColor);
             canvas.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fillColor);
 
             var captured = station;
-            canvas.MouseLeftButtonUp += async (s, e) =>
+
+            async void ClickHandler(object s, System.Windows.Input.MouseButtonEventArgs e)
             {
                 if (_activeStation?.FolderPath == captured.FolderPath) return;
-
                 await SwitchToStation(captured);
-            };
+            }
+
+            canvas.MouseLeftButtonUp   += ClickHandler;
+            poly.MouseLeftButtonUp     += ClickHandler;
+            nameBlock.MouseLeftButtonUp += ClickHandler;
 
             return canvas;
         }
@@ -1026,18 +1330,23 @@ namespace RTAnalyzer
         #region Loading Overlay
 
         private long _lastOverlayUpdateMs = 0;
+        private List<StationInfo> _pendingOptionalStations = new List<StationInfo>();
+        private bool _isOverlayMinimized = false;
+        private bool _isBackgroundLoading = false;
+        private readonly System.Collections.ObjectModel.ObservableCollection<LoadingStationLogEntry> _stationLogEntries
+            = new System.Collections.ObjectModel.ObservableCollection<LoadingStationLogEntry>();
 
         private void ShowLoadingOverlay(string title, string status, int progress,
             string detail = null, int? fileCount = null, int? recordCount = null, int? typeCount = null)
         {
             if (LoadingOverlay == null) return;
 
-            long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            long nowMs   = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             bool isThrottled = (nowMs - _lastOverlayUpdateMs) < 200;
 
             // Always update progress and title
-            LoadingTitle.Text = title;
-            LoadingProgress.Value = progress;
+            LoadingTitle.Text      = title;
+            LoadingProgress.Value  = progress;
             LoadingPercentage.Text = progress + "%";
 
             // Throttle status/detail to avoid fast flickering
@@ -1060,7 +1369,8 @@ namespace RTAnalyzer
                     LoadingTypeCount.Text = typeCount.Value.ToString();
             }
 
-            LoadingOverlay.Visibility = Visibility.Visible;
+            if (!_isOverlayMinimized)
+                LoadingOverlay.Visibility = Visibility.Visible;
         }
 
         private void HideLoadingOverlay()

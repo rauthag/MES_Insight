@@ -1,12 +1,13 @@
 using System.Collections.Generic;
-using RTAnalyzer.Core;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using LiveCharts;
 using LiveCharts.Wpf;
+using MESInsight.Charts.Interfaces;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts.Renderers
+namespace MESInsight.Charts.Renderers
 {
     public abstract class ChartRenderer : IChartRenderer
     {

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Windows.Media;
 using LiveCharts;
 
-namespace RTAnalyzer.Core
+namespace MESInsight.Core
 {
     
     public class ResponseRecord

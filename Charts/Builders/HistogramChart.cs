@@ -1,14 +1,14 @@
-using RTAnalyzer.Core;
-using LiveCharts;
-using LiveCharts.Configurations;
-using LiveCharts.Defaults;
-using LiveCharts.Wpf;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Media;
+using LiveCharts;
+using LiveCharts.Configurations;
+using LiveCharts.Wpf;
+using MESInsight.Charts.Interfaces;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts.Builders
+namespace MESInsight.Charts.Builders
 {
     public class HistogramChart : IChartDataBuilder
     {

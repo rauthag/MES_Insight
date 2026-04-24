@@ -1,8 +1,8 @@
-﻿using RTAnalyzer.Core;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using MESInsight.Core;
 
-namespace RTAnalyzer.Charts
+namespace MESInsight.Charts
 {
     public class ChartInputData
     {

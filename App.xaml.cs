@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows;
 
-namespace RTAnalyzer
+namespace MESInsight
 {
     public partial class App : Application
     {

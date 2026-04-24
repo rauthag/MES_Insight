@@ -1,7 +1,3 @@
-using RTAnalyzer.Charts.Builders;
-using RTAnalyzer.Charts.Renderers;
-using RTAnalyzer.Core;
-using RTAnalyzer.UI;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -10,8 +6,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using LiveCharts.Wpf;
+using MESInsight.Charts.Builders;
+using MESInsight.Charts.Interfaces;
+using MESInsight.Charts.Renderers;
+using MESInsight.Core;
+using MESInsight.UI;
 
-namespace RTAnalyzer.Charts
+namespace MESInsight.Charts
 {
     public class ChartFactory
     {

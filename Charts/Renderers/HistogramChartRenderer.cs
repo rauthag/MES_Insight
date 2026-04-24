@@ -1,6 +1,3 @@
-using RTAnalyzer.Core;
-using RTAnalyzer.Charts;
-using RTAnalyzer.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,8 +6,10 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using LiveCharts;
 using LiveCharts.Wpf;
+using MESInsight.Core;
+using MESInsight.UI;
 
-namespace RTAnalyzer.Charts.Renderers
+namespace MESInsight.Charts.Renderers
 {
     public class HistogramChartRenderer : ChartRenderer
     {

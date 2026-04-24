@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace RTAnalyzer.Core
+namespace MESInsight.Core
 {
     public static class DateTimeHelper
     {
