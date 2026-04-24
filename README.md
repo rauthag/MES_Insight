@@ -14,8 +14,8 @@ A desktop tool for analyzing and visualizing response times of MES (Manufacturin
 
 ### Pre-analysis Configuration
 <p align="left">
-  <img src="https://github.com/user-attachments/assets/7c0a684b-092f-4f81-9b7e-9086f6d5f75e" width="420" /> 
-  <img src="https://github.com/user-attachments/assets/28c76b17-a785-4d8d-89ff-f0698b832954" width="420" />
+  <img src="https://github.com/user-attachments/assets/7c0a684b-092f-4f81-9b7e-9086f6d5f75e" width="850" /> 
+  <img src="https://github.com/user-attachments/assets/28c76b17-a785-4d8d-89ff-f0698b832954" width="850" />
 </p>
 
 *Filter stations and message types before loading data to ensure precision and speed.*
@@ -24,7 +24,7 @@ A desktop tool for analyzing and visualizing response times of MES (Manufacturin
 
 ### Data Management & Long Tail Detail
 <p align="left">
-  <img src="https://github.com/user-attachments/assets/410322dc-53bf-469e-8e4e-3386b82dd978" width="420" />
+  <img src="https://github.com/user-attachments/assets/410322dc-53bf-469e-8e4e-3386b82dd978" width="850" />
 </p>
 
 *Left: Remote connection management. Right: Detailed outlier visualization.*
