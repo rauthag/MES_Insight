@@ -7,13 +7,13 @@ using System.Windows;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("RTAnalyzer")]
+[assembly: AssemblyTitle("MES Insight")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("Vitesco Technologies")]
-[assembly: AssemblyProduct("RTAnalyzer")]
-[assembly: AssemblyCopyright("Copyright © Vitesco Technologies 2026")]
-[assembly: AssemblyTrademark("")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyProduct("MES Insight")]
+[assembly: AssemblyCopyright("")]
+[assembly: AssemblyTrademark("Developed by Lukas Paucin --- github.com/rauthag")]
 [assembly: AssemblyCulture("")]
 
 // Setting ComVisible to false makes the types in this assembly not visible

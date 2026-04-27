@@ -1,10 +1,14 @@
 ﻿using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
+using MESInsight.Core;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using RTAnalyzer.Core;
 
 namespace MESInsight
 {
@@ -143,7 +147,7 @@ namespace MESInsight
             AddHex(canvas, W, H, r, "🌐", "REMOTE BACKUP LOGS", "MES Backup disc access needed", 1 * stepX, 0, false);
             AddHex(canvas, W, H, r, "🧪", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
                 2 * stepX, 0, !sampleOk);
-            AddHex(canvas, W, H, r, "↻", "RECENT FOLDER", "Last used location", rowOffset + 0 * stepX, stepY, false);
+            AddHex(canvas, W, H, r, "↻", "RECENT DATA", "Last 10 loaded stations", rowOffset + 0 * stepX, stepY, false);
             AddHex(canvas, W, H, r, "✕", "EXIT", "Close application", rowOffset + 1 * stepX, stepY, false,
                 isExit: true);
 
@@ -322,22 +326,8 @@ namespace MESInsight
                     DialogResult = true;
                     break;
 
-                case "RECENT FOLDER":
-                    string recent = LoadRecentPath();
-                    if (!string.IsNullOrEmpty(recent) && Directory.Exists(recent))
-                    {
-                        SelectedPath = recent;
-                        Mode = StartupMode.Local;
-                        DialogResult = true;
-                    }
-                    else
-                    {
-                        MessageBox.Show(
-                            "No recent folder saved yet.\nLoad a folder first and it will appear here.",
-                            "Recent Folder",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Information);
-                    }
+                case "RECENT DATA":
+                    ShowRecentMenu();
                     break;
             }
         }
@@ -486,72 +476,241 @@ namespace MESInsight
             {
                 string dir = System.IO.Path.GetDirectoryName(RecentPathFile) ?? "";
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(RecentPathFile, path);
+
+                var paths = LoadRecentPaths();
+                paths.Remove(path);
+                paths.Insert(0, path);
+                if (paths.Count > 10) paths = paths.Take(10).ToList();
+
+                File.WriteAllLines(RecentPathFile, paths);
             }
-            catch { }
+            catch
+            {
+            }
         }
 
-        private static string LoadRecentPath()
+        private static List<string> LoadRecentPaths()
         {
-            try { return File.Exists(RecentPathFile) ? File.ReadAllText(RecentPathFile).Trim() : ""; }
-            catch { return ""; }
+            try
+            {
+                if (!File.Exists(RecentPathFile)) return new List<string>();
+                return File.ReadAllLines(RecentPathFile)
+                    .Where(l => !string.IsNullOrWhiteSpace(l))
+                    .Distinct()
+                    .ToList();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        private void ShowRecentMenu()
+        {
+            var paths = LoadRecentPaths();
+
+            if (paths.Count == 0)
+            {
+                MessageBox.Show(
+                    "No recent data found." + Environment.NewLine +
+                    "Load a folder first and it will appear here.",
+                    "Recent Data",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var dlg = new RecentDataDialog(paths);
+            dlg.Owner = this;
+
+            if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.SelectedPath))
+            {
+                SelectedPath = dlg.SelectedPath;
+                Mode = StartupMode.Local;
+                DialogResult = true;
+            }
         }
     }
 
-    public enum StartupMode { Local, Remote, Sample }
+    public class RecentDataDialog : Window
+    {
+        public string SelectedPath { get; private set; }
+
+        public RecentDataDialog(List<string> paths)
+        {
+            Title = "Recent Data";
+            Width = 560;
+            SizeToContent = SizeToContent.Height;
+            ResizeMode = ResizeMode.NoResize;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(8, 14, 10));
+
+            var root = new System.Windows.Controls.StackPanel { Margin = new System.Windows.Thickness(20, 16, 20, 16) };
+
+            root.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "Recent Data",
+                FontSize = 13,
+                FontWeight = System.Windows.FontWeights.SemiBold,
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(210, 245, 220)),
+                Margin = new System.Windows.Thickness(0, 0, 0, 12)
+            });
+
+            foreach (string path in paths)
+            {
+                var captured = path;
+
+                var row = new System.Windows.Controls.Border
+                {
+                    Background = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(12, 26, 16)),
+                    BorderBrush = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(26, 70, 38)),
+                    BorderThickness = new System.Windows.Thickness(1),
+                    CornerRadius = new System.Windows.CornerRadius(5),
+                    Padding = new System.Windows.Thickness(12, 8, 12, 8),
+                    Margin = new System.Windows.Thickness(0, 0, 0, 5),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+
+                bool exists = Directory.Exists(path);
+
+                var stack = new System.Windows.Controls.StackPanel();
+                stack.Children.Add(new System.Windows.Controls.TextBlock
+                {
+                    Text = System.IO.Path.GetFileName(path.TrimEnd((char)92, '/')),
+                    FontSize = 11,
+                    FontWeight = System.Windows.FontWeights.SemiBold,
+                    Foreground = new System.Windows.Media.SolidColorBrush(
+                        exists
+                            ? System.Windows.Media.Color.FromRgb(180, 230, 195)
+                            : System.Windows.Media.Color.FromRgb(100, 110, 100)),
+                    TextWrapping = System.Windows.TextWrapping.NoWrap
+                });
+                stack.Children.Add(new System.Windows.Controls.TextBlock
+                {
+                    Text = path,
+                    FontSize = 9,
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                    Foreground = new System.Windows.Media.SolidColorBrush(
+                        exists
+                            ? System.Windows.Media.Color.FromRgb(70, 120, 85)
+                            : System.Windows.Media.Color.FromRgb(80, 80, 80)),
+                    TextWrapping = System.Windows.TextWrapping.NoWrap
+                });
+
+                if (!exists)
+                    stack.Children.Add(new System.Windows.Controls.TextBlock
+                    {
+                        Text = "⚠  Path not accessible",
+                        FontSize = 9,
+                        Foreground = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(160, 120, 50))
+                    });
+
+                row.Child = stack;
+
+                if (exists)
+                {
+                    row.MouseEnter += (s, e) => row.Background =
+                        new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(18, 45, 24));
+                    row.MouseLeave += (s, e) => row.Background =
+                        new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(12, 26, 16));
+                    row.MouseLeftButtonUp += (s, e) =>
+                    {
+                        SelectedPath = captured;
+                        DialogResult = true;
+                    };
+                }
+
+                root.Children.Add(row);
+            }
+
+            var btnCancel = new System.Windows.Controls.Button
+            {
+                Content = "Cancel",
+                Padding = new System.Windows.Thickness(16, 7, 16, 7),
+                Margin = new System.Windows.Thickness(0, 8, 0, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(18, 36, 22)),
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(130, 160, 135)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(36, 70, 44)),
+                BorderThickness = new System.Windows.Thickness(1),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            btnCancel.Click += (s, e) => { DialogResult = false; };
+            root.Children.Add(btnCancel);
+
+            Content = root;
+        }
+    }
+
+    public enum StartupMode
+    {
+        Local,
+        Remote,
+        Sample
+    }
 
     public class StationTypeFilterDialog : Window
     {
-        public bool IncludeLcs       { get; private set; } = false;
+        public bool IncludeLcs { get; private set; } = false;
         public bool IncludeBackflush { get; private set; } = false;
 
         public StationTypeFilterDialog(int lcsCount, int backflushCount)
         {
-            Title                 = "Station Types Found";
-            Width                 = 420;
-            Height                = 260;
-            ResizeMode            = ResizeMode.NoResize;
+            Title = "Station Types Found";
+            Width = 420;
+            Height = 260;
+            ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background            = new SolidColorBrush(Color.FromRgb(8, 14, 10));
+            Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
             var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
 
             root.Children.Add(new TextBlock
             {
-                Text         = "Additional station types detected",
-                FontSize     = 13,
-                FontWeight   = FontWeights.SemiBold,
-                Foreground   = new SolidColorBrush(Color.FromRgb(210, 245, 220)),
-                Margin       = new Thickness(0, 0, 0, 6)
+                Text = "Additional station types detected",
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)),
+                Margin = new Thickness(0, 0, 0, 6)
             });
 
             root.Children.Add(new TextBlock
             {
-                Text         = "Select which types to include in the analysis:",
-                FontSize     = 10,
-                Foreground   = new SolidColorBrush(Color.FromRgb(110, 160, 125)),
-                Margin       = new Thickness(0, 0, 0, 18),
+                Text = "Select which types to include in the analysis:",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(110, 160, 125)),
+                Margin = new Thickness(0, 0, 0, 18),
                 TextWrapping = TextWrapping.Wrap
             });
 
             var cbLcs = new CheckBox
             {
-                Content     = "LCS  (" + lcsCount + " station" + (lcsCount != 1 ? "s" : "") + ")",
-                FontSize    = 11,
-                Foreground  = new SolidColorBrush(Color.FromRgb(180, 225, 195)),
-                IsEnabled   = lcsCount > 0,
-                IsChecked   = false,
-                Margin      = new Thickness(0, 0, 0, 10)
+                Content = "LCS  (" + lcsCount + " station" + (lcsCount != 1 ? "s" : "") + ")",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 225, 195)),
+                IsEnabled = lcsCount > 0,
+                IsChecked = false,
+                Margin = new Thickness(0, 0, 0, 10)
             };
 
             var cbBackflush = new CheckBox
             {
-                Content     = "Backflush  (" + backflushCount + " station" + (backflushCount != 1 ? "s" : "") + ")",
-                FontSize    = 11,
-                Foreground  = new SolidColorBrush(Color.FromRgb(180, 225, 195)),
-                IsEnabled   = backflushCount > 0,
-                IsChecked   = false,
-                Margin      = new Thickness(0, 0, 0, 24)
+                Content = "Backflush  (" + backflushCount + " station" + (backflushCount != 1 ? "s" : "") + ")",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 225, 195)),
+                IsEnabled = backflushCount > 0,
+                IsChecked = false,
+                Margin = new Thickness(0, 0, 0, 24)
             };
 
             root.Children.Add(cbLcs);
@@ -559,25 +718,25 @@ namespace MESInsight
 
             var btnRow = new StackPanel
             {
-                Orientation         = Orientation.Horizontal,
+                Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right
             };
 
             var btnConfirm = new Button
             {
-                Content         = "Confirm →",
-                Padding         = new Thickness(18, 7, 18, 7),
-                FontWeight      = FontWeights.SemiBold,
-                Background      = new SolidColorBrush(Color.FromRgb(150, 85, 15)),
-                Foreground      = new SolidColorBrush(Color.FromRgb(255, 235, 180)),
-                BorderBrush     = new SolidColorBrush(Color.FromRgb(210, 130, 30)),
+                Content = "Confirm →",
+                Padding = new Thickness(18, 7, 18, 7),
+                FontWeight = FontWeights.SemiBold,
+                Background = new SolidColorBrush(Color.FromRgb(150, 85, 15)),
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 235, 180)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(210, 130, 30)),
                 BorderThickness = new Thickness(1),
-                Cursor          = Cursors.Hand
+                Cursor = Cursors.Hand
             };
 
             btnConfirm.Click += (s, e) =>
             {
-                IncludeLcs       = cbLcs.IsChecked == true;
+                IncludeLcs = cbLcs.IsChecked == true;
                 IncludeBackflush = cbBackflush.IsChecked == true;
                 DialogResult = true;
             };
@@ -591,157 +750,365 @@ namespace MESInsight
 
     public class LoadOptionsDialog : Window
     {
-        public bool IncludeLcs       { get; private set; } = false;
+        public bool IncludeLcs { get; private set; } = false;
         public bool IncludeBackflush { get; private set; } = false;
+        public bool IncludeConnectors { get; private set; } = false;
+        public bool FilterByDate { get; private set; } = false;
+        public int MaxMonths { get; private set; } = 6;
 
-        public LoadOptionsDialog(int ghpCount, int lcsCount, int backflushCount)
+        public System.Collections.Generic.List<string> ExcludedFolderPaths { get; private set; }
+            = new System.Collections.Generic.List<string>();
+
+        public LoadOptionsDialog(
+            List<StationInfo> ghpStations,
+            List<StationInfo> lcsStations,
+            List<StationInfo> backflushStations,
+            List<StationInfo> connectorStations,
+            Dictionary<int, int> fileCounts = null)
         {
-            Title                 = "Select Stations to Load";
-            Width                 = 460;
-            SizeToContent         = SizeToContent.Height;
-            ResizeMode            = ResizeMode.NoResize;
+            Title = "Load Options";
+            Width = 620;
+            Height = 680;
+            ResizeMode = ResizeMode.CanResize;
+            MinWidth = 500;
+            MinHeight = 480;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background            = new System.Windows.Media.SolidColorBrush(
+            Background = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(8, 14, 10));
 
-            var root = new System.Windows.Controls.StackPanel
+            var stationCheckboxes =
+                new System.Collections.Generic.List<(System.Windows.Controls.CheckBox cb, string path)>();
+
+            var root = new System.Windows.Controls.Grid();
+            root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+                { Height = System.Windows.GridLength.Auto });
+            root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+                { Height = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star) });
+            root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+                { Height = System.Windows.GridLength.Auto });
+
+            // ── Header ──────────────────────────────────────────────────────
+            var headerBorder = new System.Windows.Controls.Border
             {
-                Margin = new System.Windows.Thickness(24, 20, 24, 20)
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(5, 18, 9)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(22, 70, 36)),
+                BorderThickness = new System.Windows.Thickness(0, 0, 0, 1),
+                Padding = new System.Windows.Thickness(24, 16, 24, 16)
             };
-
-            root.Children.Add(new System.Windows.Controls.TextBlock
+            var headerStack = new System.Windows.Controls.StackPanel();
+            headerStack.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Text         = "Choose which station types to load",
-                FontSize     = 13,
-                FontWeight   = System.Windows.FontWeights.SemiBold,
-                Foreground   = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(210, 245, 220)),
-                Margin       = new System.Windows.Thickness(0, 0, 0, 6)
+                Text = "Select stations to load",
+                FontSize = 16,
+                FontWeight = System.Windows.FontWeights.SemiBold,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(210, 245, 220))
             });
-
-            root.Children.Add(new System.Windows.Controls.TextBlock
+            headerStack.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Text         = "Scanned folder — select what to include:",
-                FontSize     = 10,
-                Foreground   = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(100, 150, 115)),
-                Margin       = new System.Windows.Thickness(0, 0, 0, 16),
-                TextWrapping = System.Windows.TextWrapping.Wrap
+                Text = "Choose which stations and data to include. Unchecked stations will be skipped.",
+                FontSize = 11,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 140, 105)),
+                TextWrapping = System.Windows.TextWrapping.Wrap,
+                Margin = new System.Windows.Thickness(0, 4, 0, 0)
             });
+            headerBorder.Child = headerStack;
+            System.Windows.Controls.Grid.SetRow(headerBorder, 0);
+            root.Children.Add(headerBorder);
 
-            // GHP always included
-            root.Children.Add(new System.Windows.Controls.TextBlock
+            // ── Scrollable content ───────────────────────────────────────────
+            var scroll = new System.Windows.Controls.ScrollViewer
             {
-                Text       = "✓  GHP Stations  (" + ghpCount + ")  — always loaded",
-                FontSize   = 11,
-                Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(63, 185, 80)),
-                Margin     = new System.Windows.Thickness(0, 0, 0, 10)
-            });
+                VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Disabled,
+                Padding = new System.Windows.Thickness(20, 12, 20, 8)
+            };
+            var content = new System.Windows.Controls.StackPanel { Margin = new System.Windows.Thickness(0) };
 
-            var cbLcs = new System.Windows.Controls.CheckBox
+            // ── Date filter ──────────────────────────────────────────────────
+            var dateBorder = new System.Windows.Controls.Border
             {
-                IsEnabled = lcsCount > 0,
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(12, 26, 16)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 80, 44)),
+                BorderThickness = new System.Windows.Thickness(1),
+                CornerRadius = new System.Windows.CornerRadius(6),
+                Padding = new System.Windows.Thickness(14, 10, 14, 10),
+                Margin = new System.Windows.Thickness(0, 0, 0, 10)
+            };
+            var dateStack = new System.Windows.Controls.StackPanel();
+
+            var cbDateFilter = new System.Windows.Controls.CheckBox
+            {
                 IsChecked = false,
-                Margin    = new System.Windows.Thickness(0, 0, 0, 8)
+                Margin = new System.Windows.Thickness(0, 0, 0, 0)
             };
-            cbLcs.Content = new System.Windows.Controls.TextBlock
+            var dateLabel = new System.Windows.Controls.TextBlock
             {
-                Text       = "LCS Stations  (" + lcsCount + ")  — Line Control Service",
-                FontSize   = 11,
-                Foreground = new System.Windows.Media.SolidColorBrush(
-                    lcsCount > 0
-                        ? System.Windows.Media.Color.FromRgb(180, 225, 195)
-                        : System.Windows.Media.Color.FromRgb(80, 100, 88))
+                Text = "🗓  Skip records older than",
+                FontSize = 13,
+                FontWeight = System.Windows.FontWeights.SemiBold,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 220, 195))
             };
 
-            var cbBackflush = new System.Windows.Controls.CheckBox
-            {
-                IsEnabled = backflushCount > 0,
-                IsChecked = false,
-                Margin    = new System.Windows.Thickness(0, 0, 0, 4)
-            };
-            cbBackflush.Content = new System.Windows.Controls.TextBlock
-            {
-                Text       = "Backflush Stations  (" + backflushCount + ")",
-                FontSize   = 11,
-                Foreground = new System.Windows.Media.SolidColorBrush(
-                    backflushCount > 0
-                        ? System.Windows.Media.Color.FromRgb(180, 225, 195)
-                        : System.Windows.Media.Color.FromRgb(80, 100, 88))
-            };
+            var dateRow = new System.Windows.Controls.StackPanel
+                { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            cbDateFilter.Content = dateLabel;
+            dateRow.Children.Add(cbDateFilter);
 
-            root.Children.Add(cbLcs);
-            root.Children.Add(cbBackflush);
-
-            bool anyOptional = lcsCount > 0 || backflushCount > 0;
-            if (anyOptional)
+            var monthsPanel = new System.Windows.Controls.StackPanel
             {
-                root.Children.Add(new System.Windows.Controls.TextBlock
-                {
-                    Text         = "⚠  LCS and Backflush stations may take significantly longer to load.",
-                    FontSize     = 9,
-                    Foreground   = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(200, 160, 60)),
-                    Margin       = new System.Windows.Thickness(0, 8, 0, 16),
-                    TextWrapping = System.Windows.TextWrapping.Wrap
-                });
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                Margin = new System.Windows.Thickness(28, 6, 0, 0),
+                IsEnabled = false
+            };
+            cbDateFilter.Checked += (s, e) => monthsPanel.IsEnabled = true;
+            cbDateFilter.Unchecked += (s, e) => monthsPanel.IsEnabled = false;
+
+            monthsPanel.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "Load last",
+                FontSize = 12,
+                Foreground =
+                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(150, 200, 165)),
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                Margin = new System.Windows.Thickness(0, 0, 8, 0)
+            });
+
+            var monthsCombo = new System.Windows.Controls.ComboBox
+            {
+                Width = 60,
+                FontSize = 12,
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(14, 36, 20)),
+                Foreground =
+                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 225, 195)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(40, 110, 60)),
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            };
+            foreach (int m in new[] { 1, 2, 3, 6, 12, 24 })
+            {
+                string label = m + " months";
+                if (fileCounts != null && fileCounts.ContainsKey(m))
+                    label += "  (~" + fileCounts[m] + " files)";
+                monthsCombo.Items.Add(label);
+                if (m == 6) monthsCombo.SelectedIndex = monthsCombo.Items.Count - 1;
             }
-            else
+
+            monthsPanel.Children.Add(monthsCombo);
+            monthsPanel.Children.Add(new System.Windows.Controls.TextBlock
             {
-                root.Children.Add(new System.Windows.Controls.TextBlock
+                Text = "months",
+                FontSize = 12,
+                Foreground =
+                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(150, 200, 165)),
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                Margin = new System.Windows.Thickness(8, 0, 0, 0)
+            });
+
+            dateStack.Children.Add(dateRow);
+            dateStack.Children.Add(monthsPanel);
+            dateBorder.Child = dateStack;
+            content.Children.Add(dateBorder);
+
+            // ── Station section builder ──────────────────────────────────────
+            System.Windows.Controls.CheckBox AddStationSection(
+                string icon, string title,
+                System.Windows.Media.Color accentColor,
+                List<StationInfo> stations,
+                bool defaultChecked)
+            {
+                if (stations.Count == 0) return null;
+
+                var sectionBorder = new System.Windows.Controls.Border
                 {
-                    Text   = "",
-                    Margin = new System.Windows.Thickness(0, 12, 0, 0)
+                    Background =
+                        new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(12, 26, 16)),
+                    BorderBrush = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B)),
+                    BorderThickness = new System.Windows.Thickness(1),
+                    CornerRadius = new System.Windows.CornerRadius(6),
+                    Margin = new System.Windows.Thickness(0, 0, 0, 10),
+                    Padding = new System.Windows.Thickness(14, 10, 14, 10)
+                };
+
+                var sectionStack = new System.Windows.Controls.StackPanel();
+
+                // Header row
+                var headerRow = new System.Windows.Controls.StackPanel
+                {
+                    Orientation = System.Windows.Controls.Orientation.Horizontal
+                };
+
+                var cbSection = new System.Windows.Controls.CheckBox
+                {
+                    IsChecked = defaultChecked,
+                    Margin = new System.Windows.Thickness(0, 0, 0, 0)
+                };
+
+                var sectionTitle = new System.Windows.Controls.StackPanel
+                {
+                    Orientation = System.Windows.Controls.Orientation.Horizontal
+                };
+                sectionTitle.Children.Add(new System.Windows.Controls.TextBlock
+                {
+                    Text = icon + "  ",
+                    FontSize = 15,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center
                 });
+                sectionTitle.Children.Add(new System.Windows.Controls.TextBlock
+                {
+                    Text = title,
+                    FontSize = 13,
+                    FontWeight = System.Windows.FontWeights.SemiBold,
+                    Foreground = new System.Windows.Media.SolidColorBrush(accentColor)
+                });
+                sectionTitle.Children.Add(new System.Windows.Controls.TextBlock
+                {
+                    Text = "  (" + stations.Count + ")",
+                    FontSize = 11,
+                    Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(100, 140, 112)),
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center
+                });
+                cbSection.Content = sectionTitle;
+                sectionStack.Children.Add(cbSection);
+
+                // Expander for station list
+                var expander = new System.Windows.Controls.Expander
+                {
+                    Header = "Choose stations ▾",
+                    IsExpanded = false,
+                    Margin = new System.Windows.Thickness(22, 6, 0, 0),
+                    FontSize = 10,
+                    Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(90, 150, 110)),
+                    IsEnabled = defaultChecked
+                };
+
+                cbSection.Checked += (s, e) => expander.IsEnabled = true;
+                cbSection.Unchecked += (s, e) => expander.IsEnabled = false;
+
+                var stationList = new System.Windows.Controls.StackPanel
+                    { Margin = new System.Windows.Thickness(8, 4, 0, 0) };
+
+                foreach (var st in stations)
+                {
+                    var cbSt = new System.Windows.Controls.CheckBox
+                    {
+                        IsChecked = defaultChecked,
+                        IsEnabled = defaultChecked,
+                        Margin = new System.Windows.Thickness(0, 1, 0, 1)
+                    };
+
+                    var stLabel = new System.Windows.Controls.TextBlock
+                    {
+                        FontSize = 11,
+                        TextWrapping = System.Windows.TextWrapping.NoWrap,
+                        Foreground = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(175, 220, 190))
+                    };
+                    stLabel.Text = st.StationName +
+                                   (string.IsNullOrEmpty(st.ComputerName) ? "" : "  ·  " + st.ComputerName);
+                    cbSt.Content = stLabel;
+
+                    cbSection.Checked += (s, e) =>
+                    {
+                        cbSt.IsEnabled = true;
+                        cbSt.IsChecked = true;
+                    };
+                    cbSection.Unchecked += (s, e) =>
+                    {
+                        cbSt.IsEnabled = false;
+                        cbSt.IsChecked = false;
+                    };
+
+                    stationCheckboxes.Add((cbSt, st.FolderPath));
+                    stationList.Children.Add(cbSt);
+                }
+
+                expander.Content = stationList;
+                sectionStack.Children.Add(expander);
+                sectionBorder.Child = sectionStack;
+                content.Children.Add(sectionBorder);
+
+                return cbSection;
             }
+
+            var cbGhp = AddStationSection("⚙", "GHP Stations", System.Windows.Media.Color.FromRgb(63, 185, 80),
+                ghpStations, true);
+            var cbLcs2 = AddStationSection("🔧", "LCS Stations", System.Windows.Media.Color.FromRgb(80, 160, 220),
+                lcsStations, false);
+            var cbBfl = AddStationSection("💧", "Backflush Stations", System.Windows.Media.Color.FromRgb(220, 160, 60),
+                backflushStations, false);
+            var cbCon = AddStationSection("🔌", "Connectors", System.Windows.Media.Color.FromRgb(180, 120, 220),
+                connectorStations, false);
+
+            scroll.Content = content;
+            System.Windows.Controls.Grid.SetRow(scroll, 1);
+            root.Children.Add(scroll);
+
+            // ── Footer buttons ───────────────────────────────────────────────
+            var footerBorder = new System.Windows.Controls.Border
+            {
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(5, 18, 9)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(22, 70, 36)),
+                BorderThickness = new System.Windows.Thickness(0, 1, 0, 0),
+                Padding = new System.Windows.Thickness(20, 12, 20, 12)
+            };
 
             var btnRow = new System.Windows.Controls.StackPanel
             {
-                Orientation         = System.Windows.Controls.Orientation.Horizontal,
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Right
             };
 
             var btnCancel = new System.Windows.Controls.Button
             {
-                Content         = "Cancel",
-                Padding         = new System.Windows.Thickness(16, 7, 16, 7),
-                Margin          = new System.Windows.Thickness(0, 0, 8, 0),
-                Background      = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(20, 30, 20)),
-                Foreground      = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(140, 160, 140)),
-                BorderBrush     = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(40, 70, 44)),
+                Content = "Cancel",
+                Padding = new System.Windows.Thickness(18, 8, 18, 8),
+                Margin = new System.Windows.Thickness(0, 0, 10, 0),
+                FontSize = 12,
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(18, 36, 22)),
+                Foreground =
+                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(130, 160, 135)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(36, 70, 44)),
                 BorderThickness = new System.Windows.Thickness(1),
-                Cursor          = System.Windows.Input.Cursors.Hand
+                Cursor = System.Windows.Input.Cursors.Hand
             };
             btnCancel.Click += (s, e) => { DialogResult = false; };
 
             var btnContinue = new System.Windows.Controls.Button
             {
-                Content         = "Continue →",
-                Padding         = new System.Windows.Thickness(18, 7, 18, 7),
-                FontWeight      = System.Windows.FontWeights.SemiBold,
-                Background      = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(22, 90, 45)),
-                Foreground      = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(180, 240, 200)),
-                BorderBrush     = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(40, 160, 80)),
+                Content = "Load →",
+                Padding = new System.Windows.Thickness(22, 8, 22, 8),
+                FontSize = 13,
+                FontWeight = System.Windows.FontWeights.SemiBold,
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(22, 100, 50)),
+                Foreground =
+                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 245, 205)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(50, 180, 90)),
                 BorderThickness = new System.Windows.Thickness(1),
-                Cursor          = System.Windows.Input.Cursors.Hand
+                Cursor = System.Windows.Input.Cursors.Hand
             };
             btnContinue.Click += (s, e) =>
             {
-                IncludeLcs       = cbLcs.IsChecked == true;
-                IncludeBackflush = cbBackflush.IsChecked == true;
+                IncludeLcs = cbLcs2?.IsChecked == true;
+                IncludeBackflush = cbBfl?.IsChecked == true;
+                IncludeConnectors = cbCon?.IsChecked == true;
+                FilterByDate = cbDateFilter.IsChecked == true;
+                MaxMonths = monthsCombo.SelectedItem is string sel
+                    ? int.TryParse(sel.Split(' ')[0], out int pm) ? pm : 6
+                    : 6;
+                ExcludedFolderPaths = stationCheckboxes
+                    .Where(x => x.cb.IsChecked != true)
+                    .Select(x => x.path)
+                    .ToList();
                 DialogResult = true;
             };
 
             btnRow.Children.Add(btnCancel);
             btnRow.Children.Add(btnContinue);
-            root.Children.Add(btnRow);
+            footerBorder.Child = btnRow;
+            System.Windows.Controls.Grid.SetRow(footerBorder, 2);
+            root.Children.Add(footerBorder);
 
             Content = root;
         }

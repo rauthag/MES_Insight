@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="MES Insight" WindowStartupLocation="Manual"
         Background="#0D1117"
+        MinWidth="1024" MinHeight="600"
         FontFamily="Inter, Segoe UI, sans-serif">
 
     <Window.Resources>
@@ -46,7 +47,30 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="6,4" />
             <Setter Property="FontSize" Value="11" />
-            <Setter Property="CaretBrush" Value="#C9D1D9" />
+            <Setter Property="CaretBrush" Value="#3FB950" />
+            <Setter Property="SelectionBrush" Value="#1F4A2A" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TextBox}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter Property="BorderBrush" Value="#3FB950" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="BorderBrush" Value="#238636" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="{x:Type ComboBox}">
@@ -144,6 +168,41 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <!-- Modern CheckBox style -->
+        <Style TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="#C9D1D9" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border x:Name="Box" Width="16" Height="16" CornerRadius="3"
+                                    Background="#161B22" BorderBrush="#30363D" BorderThickness="1.5"
+                                    Margin="0,0,7,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="Check" Text="✓" FontSize="11" FontWeight="Bold"
+                                           Foreground="#3FB950" HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" Visibility="Collapsed" />
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#3FB950" />
+                                <Setter TargetName="Box" Property="Background" Value="#0D2818" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#3FB950" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </Window.Resources>
 
     <Grid>
@@ -162,7 +221,7 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
-                <TextBlock Text="⏱" FontSize="14" Foreground="#3FB950" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="⏱" FontSize="14" Foreground="#3FB950" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Text="🗠  MES Insight"
                            FontSize="13" FontWeight="Light"
                            Foreground="#E6EDF3"
@@ -190,13 +249,30 @@
         <!-- Row 1: Station chevron bar -->
         <Border Grid.Row="1" Background="#071810"
                 BorderBrush="#0D3020" BorderThickness="0,1,0,1">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Hidden"
-                          Padding="6,4,6,4">
-                <StackPanel x:Name="StationBarPanel"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center" />
-            </ScrollViewer>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <!-- Stations dropdown — fixed left -->
+                <ContentControl x:Name="StationDropdownHost" Grid.Column="0" />
+                <!-- Scroll left — fixed -->
+                <ContentControl x:Name="BtnScrollLeftHost" Grid.Column="1" />
+                <!-- Scrollable chevrons -->
+                <ScrollViewer x:Name="StationBarScrollViewer"
+                              Grid.Column="2"
+                              HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Hidden"
+                              Padding="0,4,0,4">
+                    <StackPanel x:Name="StationBarPanel"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center" />
+                </ScrollViewer>
+                <!-- Scroll right — fixed -->
+                <ContentControl x:Name="BtnScrollRightHost" Grid.Column="3" />
+            </Grid>
         </Border>
 
         <!-- Row 2: Main content -->
@@ -232,12 +308,15 @@
                                    Foreground="#4FC3F7" FontSize="26" FontWeight="Thin" Margin="0,0,0,10" />
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                            <TextBlock Text="Guaranteed Speed (P95)" Foreground="#6E7681" FontSize="10" VerticalAlignment="Center" />
-                            <TextBlock Text="  ⓘ" Foreground="#388E3C" FontSize="10" VerticalAlignment="Center" Cursor="Help">
+                            <TextBlock Text="Guaranteed Speed (P95)" Foreground="#6E7681" FontSize="10"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="  ⓘ" Foreground="#388E3C" FontSize="10" VerticalAlignment="Center"
+                                       Cursor="Help">
                                 <TextBlock.ToolTip>
                                     <ToolTip>
                                         <StackPanel Width="260">
-                                            <TextBlock Text="95th Percentile (P95)" FontSize="13" FontWeight="Bold" Margin="0,0,0,5" />
+                                            <TextBlock Text="95th Percentile (P95)" FontSize="13" FontWeight="Bold"
+                                                       Margin="0,0,0,5" />
                                             <TextBlock TextWrapping="Wrap" FontSize="11">
                                                 Maximum response time in 95% of cases.
                                                 If P95 is high, 5% of production cycles are delayed.
@@ -251,12 +330,15 @@
                                    Foreground="#A5D6A7" FontSize="22" FontWeight="Light" Margin="0,0,0,10" />
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                            <TextBlock Text="Stability Index" Foreground="#6E7681" FontSize="10" VerticalAlignment="Center" />
-                            <TextBlock Text="  ⓘ" Foreground="#388E3C" FontSize="10" VerticalAlignment="Center" Cursor="Help">
+                            <TextBlock Text="Stability Index" Foreground="#6E7681" FontSize="10"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="  ⓘ" Foreground="#388E3C" FontSize="10" VerticalAlignment="Center"
+                                       Cursor="Help">
                                 <TextBlock.ToolTip>
                                     <ToolTip>
                                         <StackPanel Width="260">
-                                            <TextBlock Text="Stability Index (CV)" FontSize="13" FontWeight="Bold" Margin="0,0,0,5" />
+                                            <TextBlock Text="Stability Index (CV)" FontSize="13" FontWeight="Bold"
+                                                       Margin="0,0,0,5" />
                                             <TextBlock TextWrapping="Wrap" FontSize="11">
                                                 • Excellent (&lt; 15%)&#10;• Good (15–30%)&#10;• Unstable (&gt; 30%)
                                             </TextBlock>
@@ -272,12 +354,16 @@
                                 Padding="0,8,0,0" Margin="0,2,0,0">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                    <Border Width="8" Height="8" CornerRadius="2" Background="#3FB950" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="TxtTabMin" Text="Min Time: 0 ms" Foreground="#8B949E" FontSize="11" />
+                                    <Border Width="8" Height="8" CornerRadius="2" Background="#3FB950" Margin="0,0,6,0"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtTabMin" Text="Min Time: 0 ms" Foreground="#8B949E"
+                                               FontSize="11" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="8" Height="8" CornerRadius="2" Background="#F85149" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="TxtTabMax" Text="Max Time: 0 ms" Foreground="#8B949E" FontSize="11" />
+                                    <Border Width="8" Height="8" CornerRadius="2" Background="#F85149" Margin="0,0,6,0"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtTabMax" Text="Max Time: 0 ms" Foreground="#8B949E"
+                                               FontSize="11" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -299,7 +385,8 @@
                                 <ColumnDefinition Width="52" />
                             </Grid.ColumnDefinitions>
                             <DatePicker x:Name="DatePickerFrom" FontSize="11" />
-                            <TextBox x:Name="TxtTimeFrom" Grid.Column="1" Text="00:00" Margin="4,0,0,0" VerticalContentAlignment="Center" />
+                            <TextBox x:Name="TxtTimeFrom" Grid.Column="1" Text="00:00" Margin="4,0,0,0"
+                                     VerticalContentAlignment="Center" />
                         </Grid>
 
                         <TextBlock Text="Date To" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
@@ -309,7 +396,8 @@
                                 <ColumnDefinition Width="52" />
                             </Grid.ColumnDefinitions>
                             <DatePicker x:Name="DatePickerTo" FontSize="11" />
-                            <TextBox x:Name="TxtTimeTo" Grid.Column="1" Text="23:59" Margin="4,0,0,0" VerticalContentAlignment="Center" />
+                            <TextBox x:Name="TxtTimeTo" Grid.Column="1" Text="23:59" Margin="4,0,0,0"
+                                     VerticalContentAlignment="Center" />
                         </Grid>
 
                         <TextBlock Text="UID" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
@@ -338,13 +426,13 @@
                         <ComboBox x:Name="CmbFilterMessageType" Margin="0,0,0,12"
                                   SelectionChanged="CmbFilterMessageType_SelectionChanged">
                             <ComboBoxItem Content="All" IsSelected="True" />
-                            <ComboBoxItem Content="Unit Info"             Tag="UNIT_INFO" />
-                            <ComboBoxItem Content="Next Operation"        Tag="NEXT_OPERATION" />
-                            <ComboBoxItem Content="Unit Checkin"          Tag="UNIT_CHECKIN" />
-                            <ComboBoxItem Content="Unit Result"           Tag="UNIT_RESULT" />
-                            <ComboBoxItem Content="Load Material"         Tag="LOAD_MATERIAL" />
+                            <ComboBoxItem Content="Unit Info" Tag="UNIT_INFO" />
+                            <ComboBoxItem Content="Next Operation" Tag="NEXT_OPERATION" />
+                            <ComboBoxItem Content="Unit Checkin" Tag="UNIT_CHECKIN" />
+                            <ComboBoxItem Content="Unit Result" Tag="UNIT_RESULT" />
+                            <ComboBoxItem Content="Load Material" Tag="LOAD_MATERIAL" />
                             <ComboBoxItem Content="Request Material Info" Tag="REQ_MATERIAL_INFO" />
-                            <ComboBoxItem Content="Request Setup Change"  Tag="REQ_SETUP_CHANGE2" />
+                            <ComboBoxItem Content="Request Setup Change" Tag="REQ_SETUP_CHANGE2" />
                         </ComboBox>
 
                         <Grid>
@@ -378,10 +466,10 @@
                         <DataGrid x:Name="GridRecords" Grid.Row="1"
                                   AutoGenerateColumns="False" IsReadOnly="True" FontSize="11">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time"    Binding="{Binding Timestamp}"    Width="120" />
-                                <DataGridTextColumn Header="UID"     Binding="{Binding Uid}"          Width="*" />
+                                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="120" />
+                                <DataGridTextColumn Header="UID" Binding="{Binding Uid}" Width="*" />
                                 <DataGridTextColumn Header="RT (ms)" Binding="{Binding ResponseTime}" Width="50" />
-                                <DataGridTextColumn Header="R"       Binding="{Binding Result}"       Width="25" />
+                                <DataGridTextColumn Header="R" Binding="{Binding Result}" Width="25" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
@@ -391,37 +479,37 @@
             <!-- Right panel: charts -->
             <TabControl x:Name="MainTabControl" Grid.Column="1"
                         SelectionChanged="MainTabControl_SelectionChanged">
-                <TabItem Header="UNIT INFO"              Tag="UNIT_INFO">
+                <TabItem Header="UNIT INFO" Tag="UNIT_INFO">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelUnitInfo" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="NEXT OPERATION"         Tag="NEXT_OPERATION">
+                <TabItem Header="NEXT OPERATION" Tag="NEXT_OPERATION">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelNextOperation" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="UNIT CHECKIN"           Tag="UNIT_CHECKIN">
+                <TabItem Header="UNIT CHECKIN" Tag="UNIT_CHECKIN">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelUnitCheckin" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="UNIT RESULT"            Tag="UNIT_RESULT">
+                <TabItem Header="UNIT RESULT" Tag="UNIT_RESULT">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelUnitResult" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="LOAD MATERIAL"          Tag="LOAD_MATERIAL">
+                <TabItem Header="LOAD MATERIAL" Tag="LOAD_MATERIAL">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelLoadMaterial" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="REQUEST MATERIAL INFO"  Tag="REQ_MATERIAL_INFO">
+                <TabItem Header="REQUEST MATERIAL INFO" Tag="REQ_MATERIAL_INFO">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelReqMaterialInfo" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="REQUEST SETUP CHANGE"   Tag="REQ_SETUP_CHANGE2">
+                <TabItem Header="REQUEST SETUP CHANGE" Tag="REQ_SETUP_CHANGE2">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelReqSetupChange2" />
                     </ScrollViewer>
@@ -438,7 +526,7 @@
             <Border Background="#0D1117" BorderBrush="#1A5C35" BorderThickness="1"
                     CornerRadius="10"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Width="960" Height="520">
+                    Width="960" MinHeight="520" MaxHeight="520">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="36" />
@@ -450,7 +538,8 @@
                         <TextBlock x:Name="LoadingTitle" Text="Loading..."
                                    FontSize="13" FontWeight="SemiBold" Foreground="#3FB950"
                                    VerticalAlignment="Center" Margin="16,0,0,0" />
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Margin="0,0,6,0">
                             <Button Content="—" Click="BtnMinimizeLoadingOverlay_Click"
                                     Width="24" Height="24" Padding="0" Margin="0,0,2,0"
                                     Background="Transparent" Foreground="#4E5A4E"
@@ -476,69 +565,261 @@
 
                             <Grid Height="44" Margin="0,0,0,16">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Rectangle Grid.Column="0"  Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="1"  Fill="#145A29" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.08"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="2"  Fill="#1A6B32" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.16"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="3"  Fill="#238636" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.24"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="4"  Fill="#2EA043" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.32"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="5"  Fill="#3FB950" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.40"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="6"  Fill="#56D364" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.48"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="7"  Fill="#56D364" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.56"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="8"  Fill="#3FB950" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.64"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="9"  Fill="#2EA043" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.72"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="10" Fill="#238636" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.80"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="11" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.88"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="12" Fill="#145A29" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.96"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="13" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:1.04"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
+                                <Rectangle Grid.Column="0" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="1" Fill="#145A29" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.08">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="2" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.16">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="3" Fill="#238636" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.24">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="4" Fill="#2EA043" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.32">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="5" Fill="#3FB950" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.40">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="6" Fill="#56D364" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.48">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="7" Fill="#56D364" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.56">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="8" Fill="#3FB950" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.64">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="9" Fill="#2EA043" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.72">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="10" Fill="#238636" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.80">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="11" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.88">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="12" Fill="#145A29" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.96">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="13" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:1.04">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
                             </Grid>
 
                             <TextBlock x:Name="LoadingStatus" Text=""
-                                       FontSize="15" FontWeight="Bold" Foreground="#C9D1D9"
-                                       TextWrapping="Wrap" TextAlignment="Center"
-                                       MaxHeight="46" Margin="0,0,0,5" />
+                                       FontSize="14" FontWeight="Bold" Foreground="#C9D1D9"
+                                       TextWrapping="NoWrap" TextAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       Height="22" Margin="0,0,0,4" />
                             <TextBlock x:Name="LoadingDetail" Text=""
                                        FontSize="10" Foreground="#6E7681"
                                        TextWrapping="Wrap" TextAlignment="Center"
-                                       MaxHeight="32" Margin="0,0,0,14" />
+                                       Height="36" LineHeight="18"
+                                       Margin="0,0,0,10" />
 
                             <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Background="#161B22" CornerRadius="4" Margin="0,0,4,0" Padding="10,7">
+                                <Border Grid.Column="0" Background="#161B22" CornerRadius="4" Margin="0,0,4,0"
+                                        Padding="10,7">
                                     <StackPanel>
-                                        <TextBlock Text="FILES" FontSize="9" Foreground="#3FB950" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                        <TextBlock x:Name="LoadingFileCount" Text="—" FontSize="20" FontWeight="Bold" Foreground="#C9D1D9" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="FILES" FontSize="9" Foreground="#3FB950" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <TextBlock x:Name="LoadingFileCount" Text="—" FontSize="20" FontWeight="Bold"
+                                                   Foreground="#C9D1D9" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="1" Background="#161B22" CornerRadius="4" Margin="4,0,4,0" Padding="10,7">
+                                <Border Grid.Column="1" Background="#161B22" CornerRadius="4" Margin="4,0,4,0"
+                                        Padding="10,7">
                                     <StackPanel>
-                                        <TextBlock Text="RECORDS" FontSize="9" Foreground="#3FB950" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                        <TextBlock x:Name="LoadingRecordCount" Text="—" FontSize="20" FontWeight="Bold" Foreground="#C9D1D9" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="RECORDS" FontSize="9" Foreground="#3FB950" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <TextBlock x:Name="LoadingRecordCount" Text="—" FontSize="20" FontWeight="Bold"
+                                                   Foreground="#C9D1D9" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="2" Background="#161B22" CornerRadius="4" Margin="4,0,0,0" Padding="10,7">
+                                <Border Grid.Column="2" Background="#161B22" CornerRadius="4" Margin="4,0,0,0"
+                                        Padding="10,7">
                                     <StackPanel>
-                                        <TextBlock Text="STATIONS" FontSize="9" Foreground="#3FB950" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                        <TextBlock x:Name="LoadingTypeCount" Text="—" FontSize="20" FontWeight="Bold" Foreground="#C9D1D9" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="STATIONS" FontSize="9" Foreground="#3FB950" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <TextBlock x:Name="LoadingTypeCount" Text="—" FontSize="20" FontWeight="Bold"
+                                                   Foreground="#C9D1D9" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
 
                             <ProgressBar x:Name="LoadingProgress" Height="4" Minimum="0" Maximum="100" Value="0"
                                          Margin="0,0,0,4" Foreground="#3FB950" Background="#21262D" />
-                            <TextBlock x:Name="LoadingPercentage" Text="0%"
-                                       FontSize="10" Foreground="#6E7681" HorizontalAlignment="Right" />
+                            <Grid Height="26">
+                                <TextBlock x:Name="LoadingPercentage" Text="0%"
+                                           FontSize="10" Foreground="#6E7681"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center" />
+                                <!-- WIP: Skip station button — not functional yet
+                                <Button x:Name="BtnSkipStation" Content="⏭  Skip this station"
+                                        Click="BtnSkipStation_Click"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Visibility="Collapsed" Height="26" Padding="16,0"
+                                        Background="#3D2000" Foreground="#E8721A"
+                                        BorderBrush="#E8721A" BorderThickness="1"
+                                        FontSize="11" FontWeight="SemiBold" Cursor="Hand" />
+                                -->
+                            </Grid>
                         </StackPanel>
 
                         <!-- Divider -->
