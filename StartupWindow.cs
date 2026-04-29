@@ -747,370 +747,607 @@ namespace MESInsight
             Content = root;
         }
     }
-
+    
     public class LoadOptionsDialog : Window
     {
+        public bool FilterByDate { get; private set; } = true;
+        public int MaxMonths { get; private set; } = 3;
         public bool IncludeLcs { get; private set; } = false;
         public bool IncludeBackflush { get; private set; } = false;
         public bool IncludeConnectors { get; private set; } = false;
-        public bool FilterByDate { get; private set; } = false;
-        public int MaxMonths { get; private set; } = 6;
+        public List<string> ExcludedFolderPaths { get; private set; } = new List<string>();
+        public Dictionary<string, int> StationMonthOverrides { get; private set; } = new Dictionary<string, int>();
 
-        public System.Collections.Generic.List<string> ExcludedFolderPaths { get; private set; }
-            = new System.Collections.Generic.List<string>();
+        private static readonly int[] MonthOptions = { 1, 2, 3, 6, 12, 24 };
+
+        private const long OptimalSizeMb = 800;
+        private const long GoodSizeMb = 2000;
+        private const long WarningSizeMb = 4000;
+        private const long CriticalSizeMb = 7000;
+
+        private class StationLoadEntry
+        {
+            public StationInfo Station { get; set; }
+            public CheckBox EnabledBox { get; set; }
+            public Slider MonthSlider { get; set; }
+        }
 
         public LoadOptionsDialog(
             List<StationInfo> ghpStations,
             List<StationInfo> lcsStations,
             List<StationInfo> backflushStations,
             List<StationInfo> connectorStations,
-            Dictionary<int, int> fileCounts = null)
+            Dictionary<int, MonthFileInfo> globalFileCounts = null)
         {
             Title = "Load Options";
-            Width = 620;
-            Height = 680;
+            Width = 700;
+            Height = 760;
             ResizeMode = ResizeMode.CanResize;
-            MinWidth = 500;
-            MinHeight = 480;
+            MinWidth = 540;
+            MinHeight = 520;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(8, 14, 10));
+            Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
-            var stationCheckboxes =
-                new System.Collections.Generic.List<(System.Windows.Controls.CheckBox cb, string path)>();
+            int recommendedMonths = CalculateRecommendedMonths(globalFileCounts);
+            int recommendedIndex = Array.IndexOf(MonthOptions, recommendedMonths);
+            if (recommendedIndex < 0) recommendedIndex = 2;
 
-            var root = new System.Windows.Controls.Grid();
-            root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
-                { Height = System.Windows.GridLength.Auto });
-            root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
-                { Height = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star) });
-            root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
-                { Height = System.Windows.GridLength.Auto });
+            var allEntries = new List<StationLoadEntry>();
 
-            // ── Header ──────────────────────────────────────────────────────
-            var headerBorder = new System.Windows.Controls.Border
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            root.Children.Add(BuildHeader());
+
+            var scroll = new ScrollViewer
             {
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(5, 18, 9)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(22, 70, 36)),
-                BorderThickness = new System.Windows.Thickness(0, 0, 0, 1),
-                Padding = new System.Windows.Thickness(24, 16, 24, 16)
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(20, 14, 20, 8)
             };
-            var headerStack = new System.Windows.Controls.StackPanel();
-            headerStack.Children.Add(new System.Windows.Controls.TextBlock
-            {
-                Text = "Select stations to load",
-                FontSize = 16,
-                FontWeight = System.Windows.FontWeights.SemiBold,
-                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(210, 245, 220))
-            });
-            headerStack.Children.Add(new System.Windows.Controls.TextBlock
-            {
-                Text = "Choose which stations and data to include. Unchecked stations will be skipped.",
-                FontSize = 11,
-                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 140, 105)),
-                TextWrapping = System.Windows.TextWrapping.Wrap,
-                Margin = new System.Windows.Thickness(0, 4, 0, 0)
-            });
-            headerBorder.Child = headerStack;
-            System.Windows.Controls.Grid.SetRow(headerBorder, 0);
-            root.Children.Add(headerBorder);
+            Grid.SetRow(scroll, 1);
 
-            // ── Scrollable content ───────────────────────────────────────────
-            var scroll = new System.Windows.Controls.ScrollViewer
-            {
-                VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Disabled,
-                Padding = new System.Windows.Thickness(20, 12, 20, 8)
-            };
-            var content = new System.Windows.Controls.StackPanel { Margin = new System.Windows.Thickness(0) };
+            var content = new StackPanel();
 
-            // ── Date filter ──────────────────────────────────────────────────
-            var dateBorder = new System.Windows.Controls.Border
-            {
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(12, 26, 16)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 80, 44)),
-                BorderThickness = new System.Windows.Thickness(1),
-                CornerRadius = new System.Windows.CornerRadius(6),
-                Padding = new System.Windows.Thickness(14, 10, 14, 10),
-                Margin = new System.Windows.Thickness(0, 0, 0, 10)
-            };
-            var dateStack = new System.Windows.Controls.StackPanel();
+            TextBlock globalValueLabel, globalSizeLabel, globalWarningLabel;
+            Slider globalSlider;
+            content.Children.Add(BuildGlobalSliderSection(
+                globalFileCounts, recommendedIndex, recommendedMonths,
+                out globalSlider, out globalValueLabel, out globalSizeLabel, out globalWarningLabel));
 
-            var cbDateFilter = new System.Windows.Controls.CheckBox
-            {
-                IsChecked = false,
-                Margin = new System.Windows.Thickness(0, 0, 0, 0)
-            };
-            var dateLabel = new System.Windows.Controls.TextBlock
-            {
-                Text = "🗓  Skip records older than",
-                FontSize = 13,
-                FontWeight = System.Windows.FontWeights.SemiBold,
-                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 220, 195))
-            };
-
-            var dateRow = new System.Windows.Controls.StackPanel
-                { Orientation = System.Windows.Controls.Orientation.Horizontal };
-            cbDateFilter.Content = dateLabel;
-            dateRow.Children.Add(cbDateFilter);
-
-            var monthsPanel = new System.Windows.Controls.StackPanel
-            {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                Margin = new System.Windows.Thickness(28, 6, 0, 0),
-                IsEnabled = false
-            };
-            cbDateFilter.Checked += (s, e) => monthsPanel.IsEnabled = true;
-            cbDateFilter.Unchecked += (s, e) => monthsPanel.IsEnabled = false;
-
-            monthsPanel.Children.Add(new System.Windows.Controls.TextBlock
-            {
-                Text = "Load last",
-                FontSize = 12,
-                Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(150, 200, 165)),
-                VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                Margin = new System.Windows.Thickness(0, 0, 8, 0)
-            });
-
-            var monthsCombo = new System.Windows.Controls.ComboBox
-            {
-                Width = 60,
-                FontSize = 12,
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(14, 36, 20)),
-                Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 225, 195)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(40, 110, 60)),
-                VerticalAlignment = System.Windows.VerticalAlignment.Center
-            };
-            foreach (int m in new[] { 1, 2, 3, 6, 12, 24 })
-            {
-                string label = m + " months";
-                if (fileCounts != null && fileCounts.ContainsKey(m))
-                    label += "  (~" + fileCounts[m] + " files)";
-                monthsCombo.Items.Add(label);
-                if (m == 6) monthsCombo.SelectedIndex = monthsCombo.Items.Count - 1;
-            }
-
-            monthsPanel.Children.Add(monthsCombo);
-            monthsPanel.Children.Add(new System.Windows.Controls.TextBlock
-            {
-                Text = "months",
-                FontSize = 12,
-                Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(150, 200, 165)),
-                VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                Margin = new System.Windows.Thickness(8, 0, 0, 0)
-            });
-
-            dateStack.Children.Add(dateRow);
-            dateStack.Children.Add(monthsPanel);
-            dateBorder.Child = dateStack;
-            content.Children.Add(dateBorder);
-
-            // ── Station section builder ──────────────────────────────────────
-            System.Windows.Controls.CheckBox AddStationSection(
-                string icon, string title,
-                System.Windows.Media.Color accentColor,
-                List<StationInfo> stations,
-                bool defaultChecked)
-            {
-                if (stations.Count == 0) return null;
-
-                var sectionBorder = new System.Windows.Controls.Border
-                {
-                    Background =
-                        new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(12, 26, 16)),
-                    BorderBrush = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B)),
-                    BorderThickness = new System.Windows.Thickness(1),
-                    CornerRadius = new System.Windows.CornerRadius(6),
-                    Margin = new System.Windows.Thickness(0, 0, 0, 10),
-                    Padding = new System.Windows.Thickness(14, 10, 14, 10)
-                };
-
-                var sectionStack = new System.Windows.Controls.StackPanel();
-
-                // Header row
-                var headerRow = new System.Windows.Controls.StackPanel
-                {
-                    Orientation = System.Windows.Controls.Orientation.Horizontal
-                };
-
-                var cbSection = new System.Windows.Controls.CheckBox
-                {
-                    IsChecked = defaultChecked,
-                    Margin = new System.Windows.Thickness(0, 0, 0, 0)
-                };
-
-                var sectionTitle = new System.Windows.Controls.StackPanel
-                {
-                    Orientation = System.Windows.Controls.Orientation.Horizontal
-                };
-                sectionTitle.Children.Add(new System.Windows.Controls.TextBlock
-                {
-                    Text = icon + "  ",
-                    FontSize = 15,
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center
-                });
-                sectionTitle.Children.Add(new System.Windows.Controls.TextBlock
-                {
-                    Text = title,
-                    FontSize = 13,
-                    FontWeight = System.Windows.FontWeights.SemiBold,
-                    Foreground = new System.Windows.Media.SolidColorBrush(accentColor)
-                });
-                sectionTitle.Children.Add(new System.Windows.Controls.TextBlock
-                {
-                    Text = "  (" + stations.Count + ")",
-                    FontSize = 11,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(100, 140, 112)),
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center
-                });
-                cbSection.Content = sectionTitle;
-                sectionStack.Children.Add(cbSection);
-
-                // Expander for station list
-                var expander = new System.Windows.Controls.Expander
-                {
-                    Header = "Choose stations ▾",
-                    IsExpanded = false,
-                    Margin = new System.Windows.Thickness(22, 6, 0, 0),
-                    FontSize = 10,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(90, 150, 110)),
-                    IsEnabled = defaultChecked
-                };
-
-                cbSection.Checked += (s, e) => expander.IsEnabled = true;
-                cbSection.Unchecked += (s, e) => expander.IsEnabled = false;
-
-                var stationList = new System.Windows.Controls.StackPanel
-                    { Margin = new System.Windows.Thickness(8, 4, 0, 0) };
-
-                foreach (var st in stations)
-                {
-                    var cbSt = new System.Windows.Controls.CheckBox
-                    {
-                        IsChecked = defaultChecked,
-                        IsEnabled = defaultChecked,
-                        Margin = new System.Windows.Thickness(0, 1, 0, 1)
-                    };
-
-                    var stLabel = new System.Windows.Controls.TextBlock
-                    {
-                        FontSize = 11,
-                        TextWrapping = System.Windows.TextWrapping.NoWrap,
-                        Foreground = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(175, 220, 190))
-                    };
-                    stLabel.Text = st.StationName +
-                                   (string.IsNullOrEmpty(st.ComputerName) ? "" : "  ·  " + st.ComputerName);
-                    cbSt.Content = stLabel;
-
-                    cbSection.Checked += (s, e) =>
-                    {
-                        cbSt.IsEnabled = true;
-                        cbSt.IsChecked = true;
-                    };
-                    cbSection.Unchecked += (s, e) =>
-                    {
-                        cbSt.IsEnabled = false;
-                        cbSt.IsChecked = false;
-                    };
-
-                    stationCheckboxes.Add((cbSt, st.FolderPath));
-                    stationList.Children.Add(cbSt);
-                }
-
-                expander.Content = stationList;
-                sectionStack.Children.Add(expander);
-                sectionBorder.Child = sectionStack;
-                content.Children.Add(sectionBorder);
-
-                return cbSection;
-            }
-
-            var cbGhp = AddStationSection("⚙", "GHP Stations", System.Windows.Media.Color.FromRgb(63, 185, 80),
-                ghpStations, true);
-            var cbLcs2 = AddStationSection("🔧", "LCS Stations", System.Windows.Media.Color.FromRgb(80, 160, 220),
-                lcsStations, false);
-            var cbBfl = AddStationSection("💧", "Backflush Stations", System.Windows.Media.Color.FromRgb(220, 160, 60),
-                backflushStations, false);
-            var cbCon = AddStationSection("🔌", "Connectors", System.Windows.Media.Color.FromRgb(180, 120, 220),
-                connectorStations, false);
+            var cbGhp = AddStationSection(content, allEntries, "GHP Stations", ghpStations, Color.FromRgb(63, 185, 80),
+                true, recommendedIndex);
+            var cbLcs = AddStationSection(content, allEntries, "LCS Stations", lcsStations, Color.FromRgb(80, 160, 220),
+                false, recommendedIndex);
+            var cbBfl = AddStationSection(content, allEntries, "Backflush Stations", backflushStations,
+                Color.FromRgb(220, 160, 60), false, recommendedIndex);
+            var cbCon = AddStationSection(content, allEntries, "Connectors", connectorStations,
+                Color.FromRgb(180, 120, 220), false, recommendedIndex);
 
             scroll.Content = content;
-            System.Windows.Controls.Grid.SetRow(scroll, 1);
             root.Children.Add(scroll);
 
-            // ── Footer buttons ───────────────────────────────────────────────
-            var footerBorder = new System.Windows.Controls.Border
-            {
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(5, 18, 9)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(22, 70, 36)),
-                BorderThickness = new System.Windows.Thickness(0, 1, 0, 0),
-                Padding = new System.Windows.Thickness(20, 12, 20, 12)
-            };
+            TextBlock totalSizeLabel, totalWarningLabel;
+            ProgressBar loadBar;
+            var indicator = BuildLoadIndicator(out loadBar, out totalSizeLabel, out totalWarningLabel);
+            Grid.SetRow(indicator, 2);
+            root.Children.Add(indicator);
 
-            var btnRow = new System.Windows.Controls.StackPanel
-            {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Right
-            };
+            var cbDateFilter = new CheckBox { IsChecked = true };
+            var footer = BuildFooter(cbDateFilter,
+                onLoad: () =>
+                {
+                    int idx = (int)Math.Round(globalSlider.Value);
+                    FilterByDate = cbDateFilter.IsChecked == true;
+                    MaxMonths = MonthOptions[idx];
+                    IncludeLcs = cbLcs?.IsChecked == true;
+                    IncludeBackflush = cbBfl?.IsChecked == true;
+                    IncludeConnectors = cbCon?.IsChecked == true;
 
-            var btnCancel = new System.Windows.Controls.Button
-            {
-                Content = "Cancel",
-                Padding = new System.Windows.Thickness(18, 8, 18, 8),
-                Margin = new System.Windows.Thickness(0, 0, 10, 0),
-                FontSize = 12,
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(18, 36, 22)),
-                Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(130, 160, 135)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(36, 70, 44)),
-                BorderThickness = new System.Windows.Thickness(1),
-                Cursor = System.Windows.Input.Cursors.Hand
-            };
-            btnCancel.Click += (s, e) => { DialogResult = false; };
+                    ExcludedFolderPaths = allEntries
+                        .Where(e => e.EnabledBox.IsChecked != true)
+                        .Select(e => e.Station.FolderPath)
+                        .ToList();
 
-            var btnContinue = new System.Windows.Controls.Button
-            {
-                Content = "Load →",
-                Padding = new System.Windows.Thickness(22, 8, 22, 8),
-                FontSize = 13,
-                FontWeight = System.Windows.FontWeights.SemiBold,
-                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(22, 100, 50)),
-                Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 245, 205)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(50, 180, 90)),
-                BorderThickness = new System.Windows.Thickness(1),
-                Cursor = System.Windows.Input.Cursors.Hand
-            };
-            btnContinue.Click += (s, e) =>
-            {
-                IncludeLcs = cbLcs2?.IsChecked == true;
-                IncludeBackflush = cbBfl?.IsChecked == true;
-                IncludeConnectors = cbCon?.IsChecked == true;
-                FilterByDate = cbDateFilter.IsChecked == true;
-                MaxMonths = monthsCombo.SelectedItem is string sel
-                    ? int.TryParse(sel.Split(' ')[0], out int pm) ? pm : 6
-                    : 6;
-                ExcludedFolderPaths = stationCheckboxes
-                    .Where(x => x.cb.IsChecked != true)
-                    .Select(x => x.path)
-                    .ToList();
-                DialogResult = true;
-            };
+                    StationMonthOverrides = new Dictionary<string, int>();
+                    foreach (var entry in allEntries)
+                    {
+                        if (entry.EnabledBox.IsChecked != true) continue;
+                        int stMonths = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
+                        if (stMonths != MaxMonths)
+                            StationMonthOverrides[entry.Station.FolderPath] = stMonths;
+                    }
 
-            btnRow.Children.Add(btnCancel);
-            btnRow.Children.Add(btnContinue);
-            footerBorder.Child = btnRow;
-            System.Windows.Controls.Grid.SetRow(footerBorder, 2);
-            root.Children.Add(footerBorder);
+                    DialogResult = true;
+                },
+                onCancel: () => { DialogResult = false; });
+            Grid.SetRow(footer, 3);
+            root.Children.Add(footer);
 
             Content = root;
+
+            Action recalculate = () => RecalculateTotalLoad(
+                allEntries, globalSlider, globalFileCounts, loadBar, totalSizeLabel, totalWarningLabel);
+
+            globalSlider.ValueChanged += (s, e) =>
+            {
+                UpdateSliderDisplay(globalSlider, globalValueLabel, globalSizeLabel,
+                    globalWarningLabel, globalFileCounts, recommendedMonths);
+
+                foreach (var entry in allEntries)
+                    if ((int)Math.Round(entry.MonthSlider.Value) == (int)Math.Round(e.OldValue))
+                        entry.MonthSlider.Value = globalSlider.Value;
+
+                recalculate();
+            };
+
+            foreach (var entry in allEntries)
+            {
+                entry.EnabledBox.Checked += (s, e) => recalculate();
+                entry.EnabledBox.Unchecked += (s, e) => recalculate();
+                entry.MonthSlider.ValueChanged += (s, e) => recalculate();
+            }
+
+            UpdateSliderDisplay(globalSlider, globalValueLabel, globalSizeLabel,
+                globalWarningLabel, globalFileCounts, recommendedMonths);
+            recalculate();
+        }
+
+        // ── Single source of truth for load status colors and labels ──────────
+
+        private static (Color textColor, Color barColor, string statusText) GetLoadStatus(long sizeMb)
+        {
+            if (sizeMb >= CriticalSizeMb)
+                return (Color.FromRgb(180, 30, 20), Color.FromRgb(180, 30, 20), "✕  Danger — very likely to crash");
+            if (sizeMb >= WarningSizeMb)
+                return (Color.FromRgb(220, 60, 40), Color.FromRgb(220, 60, 40), "⚠  Risk — may run out of memory");
+            if (sizeMb >= GoodSizeMb)
+                return (Color.FromRgb(220, 140, 30), Color.FromRgb(220, 140, 30), "⚠  Heavy — loading will be slow");
+            if (sizeMb >= OptimalSizeMb)
+                return (Color.FromRgb(160, 200, 60), Color.FromRgb(160, 200, 60), "✓  Good");
+            return (Color.FromRgb(46, 185, 80), Color.FromRgb(46, 185, 80), "✓  Optimal");
+        }
+
+        private static int CalculateRecommendedMonths(Dictionary<int, MonthFileInfo> fileCounts)
+        {
+            if (fileCounts == null) return 3;
+            foreach (int m in MonthOptions)
+                if (fileCounts.TryGetValue(m, out var info) && info.SizeMb <= OptimalSizeMb)
+                    return m;
+            return MonthOptions[0];
+        }
+
+        private static void RecalculateTotalLoad(
+            List<StationLoadEntry> entries,
+            Slider globalSlider,
+            Dictionary<int, MonthFileInfo> globalFileCounts,
+            ProgressBar loadBar,
+            TextBlock totalSizeLabel,
+            TextBlock totalWarningLabel)
+        {
+            var enabled = entries.Where(e => e.EnabledBox.IsChecked == true).ToList();
+
+            if (enabled.Count == 0 || globalFileCounts == null)
+            {
+                loadBar.Value = 0;
+                totalSizeLabel.Text = "No stations selected";
+                totalWarningLabel.Text = "";
+                return;
+            }
+
+            int total = entries.Count > 0 ? entries.Count : 1;
+            long totalMb = 0;
+
+            foreach (var entry in enabled)
+            {
+                int months = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
+                if (globalFileCounts.TryGetValue(months, out var info))
+                    totalMb += info.SizeMb / total;
+            }
+
+            loadBar.Value = Math.Min(100, totalMb * 100.0 / CriticalSizeMb);
+
+            var (textColor, barColor, statusText) = GetLoadStatus(totalMb);
+
+            string sizeText = totalMb >= 1024
+                ? (totalMb / 1024.0).ToString("0.#") + " GB  estimated"
+                : totalMb + " MB  estimated";
+
+            totalSizeLabel.Text = $"{enabled.Count} stations  ·  {sizeText}";
+            totalSizeLabel.Foreground = new SolidColorBrush(textColor);
+            loadBar.Foreground = new SolidColorBrush(barColor);
+            totalWarningLabel.Text = statusText;
+            totalWarningLabel.Foreground = new SolidColorBrush(textColor);
+        }
+
+        // ── Global slider section ─────────────────────────────────────────────
+
+        private static UIElement BuildGlobalSliderSection(
+            Dictionary<int, MonthFileInfo> fileCounts,
+            int defaultIndex, int recommendedMonths,
+            out Slider slider, out TextBlock valueLabel,
+            out TextBlock sizeLabel, out TextBlock warningLabel)
+        {
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(10, 22, 14)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 80, 44)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(18, 14, 18, 14),
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Default data range  —  applies to all stations",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(160, 210, 175)),
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            slider = BuildSlider(defaultIndex);
+            stack.Children.Add(WrapSliderWithLabels(slider));
+
+            var infoRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 2) };
+            valueLabel = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold };
+            sizeLabel = new TextBlock
+                { FontSize = 11, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(10, 0, 0, 2) };
+            infoRow.Children.Add(valueLabel);
+            infoRow.Children.Add(sizeLabel);
+            stack.Children.Add(infoRow);
+
+            if (fileCounts != null && fileCounts.TryGetValue(recommendedMonths, out var recInfo))
+            {
+                string recSize = recInfo.SizeMb >= 1024
+                    ? (recInfo.SizeMb / 1024.0).ToString("0.#") + " GB"
+                    : recInfo.SizeMb + " MB";
+                string recText = recommendedMonths == 1 ? "1 month" : recommendedMonths + " months";
+
+                var recRow = new StackPanel
+                    { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 4) };
+                recRow.Children.Add(new TextBlock
+                {
+                    Text = "Recommended: ", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82))
+                });
+                recRow.Children.Add(new TextBlock
+                {
+                    Text = $"{recText}  ({recInfo.FileCount} files, {recSize})", FontSize = 10,
+                    Foreground = new SolidColorBrush(Color.FromRgb(63, 185, 80))
+                });
+                stack.Children.Add(recRow);
+            }
+
+            warningLabel = new TextBlock
+                { FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+            stack.Children.Add(warningLabel);
+
+            border.Child = stack;
+            return border;
+        }
+
+        private static void UpdateSliderDisplay(
+            Slider slider, TextBlock valueLabel, TextBlock sizeLabel, TextBlock warningLabel,
+            Dictionary<int, MonthFileInfo> fileCounts, int recommendedMonths)
+        {
+            int months = MonthOptions[(int)Math.Round(slider.Value)];
+            valueLabel.Text = months == 1 ? "1 month" : months + " months";
+
+            if (fileCounts == null || !fileCounts.TryGetValue(months, out var info))
+            {
+                sizeLabel.Text = "";
+                warningLabel.Text = "";
+                valueLabel.Foreground = new SolidColorBrush(Color.FromRgb(63, 185, 80));
+                return;
+            }
+
+            string sizeText = info.SizeMb >= 1024
+                ? (info.SizeMb / 1024.0).ToString("0.#") + " GB"
+                : info.SizeMb + " MB";
+            sizeLabel.Text = $"{info.FileCount} files  ·  {sizeText}";
+
+            var (textColor, _, statusText) = GetLoadStatus(info.SizeMb);
+            valueLabel.Foreground = new SolidColorBrush(textColor);
+            sizeLabel.Foreground = new SolidColorBrush(textColor);
+            warningLabel.Text = months <= recommendedMonths && info.SizeMb < OptimalSizeMb
+                ? "✓  Recommended"
+                : statusText;
+            warningLabel.Foreground = new SolidColorBrush(textColor);
+        }
+
+        // ── Station section ───────────────────────────────────────────────────
+
+        private static CheckBox AddStationSection(
+            StackPanel parent, List<StationLoadEntry> allEntries,
+            string title, List<StationInfo> stations,
+            Color accentColor, bool defaultChecked, int defaultSliderIndex)
+        {
+            if (stations.Count == 0) return null;
+
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(10, 22, 14)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16, 12, 16, 12),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+
+            var stack = new StackPanel();
+
+            var cbSection = new CheckBox { IsChecked = defaultChecked };
+            var titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
+            titlePanel.Children.Add(new TextBlock
+            {
+                Text = title, FontSize = 13, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(accentColor)
+            });
+            titlePanel.Children.Add(new TextBlock
+            {
+                Text = "  (" + stations.Count + ")", FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 140, 112)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            cbSection.Content = titlePanel;
+            stack.Children.Add(cbSection);
+
+            var expander = new Expander
+            {
+                Header = "Choose stations ▾", IsExpanded = false,
+                Margin = new Thickness(24, 6, 0, 0), FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(90, 150, 110)),
+                IsEnabled = defaultChecked
+            };
+            cbSection.Checked += (s, e) => expander.IsEnabled = true;
+            cbSection.Unchecked += (s, e) => expander.IsEnabled = false;
+
+            var stationList = new StackPanel { Margin = new Thickness(4, 4, 0, 0) };
+
+            foreach (var st in stations)
+            {
+                var cb = new CheckBox { IsChecked = defaultChecked, IsEnabled = defaultChecked };
+                var slider = BuildSlider(defaultSliderIndex);
+                slider.Width = 100;
+
+                var entry = new StationLoadEntry { Station = st, EnabledBox = cb, MonthSlider = slider };
+                allEntries.Add(entry);
+
+                cbSection.Checked += (s, e) =>
+                {
+                    cb.IsEnabled = true;
+                    cb.IsChecked = true;
+                };
+                cbSection.Unchecked += (s, e) =>
+                {
+                    cb.IsEnabled = false;
+                    cb.IsChecked = false;
+                };
+
+                stationList.Children.Add(BuildStationRowUI(entry));
+            }
+
+            expander.Content = stationList;
+            stack.Children.Add(expander);
+            border.Child = stack;
+            parent.Children.Add(border);
+            return cbSection;
+        }
+
+        private static UIElement BuildStationRowUI(StationLoadEntry entry)
+        {
+            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+
+            entry.EnabledBox.Content = new TextBlock
+            {
+                Text = entry.Station.StationName, FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(175, 220, 190)),
+                TextWrapping = TextWrapping.NoWrap
+            };
+            row.Children.Add(entry.EnabledBox);
+
+            var sliderPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(sliderPanel, 1);
+
+            var monthLabel = new TextBlock
+            {
+                FontSize = 10, Width = 38, TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+
+            entry.MonthSlider.ValueChanged += (s, e) =>
+            {
+                int m = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
+                monthLabel.Text = m == 1 ? "1 mo" : m + " mo";
+                var (color, _, _) = GetLoadStatus((long)m * 150);
+                monthLabel.Foreground = new SolidColorBrush(color);
+            };
+
+            int initM = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
+            monthLabel.Text = initM == 1 ? "1 mo" : initM + " mo";
+            monthLabel.Foreground = new SolidColorBrush(Color.FromRgb(100, 185, 130));
+
+            sliderPanel.Children.Add(monthLabel);
+            sliderPanel.Children.Add(entry.MonthSlider);
+            row.Children.Add(sliderPanel);
+            return row;
+        }
+
+        // ── Load indicator ────────────────────────────────────────────────────
+
+        private static UIElement BuildLoadIndicator(
+            out ProgressBar loadBar,
+            out TextBlock totalSizeLabel,
+            out TextBlock totalWarningLabel)
+        {
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(20, 10, 20, 10)
+            };
+
+            var stack = new StackPanel();
+
+            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 5) };
+            labelRow.Children.Add(new TextBlock
+            {
+                Text = "Estimated load:  ", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82))
+            });
+            totalSizeLabel = new TextBlock { FontSize = 11 };
+            labelRow.Children.Add(totalSizeLabel);
+            stack.Children.Add(labelRow);
+
+            loadBar = new ProgressBar
+            {
+                Height = 8, Minimum = 0, Maximum = 100, Value = 0,
+                Background = new SolidColorBrush(Color.FromRgb(20, 40, 26)),
+                BorderThickness = new Thickness(0)
+            };
+            stack.Children.Add(loadBar);
+
+            totalWarningLabel = new TextBlock
+                { FontSize = 10, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
+            stack.Children.Add(totalWarningLabel);
+
+            border.Child = stack;
+            return border;
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Slider BuildSlider(int defaultIndex)
+        {
+            return new Slider
+            {
+                Minimum = 0, Maximum = MonthOptions.Length - 1, Value = defaultIndex,
+                TickFrequency = 1, IsSnapToTickEnabled = true,
+                TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight,
+                SmallChange = 1, LargeChange = 1,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        private static UIElement WrapSliderWithLabels(Slider slider)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var left = new TextBlock
+            {
+                Text = "1 mo", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0)
+            };
+            var right = new TextBlock
+            {
+                Text = "24 mo", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0)
+            };
+
+            Grid.SetColumn(slider, 1);
+            Grid.SetColumn(right, 2);
+            grid.Children.Add(left);
+            grid.Children.Add(slider);
+            grid.Children.Add(right);
+            return grid;
+        }
+
+        // ── Header ────────────────────────────────────────────────────────────
+
+        private static UIElement BuildHeader()
+        {
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(24, 16, 24, 16)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Load Options", FontSize = 17, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220))
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Select stations and how much historical data to load.", FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(90, 140, 105)), Margin = new Thickness(0, 4, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+            border.Child = stack;
+            return border;
+        }
+
+        // ── Footer ────────────────────────────────────────────────────────────
+
+        private static UIElement BuildFooter(CheckBox cbDateFilter, Action onLoad, Action onCancel)
+        {
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(20, 12, 20, 12)
+            };
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            cbDateFilter.VerticalAlignment = VerticalAlignment.Center;
+            cbDateFilter.Content = new TextBlock
+            {
+                Text = "Apply date range filter", FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 165))
+            };
+            row.Children.Add(cbDateFilter);
+
+            var btnRow = new StackPanel
+                { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            Grid.SetColumn(btnRow, 1);
+
+            var btnCancel = new Button
+            {
+                Content = "Cancel", Padding = new Thickness(18, 8, 18, 8), Margin = new Thickness(0, 0, 10, 0),
+                FontSize = 12, Background = new SolidColorBrush(Color.FromRgb(18, 36, 22)),
+                Foreground = new SolidColorBrush(Color.FromRgb(130, 160, 135)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 70, 44)), BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand
+            };
+            btnCancel.Click += (s, e) => onCancel();
+
+            var btnLoad = new Button
+            {
+                Content = "Load →", Padding = new Thickness(22, 8, 22, 8), FontSize = 13,
+                FontWeight = FontWeights.SemiBold, Background = new SolidColorBrush(Color.FromRgb(22, 100, 50)),
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 245, 205)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(50, 180, 90)), BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand
+            };
+            btnLoad.Click += (s, e) => onLoad();
+
+            btnRow.Children.Add(btnCancel);
+            btnRow.Children.Add(btnLoad);
+            row.Children.Add(btnRow);
+            border.Child = row;
+            return border;
         }
     }
 }

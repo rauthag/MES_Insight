@@ -335,10 +335,15 @@ namespace MESInsight
                     }));
 
 
-                // Priority: log content name > folder name already set by BuildStationInfo
-                string displayName = !string.IsNullOrEmpty(loadResult.StationName)
+// Folder name is primary — use productline= only if folder name looks generic
+                string displayName = DataLoader.IsGenericPlaceholderName(st.StationName) &&
+                                     !string.IsNullOrEmpty(loadResult.StationName) &&
+                                     !DataLoader.IsGenericPlaceholderName(loadResult.StationName)
                     ? loadResult.StationName
                     : st.StationName;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"STATION: folder={System.IO.Path.GetFileName(st.FolderPath)} | loadResult={loadResult.StationName} | displayName={displayName}");
 
                 st.StationName = displayName;
                 _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
@@ -456,13 +461,17 @@ namespace MESInsight
                         }));
                     }));
 
-                string displayName = loadResult.StationName.Length > 0 ? loadResult.StationName : st.StationName;
+                string displayName = DataLoader.IsGenericPlaceholderName(st.StationName) &&
+                                     loadResult.StationName.Length > 0 &&
+                                     !DataLoader.IsGenericPlaceholderName(loadResult.StationName)
+                    ? loadResult.StationName
+                    : st.StationName;
 
                 _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
                 _loadedStations.Add(st);
 
                 if (!string.IsNullOrEmpty(loadResult.StationName))
-                    st.StationName = loadResult.StationName;
+                    st.StationName = displayName;
 
                 totalFiles += liveFileCount;
 
@@ -489,6 +498,15 @@ namespace MESInsight
 
             // Deduplicate names after all station names are finalized
             DataLoader.DeduplicateNames(_loadedStations);
+
+            foreach (var loadedStation in _loadedStations)
+            {
+                if (_stationDataCache.ContainsKey(loadedStation.FolderPath))
+                {
+                    var cachedEntry = _stationDataCache[loadedStation.FolderPath];
+                    _stationDataCache[loadedStation.FolderPath] = (cachedEntry.records, loadedStation.StationName);
+                }
+            }
 
 
             _isBackgroundLoading = false;

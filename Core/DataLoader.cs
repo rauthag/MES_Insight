@@ -50,30 +50,90 @@ namespace RTAnalyzer.Core
     {
         public DateTime? DateFilter { get; set; } = null;
 
-        public static Dictionary<int, int> CountFilesByMonthCutoffs(string rootPath, int[] months)
+        public static Dictionary<int, MonthFileInfo> CountFilesByMonthCutoffs(string rootPath, int[] months)
         {
-            var result = new Dictionary<int, int>();
+            var result = new Dictionary<int, MonthFileInfo>();
             foreach (int m in months)
-                result[m] = 0;
+                result[m] = new MonthFileInfo();
 
             try
             {
                 var allFiles = Directory.GetFiles(rootPath, "*", SearchOption.AllDirectories)
                     .Where(f =>
                     {
-                        string name = Path.GetFileName(f);
-                        string ext = Path.GetExtension(name).ToLowerInvariant();
+                        string ext = Path.GetExtension(f).ToLowerInvariant();
                         return ext == ".zip" || ext == ".txt" || ext == ".log" || ext == "";
                     })
                     .ToList();
 
                 foreach (string file in allFiles)
                 {
-                    DateTime fileDate = File.GetLastWriteTime(file);
+                    DateTime fileDate = EstimateFileDate(file);
+                    long fileBytes = new FileInfo(file).Length;
+
                     foreach (int m in months)
                     {
                         if (fileDate >= DateTime.Now.AddMonths(-m))
-                            result[m]++;
+                        {
+                            result[m].FileCount++;
+                            result[m].SizeMb += fileBytes;
+                        }
+                    }
+                }
+
+                foreach (int m in months)
+                    result[m].SizeMb /= 1024 * 1024;
+            }
+            catch
+            {
+            }
+
+            return result;
+        }
+
+        // Tries to get the real data date from file name first, then from first line content.
+        // Much more reliable than LastWriteTime which changes on any file operation.
+        private static DateTime EstimateFileDate(string filePath)
+        {
+            string fileName = Path.GetFileName(filePath);
+
+            var nameMatch = System.Text.RegularExpressions.Regex.Match(
+                fileName, @"(\d{4})(\d{2})(\d{2})",
+                System.Text.RegularExpressions.RegexOptions.None);
+            if (nameMatch.Success)
+            {
+                if (int.TryParse(nameMatch.Groups[1].Value, out int y) &&
+                    int.TryParse(nameMatch.Groups[2].Value, out int mo) &&
+                    int.TryParse(nameMatch.Groups[3].Value, out int d) &&
+                    mo >= 1 && mo <= 12 && d >= 1 && d <= 31)
+                    return new DateTime(y, mo, d);
+            }
+
+            var monthYearMatch = System.Text.RegularExpressions.Regex.Match(
+                fileName, @"^(\d{2})[_.](\d{4})",
+                System.Text.RegularExpressions.RegexOptions.None);
+
+            if (monthYearMatch.Success)
+            {
+                if (int.TryParse(monthYearMatch.Groups[1].Value, out int mo2) &&
+                    int.TryParse(monthYearMatch.Groups[2].Value, out int y2) &&
+                    mo2 >= 1 && mo2 <= 12)
+                    return new DateTime(y2, mo2, 1);
+            }
+
+            try
+            {
+                string ext = Path.GetExtension(fileName).ToLowerInvariant();
+                if (ext == ".zip") return File.GetLastWriteTime(filePath);
+
+                using (var reader = new StreamReader(filePath))
+                {
+                    string firstLine = reader.ReadLine();
+                    if (firstLine != null)
+                    {
+                        DateTime parsed = ParseTimestampFromLogLine(firstLine);
+                        if (parsed != DateTime.MinValue)
+                            return parsed;
                     }
                 }
             }
@@ -81,7 +141,38 @@ namespace RTAnalyzer.Core
             {
             }
 
-            return result;
+            return File.GetLastWriteTime(filePath);
+        }
+
+        // Extracts date from the beginning of a log line — handles dd/MM/yyyy, dd.MM.yyyy, yyyy-MM-dd
+        private static DateTime ParseTimestampFromLogLine(string line)
+        {
+            if (line.Length < 10) return DateTime.MinValue;
+
+            string prefix = line.Substring(0, Math.Min(23, line.Length));
+
+            string[] formats =
+            {
+                "dd/MM/yyyy", "dd.MM.yyyy", "yyyy-MM-dd",
+                "dd/MM/yyyy HH:mm:ss", "dd.MM.yyyy HH:mm:ss",
+                "yyyy-MM-dd HH:mm:ss"
+            };
+
+            foreach (string fmt in formats)
+            {
+                if (prefix.Length >= fmt.Length)
+                {
+                    if (DateTime.TryParseExact(
+                            prefix.Substring(0, fmt.Length),
+                            fmt,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None,
+                            out DateTime result))
+                        return result;
+                }
+            }
+
+            return DateTime.MinValue;
         }
 
         public static List<StationInfo> FindStations(string rootPath)
@@ -120,13 +211,9 @@ namespace RTAnalyzer.Core
                 string name = System.IO.Path.GetFileName(dir);
 
                 if (IsStationFolder(name, dir))
-                {
                     stations.Add(BuildStationInfo(rootPath, dir));
-                }
                 else
-                {
                     ScanForStations(rootPath, dir, stations, depth + 1);
-                }
             }
         }
 
@@ -151,7 +238,7 @@ namespace RTAnalyzer.Core
                 {
                     string fname = System.IO.Path.GetFileName(f);
                     string ext = System.IO.Path.GetExtension(fname).ToLowerInvariant();
-                    if ((ext == ".txt" || ext == ".log" || ext == "" || ext == ".zip") && IsLogFile(fname))
+                    if ((ext == ".txt" || ext == ".log" || ext == "" || ext == ".zip") && ShouldProcessFile(fname))
                         return true;
                 }
 
@@ -168,17 +255,15 @@ namespace RTAnalyzer.Core
             string relativePath = stationPath.Replace(rootPath, "").TrimStart('\\', '/');
             string[] parts = relativePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
 
-            string stationName = Path.GetFileName(stationPath).Replace("_", " ");
+            string stationName = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
             string lineName = "";
             string computerName = "";
 
             foreach (string part in parts)
             {
-                // Line name: starts with L + digits, may have longer description e.g. "L214 OneBox BFT-HT"
-                if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^L\d{3}",
+                if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^L\d{3}[^0-9]",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     lineName = part;
-                // Computer name: uppercase letters + digits, no spaces e.g. OHD0004N
                 else if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^[A-Z]{2,4}\d{3,}[A-Z0-9]*$") &&
                          !System.Text.RegularExpressions.Regex.IsMatch(part, @"^MON\d+",
                              System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
@@ -186,9 +271,6 @@ namespace RTAnalyzer.Core
                              System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     computerName = part;
             }
-
-            if (string.IsNullOrEmpty(stationName) || stationName == relativePath)
-                stationName = Path.GetFileName(stationPath).Replace("_", " ");
 
             var category = StationCategory.GHP;
             string fullLower = stationPath.ToLowerInvariant();
@@ -208,6 +290,34 @@ namespace RTAnalyzer.Core
                 ComputerName = computerName,
                 Category = category
             };
+        }
+
+        // Odstráni route prefix (OR_, OP560_OR_ a pod.) z názvu priečinka
+        private static string ExtractStationNameFromFolderName(string folderName)
+        {
+            string withoutRoutePrefix = System.Text.RegularExpressions.Regex.Replace(
+                folderName, @"^(?:OR_|OP\d+_OR_)", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            return withoutRoutePrefix.Replace("_", " ").Trim();
+        }
+
+        // Vráti true ak je názov generický placeholder — napr. MONXXX, OPXXX
+        public static bool IsGenericPlaceholderName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return true;
+
+            string trimmed = name.Trim();
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[A-Z]+XXX",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^L\d{3}[A-Z0-9]*$",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+
+            return false;
         }
 
         public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null)
@@ -247,7 +357,7 @@ namespace RTAnalyzer.Core
                     progressCallback?.Invoke($"Reading {fileName}", pct, "Opening ZIP archive...");
                     LoadFromZip(file, localResult);
                 }
-                else if (IsLogFile(fileName))
+                else if (ShouldProcessFile(fileName))
                 {
                     DateTime? cutoff = DateFilter;
                     if (ext == ".log" && IsGhpLogFile(fileName))
@@ -298,12 +408,10 @@ namespace RTAnalyzer.Core
                     }
                 }
 
-                int addedCount = localResult.Records.Count;
                 foreach (var r in localResult.Records)
                     bag.Add(r);
 
-                if (!string.IsNullOrEmpty(localResult.StationName))
-                    Interlocked.CompareExchange(ref stationNameHolder[0], localResult.StationName, null);
+                TryUpdateStationNameHolder(stationNameHolder, localResult.StationName);
 
                 long now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
                 long prev = Interlocked.Read(ref lastUiTick);
@@ -338,36 +446,53 @@ namespace RTAnalyzer.Core
             return result;
         }
 
-        private static bool IsGhpLogFile(string fileName)
+        // Station name priority: valid productline = from any log file > folder name fallback. Generic values (L220S01, MONXXX) are skipped
+        private static void TryUpdateStationNameHolder(string[] holder, string candidateName)
         {
-            return fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(candidateName)) return;
+            if (IsGenericPlaceholderName(candidateName)) return;
+
+            string current;
+            do
+            {
+                current = Volatile.Read(ref holder[0]);
+                bool currentIsEmptyOrGeneric = string.IsNullOrEmpty(current) || IsGenericPlaceholderName(current);
+                if (!currentIsEmptyOrGeneric) return;
+            } while (Interlocked.CompareExchange(ref holder[0], candidateName, current) != current);
         }
 
-        private static bool IsLogFile(string fileName)
+        private static bool IsGhpLogFile(string fileName)
+        {
+            if (fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)) return true;
+            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static bool ShouldProcessFile(string fileName)
         {
             string ext = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
             string lower = fileName.ToLowerInvariant();
 
-            string[] blocked =
+            string[] blockedExtensions =
             {
                 ".dll", ".exe", ".config", ".xml", ".json",
                 ".db", ".ini", ".bat", ".ps1", ".msi", ".pdb",
                 ".manifest", ".resx", ".cs", ".csproj", ".sln"
             };
 
-            foreach (string b in blocked)
+            foreach (string b in blockedExtensions)
                 if (ext == b)
                     return false;
 
             if (fileName.StartsWith("FraMES", StringComparison.OrdinalIgnoreCase)) return false;
+            if (fileName.StartsWith("GHPEquipmentConnector", StringComparison.OrdinalIgnoreCase)) return false;
+            if (fileName.StartsWith("Logging", StringComparison.OrdinalIgnoreCase)) return false;
 
-            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
             if (fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)) return true;
-            if (fileName.StartsWith("Logging", StringComparison.OrdinalIgnoreCase)) return true;
-
+            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
             if (System.Text.RegularExpressions.Regex.IsMatch(fileName, @"^\d{8}_\d+_messages")) return true;
-
-            if (lower.Contains("message") || lower.Contains("_log") || lower.Contains("vitesco")) return true;
+            if (lower.Contains("message")) return true;
+            if (lower.Contains("frames")) return true;
 
             return false;
         }
@@ -384,7 +509,7 @@ namespace RTAnalyzer.Core
                         string sourceName = Path.GetFileName(zipFile) + " > " + entryName;
                         string ext = Path.GetExtension(entryName).ToLowerInvariant();
 
-                        if (!IsLogFile(entryName)) continue;
+                        if (!ShouldProcessFile(entryName)) continue;
 
                         if (ext == ".log" && IsGhpLogFile(entryName))
                         {
@@ -408,7 +533,9 @@ namespace RTAnalyzer.Core
                                 result.Records.Add(r);
 
                             if (!string.IsNullOrEmpty(tempResult.StationName) &&
-                                string.IsNullOrEmpty(result.StationName))
+                                !IsGenericPlaceholderName(tempResult.StationName) &&
+                                (string.IsNullOrEmpty(result.StationName) ||
+                                 IsGenericPlaceholderName(result.StationName)))
                                 result.StationName = tempResult.StationName;
                         }
                     }
@@ -418,8 +545,6 @@ namespace RTAnalyzer.Core
             {
             }
         }
-
-        // ── Old format: tab-separated, [S->C] / [C->S] markers ──────────────
 
         private static void ReadOldFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
             DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
@@ -463,14 +588,17 @@ namespace RTAnalyzer.Core
 
         private static void TryExtractStationNameOldFormat(string line, DataLoadResult result)
         {
-            if (!string.IsNullOrEmpty(result.StationName)) return;
+            if (!string.IsNullOrEmpty(result.StationName) && !IsGenericPlaceholderName(result.StationName)) return;
             if (!line.Contains("productline=\"")) return;
 
             int start = line.IndexOf("productline=\"", StringComparison.Ordinal) + 13;
             int end = line.IndexOf("\"", start, StringComparison.Ordinal);
 
-            if (end > start)
-                result.StationName = line.Substring(start, end - start).Replace("_", " ");
+            if (end <= start) return;
+
+            string extracted = line.Substring(start, end - start).Replace("_", " ").Trim();
+            if (!IsGenericPlaceholderName(extracted))
+                result.StationName = extracted;
         }
 
         private static void TryParseOldFormatRecord(string line, string sourceName, DataLoadResult result,
@@ -511,8 +639,6 @@ namespace RTAnalyzer.Core
             });
         }
 
-        // ── GHP Robust format: GHPNetty logger, <=[VitescoComcell] responses ─
-
         private static void ReadGhpFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
             Action<int, int, int> lineProgress = null)
         {
@@ -529,12 +655,18 @@ namespace RTAnalyzer.Core
                 {
                     lineNum++;
                     readBytes += line.Length + 2;
-                    if (line.Contains("productline=\"") && string.IsNullOrEmpty(result.StationName))
+
+                    if (line.Contains("productline=\"") &&
+                        (string.IsNullOrEmpty(result.StationName) || IsGenericPlaceholderName(result.StationName)))
                     {
                         int ps = line.IndexOf("productline=\"", StringComparison.Ordinal) + 13;
                         int pe = line.IndexOf("\"", ps, StringComparison.Ordinal);
                         if (pe > ps)
-                            result.StationName = line.Substring(ps, pe - ps).Replace("_", " ");
+                        {
+                            string extracted = line.Substring(ps, pe - ps).Replace("_", " ").Trim();
+                            if (!IsGenericPlaceholderName(extracted))
+                                result.StationName = extracted;
+                        }
                     }
 
                     bool isRequest = line.Contains("=>[VitescoComcell]");
@@ -555,7 +687,6 @@ namespace RTAnalyzer.Core
                         continue;
                     }
 
-                    // Response line — extract response time
                     string afterEtx = line.Substring(etxPos + 1).TrimStart(',').Trim();
                     if (!int.TryParse(afterEtx, out int responseTime)) continue;
 
@@ -563,7 +694,6 @@ namespace RTAnalyzer.Core
                     string timestampNormalized = timestampRaw.Replace(',', '.');
                     DateTimeHelper.TryParseTimestamp(timestampNormalized, out DateTime parsedTimestamp);
 
-                    // Merge request body (has uid, result) with response body (has material from ACK)
                     pendingRequests.TryGetValue(pairKey, out string reqBody);
                     string mergedBody = (reqBody ?? "") + " " + body;
 
@@ -598,7 +728,6 @@ namespace RTAnalyzer.Core
 
         private static string ExtractGhpPairKey(string body)
         {
-            // body = "UNIT_CHECKIN,OR_MON0250,5,20260407..." → key = "UNIT_CHECKIN,OR_MON0250,5"
             int first = body.IndexOf(',');
             if (first < 0) return null;
             int second = body.IndexOf(',', first + 1);
@@ -614,8 +743,6 @@ namespace RTAnalyzer.Core
             string typeName = commaPos > 0 ? msgBody.Substring(0, commaPos).Trim() : msgBody.Trim();
             return MapMessageTypeName(typeName);
         }
-
-        // ── Shared helpers ───────────────────────────────────────────────────
 
         private static MessageType ParseMessageType(string text)
         {
@@ -666,5 +793,11 @@ namespace RTAnalyzer.Core
             if (endSpace < 0) endSpace = text.Length;
             return text.Substring(start, endSpace - start);
         }
+    }
+
+    public class MonthFileInfo
+    {
+        public int FileCount { get; set; }
+        public long SizeMb { get; set; }
     }
 }
