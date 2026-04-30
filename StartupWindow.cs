@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using RTAnalyzer.Core;
+using System.Runtime.InteropServices;
 
 namespace MESInsight
 {
@@ -18,8 +19,6 @@ namespace MESInsight
         public StartupMode Mode { get; private set; }
 
         private static readonly Color BgColor = Color.FromRgb(22, 80, 45);
-        private static readonly Color HexOuterFill = Color.FromRgb(8, 15, 22);
-        private static readonly Color HexOuterStroke = Color.FromRgb(18, 28, 40);
         private static readonly Color HexFill = Color.FromRgb(216, 115, 18);
         private static readonly Color HexHover = Color.FromRgb(240, 161, 48);
         private static readonly Color HexStroke = Color.FromRgb(22, 80, 45);
@@ -72,7 +71,7 @@ namespace MESInsight
         {
             Title = "MES Insight";
             Width = 1000;
-            Height = 760;
+            Height = 860;
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = new SolidColorBrush(BgColor);
@@ -145,8 +144,8 @@ namespace MESInsight
 
             AddHex(canvas, W, H, r, "📂", "LOCAL FOLDER", "Local or network path", 0 * stepX, 0, false);
             AddHex(canvas, W, H, r, "🌐", "REMOTE BACKUP LOGS", "MES Backup disc access needed", 1 * stepX, 0, false);
-            AddHex(canvas, W, H, r, "🧪", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
-                2 * stepX, 0, !sampleOk);
+            AddHex(canvas, W, H, r, "🧪", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available", 2 * stepX, 0,
+                !sampleOk);
             AddHex(canvas, W, H, r, "↻", "RECENT DATA", "Last 10 loaded stations", rowOffset + 0 * stepX, stepY, false);
             AddHex(canvas, W, H, r, "✕", "EXIT", "Close application", rowOffset + 1 * stepX, stepY, false,
                 isExit: true);
@@ -222,9 +221,7 @@ namespace MESInsight
                 StrokeThickness = 0.3
             };
 
-            double innerScale = 0.93;
-            double rInner = r * innerScale;
-
+            double rInner = r * 0.93;
             var inner = new Polygon
             {
                 Fill = new SolidColorBrush(HexFill),
@@ -256,7 +253,6 @@ namespace MESInsight
                 Foreground = new SolidColorBrush(TextLight),
                 Margin = new Thickness(0, 0, 0, 6)
             });
-
             stack.Children.Add(new TextBlock
             {
                 Text = title,
@@ -267,7 +263,6 @@ namespace MESInsight
                 TextAlignment = TextAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 3)
             });
-
             stack.Children.Add(new TextBlock
             {
                 Text = sub,
@@ -288,8 +283,11 @@ namespace MESInsight
                     inner.Fill = new SolidColorBrush(HexHover);
                     outer.Fill = new SolidColorBrush(HexHover);
                 };
-
-                grid.MouseLeave += (s, e) => { inner.Fill = new SolidColorBrush(HexFill); };
+                grid.MouseLeave += (s, e) =>
+                {
+                    inner.Fill = new SolidColorBrush(HexFill);
+                    outer.Fill = new SolidColorBrush(HexFill);
+                };
 
                 string capturedTitle = title;
                 bool capturedExit = isExit;
@@ -311,24 +309,15 @@ namespace MESInsight
 
             switch (title)
             {
-                case "LOCAL FOLDER":
-                    ShowPathDialog(isRemote: false);
-                    break;
-
-                case "REMOTE BACKUP LOGS":
-                    ShowPathDialog(isRemote: true);
-                    break;
-
+                case "LOCAL FOLDER": ShowPathDialog(isRemote: false); break;
+                case "REMOTE BACKUP LOGS": ShowPathDialog(isRemote: true); break;
                 case "SAMPLE DATA":
                     SelectedPath = SampleDataPath;
                     Mode = StartupMode.Sample;
                     SaveRecentPath(SelectedPath);
                     DialogResult = true;
                     break;
-
-                case "RECENT DATA":
-                    ShowRecentMenu();
-                    break;
+                case "RECENT DATA": ShowRecentMenu(); break;
             }
         }
 
@@ -355,15 +344,12 @@ namespace MESInsight
 
                 var browser = new System.Windows.Forms.FolderBrowserDialog
                 {
-                    Description = isRemote
-                        ? "Select a specific station folder (e.g. OHD0179N)"
-                        : "Select logs folder",
+                    Description = isRemote ? "Select a specific station folder (e.g. OHD0179N)" : "Select logs folder",
                     SelectedPath = startPath,
                     ShowNewFolderButton = false
                 };
 
-                if (browser.ShowDialog() != System.Windows.Forms.DialogResult.OK)
-                    return;
+                if (browser.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
 
                 string chosen = browser.SelectedPath;
 
@@ -391,11 +377,9 @@ namespace MESInsight
         private bool IsRootBackupFolder(string path, bool isRemote)
         {
             if (!isRemote) return false;
-
             char[] sep = new char[] { (char)92, (char)47 };
             string resolved = ResolveRemotePath().TrimEnd(sep);
             string chosen = path.TrimEnd(sep);
-
             return string.Equals(chosen, resolved, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -428,7 +412,6 @@ namespace MESInsight
             };
 
             var stack = (StackPanel)border.Child;
-
             var spin = new TextBlock
             {
                 Text = "↻",
@@ -520,8 +503,7 @@ namespace MESInsight
                 return;
             }
 
-            var dlg = new RecentDataDialog(paths);
-            dlg.Owner = this;
+            var dlg = new RecentDataDialog(paths) { Owner = this };
 
             if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.SelectedPath))
             {
@@ -543,83 +525,68 @@ namespace MESInsight
             SizeToContent = SizeToContent.Height;
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(8, 14, 10));
+            Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
-            var root = new System.Windows.Controls.StackPanel { Margin = new System.Windows.Thickness(20, 16, 20, 16) };
+            var root = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
 
-            root.Children.Add(new System.Windows.Controls.TextBlock
+            root.Children.Add(new TextBlock
             {
                 Text = "Recent Data",
                 FontSize = 13,
-                FontWeight = System.Windows.FontWeights.SemiBold,
-                Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(210, 245, 220)),
-                Margin = new System.Windows.Thickness(0, 0, 0, 12)
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)),
+                Margin = new Thickness(0, 0, 0, 12)
             });
 
             foreach (string path in paths)
             {
-                var captured = path;
-
-                var row = new System.Windows.Controls.Border
-                {
-                    Background = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(12, 26, 16)),
-                    BorderBrush = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(26, 70, 38)),
-                    BorderThickness = new System.Windows.Thickness(1),
-                    CornerRadius = new System.Windows.CornerRadius(5),
-                    Padding = new System.Windows.Thickness(12, 8, 12, 8),
-                    Margin = new System.Windows.Thickness(0, 0, 0, 5),
-                    Cursor = System.Windows.Input.Cursors.Hand
-                };
-
+                string captured = path;
                 bool exists = Directory.Exists(path);
 
-                var stack = new System.Windows.Controls.StackPanel();
-                stack.Children.Add(new System.Windows.Controls.TextBlock
+                var row = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(12, 26, 16)),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(26, 70, 38)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(5),
+                    Padding = new Thickness(12, 8, 12, 8),
+                    Margin = new Thickness(0, 0, 0, 5),
+                    Cursor = exists ? Cursors.Hand : Cursors.Arrow
+                };
+
+                var stack = new StackPanel();
+                stack.Children.Add(new TextBlock
                 {
                     Text = System.IO.Path.GetFileName(path.TrimEnd((char)92, '/')),
                     FontSize = 11,
-                    FontWeight = System.Windows.FontWeights.SemiBold,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        exists
-                            ? System.Windows.Media.Color.FromRgb(180, 230, 195)
-                            : System.Windows.Media.Color.FromRgb(100, 110, 100)),
-                    TextWrapping = System.Windows.TextWrapping.NoWrap
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground =
+                        new SolidColorBrush(exists ? Color.FromRgb(180, 230, 195) : Color.FromRgb(100, 110, 100)),
+                    TextWrapping = TextWrapping.NoWrap
                 });
-                stack.Children.Add(new System.Windows.Controls.TextBlock
+                stack.Children.Add(new TextBlock
                 {
                     Text = path,
                     FontSize = 9,
-                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        exists
-                            ? System.Windows.Media.Color.FromRgb(70, 120, 85)
-                            : System.Windows.Media.Color.FromRgb(80, 80, 80)),
-                    TextWrapping = System.Windows.TextWrapping.NoWrap
+                    FontFamily = new FontFamily("Consolas"),
+                    Foreground = new SolidColorBrush(exists ? Color.FromRgb(70, 120, 85) : Color.FromRgb(80, 80, 80)),
+                    TextWrapping = TextWrapping.NoWrap
                 });
 
                 if (!exists)
-                    stack.Children.Add(new System.Windows.Controls.TextBlock
+                    stack.Children.Add(new TextBlock
                     {
                         Text = "⚠  Path not accessible",
                         FontSize = 9,
-                        Foreground = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(160, 120, 50))
+                        Foreground = new SolidColorBrush(Color.FromRgb(160, 120, 50))
                     });
 
                 row.Child = stack;
 
                 if (exists)
                 {
-                    row.MouseEnter += (s, e) => row.Background =
-                        new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(18, 45, 24));
-                    row.MouseLeave += (s, e) => row.Background =
-                        new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(12, 26, 16));
+                    row.MouseEnter += (s, e) => row.Background = new SolidColorBrush(Color.FromRgb(18, 45, 24));
+                    row.MouseLeave += (s, e) => row.Background = new SolidColorBrush(Color.FromRgb(12, 26, 16));
                     row.MouseLeftButtonUp += (s, e) =>
                     {
                         SelectedPath = captured;
@@ -630,20 +597,17 @@ namespace MESInsight
                 root.Children.Add(row);
             }
 
-            var btnCancel = new System.Windows.Controls.Button
+            var btnCancel = new Button
             {
                 Content = "Cancel",
-                Padding = new System.Windows.Thickness(16, 7, 16, 7),
-                Margin = new System.Windows.Thickness(0, 8, 0, 0),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-                Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(18, 36, 22)),
-                Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(130, 160, 135)),
-                BorderBrush = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(36, 70, 44)),
-                BorderThickness = new System.Windows.Thickness(1),
-                Cursor = System.Windows.Input.Cursors.Hand
+                Padding = new Thickness(16, 7, 16, 7),
+                Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Background = new SolidColorBrush(Color.FromRgb(18, 36, 22)),
+                Foreground = new SolidColorBrush(Color.FromRgb(130, 160, 135)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 70, 44)),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand
             };
             btnCancel.Click += (s, e) => { DialogResult = false; };
             root.Children.Add(btnCancel);
@@ -683,7 +647,6 @@ namespace MESInsight
                 Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)),
                 Margin = new Thickness(0, 0, 0, 6)
             });
-
             root.Children.Add(new TextBlock
             {
                 Text = "Select which types to include in the analysis:",
@@ -702,7 +665,6 @@ namespace MESInsight
                 IsChecked = false,
                 Margin = new Thickness(0, 0, 0, 10)
             };
-
             var cbBackflush = new CheckBox
             {
                 Content = "Backflush  (" + backflushCount + " station" + (backflushCount != 1 ? "s" : "") + ")",
@@ -717,11 +679,7 @@ namespace MESInsight
             root.Children.Add(cbBackflush);
 
             var btnRow = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right
-            };
-
+                { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var btnConfirm = new Button
             {
                 Content = "Confirm →",
@@ -733,37 +691,44 @@ namespace MESInsight
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand
             };
-
             btnConfirm.Click += (s, e) =>
             {
                 IncludeLcs = cbLcs.IsChecked == true;
                 IncludeBackflush = cbBackflush.IsChecked == true;
                 DialogResult = true;
             };
-
             btnRow.Children.Add(btnConfirm);
             root.Children.Add(btnRow);
 
             Content = root;
         }
     }
-    
+
     public class LoadOptionsDialog : Window
     {
         public bool FilterByDate { get; private set; } = true;
-        public int MaxMonths { get; private set; } = 3;
+        public int MaxMonths { get; private set; } = 6;
         public bool IncludeLcs { get; private set; } = false;
         public bool IncludeBackflush { get; private set; } = false;
         public bool IncludeConnectors { get; private set; } = false;
         public List<string> ExcludedFolderPaths { get; private set; } = new List<string>();
+        public List<string> LazyLoadFolderPaths { get; private set; } = new List<string>();
         public Dictionary<string, int> StationMonthOverrides { get; private set; } = new Dictionary<string, int>();
+        public List<MessageType> EnabledMessageTypes { get; private set; } = new List<MessageType>();
 
-        private static readonly int[] MonthOptions = { 1, 2, 3, 6, 12, 24 };
+        private static readonly int[] MonthOptions = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
 
         private const long OptimalSizeMb = 800;
         private const long GoodSizeMb = 2000;
         private const long WarningSizeMb = 4000;
         private const long CriticalSizeMb = 7000;
+
+        private static readonly MessageType[] AllMessageTypes =
+        {
+            MessageType.UNIT_CHECKIN, MessageType.UNIT_RESULT, MessageType.UNIT_INFO,
+            MessageType.NEXT_OPERATION, MessageType.LOAD_MATERIAL, MessageType.REQ_LOADED_MATERIAL,
+            MessageType.REQ_MATERIAL_INFO, MessageType.REQ_SETUP_CHANGE2
+        };
 
         private class StationLoadEntry
         {
@@ -771,6 +736,10 @@ namespace MESInsight
             public CheckBox EnabledBox { get; set; }
             public Slider MonthSlider { get; set; }
         }
+
+        // RAM label updated by timer — kept as field so timer can access it
+        private TextBlock _ramValueLabel;
+        private System.Windows.Threading.DispatcherTimer _ramTimer;
 
         public LoadOptionsDialog(
             List<StationInfo> ghpStations,
@@ -780,17 +749,17 @@ namespace MESInsight
             Dictionary<int, MonthFileInfo> globalFileCounts = null)
         {
             Title = "Load Options";
-            Width = 700;
-            Height = 760;
+            Width = 980;
+            Height = 900;
             ResizeMode = ResizeMode.CanResize;
-            MinWidth = 540;
-            MinHeight = 520;
+            MinWidth = 720;
+            MinHeight = 640;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
             int recommendedMonths = CalculateRecommendedMonths(globalFileCounts);
             int recommendedIndex = Array.IndexOf(MonthOptions, recommendedMonths);
-            if (recommendedIndex < 0) recommendedIndex = 2;
+            if (recommendedIndex < 0) recommendedIndex = 5;
 
             var allEntries = new List<StationLoadEntry>();
 
@@ -799,16 +768,8 @@ namespace MESInsight
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.Children.Add(BuildHeader());
-
-            var scroll = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Padding = new Thickness(20, 14, 20, 8)
-            };
-            Grid.SetRow(scroll, 1);
 
             var content = new StackPanel();
 
@@ -820,14 +781,21 @@ namespace MESInsight
 
             var cbGhp = AddStationSection(content, allEntries, "GHP Stations", ghpStations, Color.FromRgb(63, 185, 80),
                 true, recommendedIndex);
-            var cbLcs = AddStationSection(content, allEntries, "LCS Stations", lcsStations, Color.FromRgb(80, 160, 220),
-                false, recommendedIndex);
-            var cbBfl = AddStationSection(content, allEntries, "Backflush Stations", backflushStations,
+            var cbLcs = AddStationSection(content, allEntries, "LCS Stations  ⚠ WIP", lcsStations,
+                Color.FromRgb(80, 160, 220), false, recommendedIndex);
+            var cbBfl = AddStationSection(content, allEntries, "Backflush Stations  ⚠ WIP", backflushStations,
                 Color.FromRgb(220, 160, 60), false, recommendedIndex);
             var cbCon = AddStationSection(content, allEntries, "Connectors", connectorStations,
                 Color.FromRgb(180, 120, 220), false, recommendedIndex);
 
-            scroll.Content = content;
+            var scroll = new ScrollViewer
+            {
+                Content = content,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(20, 14, 20, 8)
+            };
+            Grid.SetRow(scroll, 1);
             root.Children.Add(scroll);
 
             TextBlock totalSizeLabel, totalWarningLabel;
@@ -836,41 +804,61 @@ namespace MESInsight
             Grid.SetRow(indicator, 2);
             root.Children.Add(indicator);
 
+            // Message type checkboxes
+            var msgTypeSection = BuildMessageTypeSection();
+            Grid.SetRow(msgTypeSection, 3);
+            root.Children.Add(msgTypeSection);
+
+            var btnLoad = BuildLoadButton();
             var cbDateFilter = new CheckBox { IsChecked = true };
-            var footer = BuildFooter(cbDateFilter,
-                onLoad: () =>
+
+            btnLoad.Click += (s, e) =>
+            {
+                int idx = (int)Math.Round(globalSlider.Value);
+                FilterByDate = cbDateFilter.IsChecked == true;
+                MaxMonths = MonthOptions[idx];
+                IncludeLcs = cbLcs?.IsChecked == true;
+                IncludeBackflush = cbBfl?.IsChecked == true;
+                IncludeConnectors = cbCon?.IsChecked == true;
+
+                ExcludedFolderPaths = new List<string>(); // all unchecked stations go to LazyLoad
+
+                LazyLoadFolderPaths = allEntries
+                    .Where(stEntry => stEntry.EnabledBox.IsChecked != true)
+                    .Select(stEntry => stEntry.Station.FolderPath)
+                    .ToList();
+
+                StationMonthOverrides = new Dictionary<string, int>();
+                foreach (var entry in allEntries)
                 {
-                    int idx = (int)Math.Round(globalSlider.Value);
-                    FilterByDate = cbDateFilter.IsChecked == true;
-                    MaxMonths = MonthOptions[idx];
-                    IncludeLcs = cbLcs?.IsChecked == true;
-                    IncludeBackflush = cbBfl?.IsChecked == true;
-                    IncludeConnectors = cbCon?.IsChecked == true;
+                    if (entry.EnabledBox.IsChecked != true) continue;
+                    int stMonths = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
+                    if (stMonths != MaxMonths)
+                        StationMonthOverrides[entry.Station.FolderPath] = stMonths;
+                }
 
-                    ExcludedFolderPaths = allEntries
-                        .Where(e => e.EnabledBox.IsChecked != true)
-                        .Select(e => e.Station.FolderPath)
-                        .ToList();
+                EnabledMessageTypes = _messageTypeCheckboxes
+                    .Where(kv => kv.Value.IsChecked == true)
+                    .Select(kv => kv.Key)
+                    .ToList();
 
-                    StationMonthOverrides = new Dictionary<string, int>();
-                    foreach (var entry in allEntries)
-                    {
-                        if (entry.EnabledBox.IsChecked != true) continue;
-                        int stMonths = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
-                        if (stMonths != MaxMonths)
-                            StationMonthOverrides[entry.Station.FolderPath] = stMonths;
-                    }
+                _ramTimer?.Stop();
+                DialogResult = true;
+            };
 
-                    DialogResult = true;
-                },
-                onCancel: () => { DialogResult = false; });
-            Grid.SetRow(footer, 3);
+            var footer = BuildFooter(cbDateFilter, btnLoad, onCancel: () =>
+            {
+                _ramTimer?.Stop();
+                DialogResult = false;
+            });
+            Grid.SetRow(footer, 4);
             root.Children.Add(footer);
 
             Content = root;
 
             Action recalculate = () => RecalculateTotalLoad(
-                allEntries, globalSlider, globalFileCounts, loadBar, totalSizeLabel, totalWarningLabel);
+                allEntries, globalSlider, globalFileCounts,
+                loadBar, totalSizeLabel, totalWarningLabel, btnLoad);
 
             globalSlider.ValueChanged += (s, e) =>
             {
@@ -894,9 +882,97 @@ namespace MESInsight
             UpdateSliderDisplay(globalSlider, globalValueLabel, globalSizeLabel,
                 globalWarningLabel, globalFileCounts, recommendedMonths);
             recalculate();
+
+            // RAM refresh every second
+            _ramTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _ramTimer.Tick += (s, e) => UpdateRamLabel(recalculate);
+            _ramTimer.Start();
+            Closed += (s, e) => _ramTimer.Stop();
         }
 
-        // ── Single source of truth for load status colors and labels ──────────
+        // ── RAM label refresh ─────────────────────────────────────────────────
+
+        private void UpdateRamLabel(Action recalculate)
+        {
+            if (_ramValueLabel == null) return;
+
+            long availMb = GetAvailableRamMb();
+            long totalRamMb = GetTotalRamMb();
+
+            if (availMb < 0)
+            {
+                _ramValueLabel.Text = "unknown";
+                _ramValueLabel.Foreground = new SolidColorBrush(Color.FromRgb(100, 110, 100));
+                return;
+            }
+
+            string availText = availMb >= 1024 ? (availMb / 1024.0).ToString("0.#") + " GB" : availMb + " MB";
+            string totalText = totalRamMb >= 1024 ? (totalRamMb / 1024.0).ToString("0.#") + " GB" : totalRamMb + " MB";
+            _ramValueLabel.Text = $"{availText}  /  {totalText} total";
+
+            double usedRatio = 1.0 - (availMb / (double)Math.Max(1, totalRamMb));
+            Color ramColor = usedRatio > 0.85
+                ? Color.FromRgb(230, 100, 80)
+                : usedRatio > 0.65
+                    ? Color.FromRgb(210, 160, 50)
+                    : Color.FromRgb(80, 185, 120);
+
+            _ramValueLabel.Foreground = new SolidColorBrush(ramColor);
+        }
+
+        // ── RAM via Windows API ───────────────────────────────────────────────
+
+        [StructLayout(LayoutKind.Sequential)]
+        private class MEMORYSTATUSEX
+        {
+            public uint dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GlobalMemoryStatusEx([In, Out] MEMORYSTATUSEX lpBuffer);
+
+        private static long GetAvailableRamMb()
+        {
+            try
+            {
+                var status = new MEMORYSTATUSEX();
+                if (GlobalMemoryStatusEx(status))
+                    return (long)(status.ullAvailPhys / 1024 / 1024);
+            }
+            catch
+            {
+            }
+
+            return -1;
+        }
+
+        private static long GetTotalRamMb()
+        {
+            try
+            {
+                var status = new MEMORYSTATUSEX();
+                if (GlobalMemoryStatusEx(status))
+                    return (long)(status.ullTotalPhys / 1024 / 1024);
+            }
+            catch
+            {
+            }
+
+            return -1;
+        }
+
+        // ── Load status — single source of truth ──────────────────────────────
 
         private static (Color textColor, Color barColor, string statusText) GetLoadStatus(long sizeMb)
         {
@@ -906,19 +982,20 @@ namespace MESInsight
                 return (Color.FromRgb(220, 60, 40), Color.FromRgb(220, 60, 40), "⚠  Risk — may run out of memory");
             if (sizeMb >= GoodSizeMb)
                 return (Color.FromRgb(220, 140, 30), Color.FromRgb(220, 140, 30), "⚠  Heavy — loading will be slow");
-            if (sizeMb >= OptimalSizeMb)
-                return (Color.FromRgb(160, 200, 60), Color.FromRgb(160, 200, 60), "✓  Good");
+            if (sizeMb >= OptimalSizeMb) return (Color.FromRgb(160, 200, 60), Color.FromRgb(160, 200, 60), "✓  Good");
             return (Color.FromRgb(46, 185, 80), Color.FromRgb(46, 185, 80), "✓  Optimal");
         }
 
         private static int CalculateRecommendedMonths(Dictionary<int, MonthFileInfo> fileCounts)
         {
-            if (fileCounts == null) return 3;
+            if (fileCounts == null) return 6;
             foreach (int m in MonthOptions)
                 if (fileCounts.TryGetValue(m, out var info) && info.SizeMb <= OptimalSizeMb)
                     return m;
             return MonthOptions[0];
         }
+
+        // ── Recalculate load ──────────────────────────────────────────────────
 
         private static void RecalculateTotalLoad(
             List<StationLoadEntry> entries,
@@ -926,41 +1003,62 @@ namespace MESInsight
             Dictionary<int, MonthFileInfo> globalFileCounts,
             ProgressBar loadBar,
             TextBlock totalSizeLabel,
-            TextBlock totalWarningLabel)
+            TextBlock totalWarningLabel,
+            Button btnLoad)
         {
-            var enabled = entries.Where(e => e.EnabledBox.IsChecked == true).ToList();
+            var enabled = entries.Where(stEntry => stEntry.EnabledBox.IsChecked == true).ToList();
 
             if (enabled.Count == 0 || globalFileCounts == null)
             {
                 loadBar.Value = 0;
                 totalSizeLabel.Text = "No stations selected";
                 totalWarningLabel.Text = "";
+                btnLoad.IsEnabled = true;
+                btnLoad.ToolTip = null;
                 return;
             }
 
-            int total = entries.Count > 0 ? entries.Count : 1;
-            long totalMb = 0;
+            int totalStations = entries.Count > 0 ? entries.Count : 1;
+            long totalFileMb = 0;
 
             foreach (var entry in enabled)
             {
                 int months = MonthOptions[(int)Math.Round(entry.MonthSlider.Value)];
                 if (globalFileCounts.TryGetValue(months, out var info))
-                    totalMb += info.SizeMb / total;
+                    totalFileMb += info.SizeMb / totalStations;
             }
 
-            loadBar.Value = Math.Min(100, totalMb * 100.0 / CriticalSizeMb);
+            long estimatedRamMb = totalFileMb * 4;
+            long availableRamMb = GetAvailableRamMb();
 
-            var (textColor, barColor, statusText) = GetLoadStatus(totalMb);
+            loadBar.Value = Math.Min(100, totalFileMb * 100.0 / CriticalSizeMb);
 
-            string sizeText = totalMb >= 1024
-                ? (totalMb / 1024.0).ToString("0.#") + " GB  estimated"
-                : totalMb + " MB  estimated";
+            var (textColor, barColor, statusText) = GetLoadStatus(totalFileMb);
+
+            string sizeText = totalFileMb >= 1024
+                ? (totalFileMb / 1024.0).ToString("0.#") + " GB  estimated"
+                : totalFileMb + " MB  estimated";
 
             totalSizeLabel.Text = $"{enabled.Count} stations  ·  {sizeText}";
             totalSizeLabel.Foreground = new SolidColorBrush(textColor);
             loadBar.Foreground = new SolidColorBrush(barColor);
-            totalWarningLabel.Text = statusText;
-            totalWarningLabel.Foreground = new SolidColorBrush(textColor);
+
+            btnLoad.IsEnabled = true;
+            btnLoad.ToolTip = null;
+
+            // Warn but never block — user decides
+            bool ramLow = availableRamMb > 0 && estimatedRamMb > availableRamMb;
+
+            if (ramLow)
+            {
+                totalWarningLabel.Text = "ℹ  Estimated RAM usage exceeds available — consider Lazy Load";
+                totalWarningLabel.Foreground = new SolidColorBrush(Color.FromRgb(160, 160, 160));
+            }
+            else
+            {
+                totalWarningLabel.Text = statusText;
+                totalWarningLabel.Foreground = new SolidColorBrush(textColor);
+            }
         }
 
         // ── Global slider section ─────────────────────────────────────────────
@@ -1060,8 +1158,6 @@ namespace MESInsight
             warningLabel.Foreground = new SolidColorBrush(textColor);
         }
 
-        // ── Station section ───────────────────────────────────────────────────
-
         private static CheckBox AddStationSection(
             StackPanel parent, List<StationLoadEntry> allEntries,
             string title, List<StationInfo> stations,
@@ -1075,97 +1171,232 @@ namespace MESInsight
                 BorderBrush = new SolidColorBrush(Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(16, 12, 16, 12),
+                Padding = new Thickness(16, 14, 16, 14),
                 Margin = new Thickness(0, 0, 0, 10)
             };
 
             var stack = new StackPanel();
+            var cbSection = BuildSectionHeaderCheckbox(stack, title, stations.Count, accentColor, defaultChecked);
+            var sectionEntries = BuildSectionEntries(stack, allEntries, stations, cbSection, accentColor,
+                defaultChecked, defaultSliderIndex);
 
+            border.Child = stack;
+            parent.Children.Add(border);
+            return cbSection;
+        }
+
+// Builds the section title checkbox + lazy info label + check all buttons
+        private static CheckBox BuildSectionHeaderCheckbox(
+            StackPanel stack, string title, int stationCount,
+            Color accentColor, bool defaultChecked)
+        {
             var cbSection = new CheckBox { IsChecked = defaultChecked };
             var titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
             titlePanel.Children.Add(new TextBlock
             {
-                Text = title, FontSize = 13, FontWeight = FontWeights.SemiBold,
+                Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(accentColor)
             });
             titlePanel.Children.Add(new TextBlock
             {
-                Text = "  (" + stations.Count + ")", FontSize = 11,
+                Text = "  (" + stationCount + ")", FontSize = 12,
                 Foreground = new SolidColorBrush(Color.FromRgb(100, 140, 112)),
                 VerticalAlignment = VerticalAlignment.Center
             });
             cbSection.Content = titlePanel;
             stack.Children.Add(cbSection);
 
-            var expander = new Expander
+            var lazyInfoLabel = new TextBlock
             {
-                Header = "Choose stations ▾", IsExpanded = false,
-                Margin = new Thickness(24, 6, 0, 0), FontSize = 10,
-                Foreground = new SolidColorBrush(Color.FromRgb(90, 150, 110)),
-                IsEnabled = defaultChecked
+                Text = "⏳  Unchecked stations will be available for on-demand loading",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(90, 110, 95)),
+                Margin = new Thickness(0, 6, 0, 4),
+                Visibility = Visibility.Collapsed
             };
-            cbSection.Checked += (s, e) => expander.IsEnabled = true;
-            cbSection.Unchecked += (s, e) => expander.IsEnabled = false;
+            cbSection.Unchecked += (s, e) => lazyInfoLabel.Visibility = Visibility.Visible;
+            cbSection.Checked += (s, e) => lazyInfoLabel.Visibility = Visibility.Collapsed;
+            stack.Children.Add(lazyInfoLabel);
 
-            var stationList = new StackPanel { Margin = new Thickness(4, 4, 0, 0) };
+            stack.Children.Add(BuildCheckAllRow());
 
-            foreach (var st in stations)
-            {
-                var cb = new CheckBox { IsChecked = defaultChecked, IsEnabled = defaultChecked };
-                var slider = BuildSlider(defaultSliderIndex);
-                slider.Width = 100;
-
-                var entry = new StationLoadEntry { Station = st, EnabledBox = cb, MonthSlider = slider };
-                allEntries.Add(entry);
-
-                cbSection.Checked += (s, e) =>
-                {
-                    cb.IsEnabled = true;
-                    cb.IsChecked = true;
-                };
-                cbSection.Unchecked += (s, e) =>
-                {
-                    cb.IsEnabled = false;
-                    cb.IsChecked = false;
-                };
-
-                stationList.Children.Add(BuildStationRowUI(entry));
-            }
-
-            expander.Content = stationList;
-            stack.Children.Add(expander);
-            border.Child = stack;
-            parent.Children.Add(border);
             return cbSection;
         }
 
-        private static UIElement BuildStationRowUI(StationLoadEntry entry)
+// Builds Check All / Uncheck All buttons — wired up later after entries are created
+        private static StackPanel BuildCheckAllRow()
         {
-            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 4) };
+
+            row.Children.Add(new Button
+            {
+                Content = "✓ Check All", FontSize = 10, Padding = new Thickness(8, 3, 8, 3),
+                Margin = new Thickness(0, 0, 6, 0),
+                Background = new SolidColorBrush(Color.FromRgb(14, 40, 20)),
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 185, 130)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 80, 44)),
+                BorderThickness = new Thickness(1), Cursor = Cursors.Hand,
+                Tag = "CheckAll"
+            });
+            row.Children.Add(new Button
+            {
+                Content = "○ Uncheck All", FontSize = 10, Padding = new Thickness(8, 3, 8, 3),
+                Background = new SolidColorBrush(Color.FromRgb(14, 40, 20)),
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 140, 125)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 80, 44)),
+                BorderThickness = new Thickness(1), Cursor = Cursors.Hand,
+                Tag = "UncheckAll"
+            });
+
+            return row;
+        }
+
+// Creates all station entries and adds the station grid to stack
+        private static List<StationLoadEntry> BuildSectionEntries(
+            StackPanel stack, List<StationLoadEntry> allEntries,
+            List<StationInfo> stations, CheckBox cbSection,
+            Color accentColor, bool defaultChecked, int defaultSliderIndex)
+        {
+            var sectionEntries = new List<StationLoadEntry>();
+
+            foreach (var st in stations)
+            {
+                var cb = new CheckBox { IsChecked = defaultChecked, IsEnabled = true };
+                var slider = BuildSlider(defaultSliderIndex);
+                slider.Width = 90;
+
+                var entry = new StationLoadEntry { Station = st, EnabledBox = cb, MonthSlider = slider };
+                allEntries.Add(entry);
+                sectionEntries.Add(entry);
+
+                cbSection.Checked += (s, e) => { cb.IsChecked = true; };
+                cbSection.Unchecked += (s, e) => { cb.IsChecked = false; };
+            }
+
+            WireCheckAllButtons(stack, sectionEntries);
+            AddStationGrid(stack, sectionEntries, accentColor, defaultChecked);
+
+            return sectionEntries;
+        }
+
+// Wires the Check All / Uncheck All buttons to the section entries
+        private static void WireCheckAllButtons(StackPanel stack, List<StationLoadEntry> sectionEntries)
+        {
+            var checkAllRow = stack.Children.OfType<StackPanel>()
+                .FirstOrDefault(p => p.Children.OfType<Button>().Any(b => b.Tag?.ToString() == "CheckAll"));
+
+            if (checkAllRow == null) return;
+
+            var btnCheck = checkAllRow.Children.OfType<Button>().FirstOrDefault(b => b.Tag?.ToString() == "CheckAll");
+            var btnUncheck = checkAllRow.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Tag?.ToString() == "UncheckAll");
+
+            if (btnCheck != null)
+                btnCheck.Click += (s, e) =>
+                {
+                    foreach (var ent in sectionEntries) ent.EnabledBox.IsChecked = true;
+                };
+            if (btnUncheck != null)
+                btnUncheck.Click += (s, e) =>
+                {
+                    foreach (var ent in sectionEntries) ent.EnabledBox.IsChecked = false;
+                };
+        }
+
+// Adds the 2-column station grid — GHP shows first 10 inline, rest in expander
+        private static void AddStationGrid(
+            StackPanel stack, List<StationLoadEntry> sectionEntries,
+            Color accentColor, bool isGhp)
+        {
+            if (isGhp)
+            {
+                stack.Children.Add(new Border
+                {
+                    Child = BuildTwoColumnGrid(sectionEntries.Take(10).ToList(), accentColor),
+                    Margin = new Thickness(0, 8, 0, 0)
+                });
+
+                if (sectionEntries.Count > 10)
+                {
+                    stack.Children.Add(new Expander
+                    {
+                        Header = $"Show {sectionEntries.Count - 10} more ▾",
+                        IsExpanded = false,
+                        Margin = new Thickness(0, 4, 0, 0),
+                        FontSize = 11,
+                        Foreground = new SolidColorBrush(Color.FromRgb(90, 150, 110)),
+                        Content = BuildTwoColumnGrid(sectionEntries.Skip(10).ToList(), accentColor)
+                    });
+                }
+            }
+            else
+            {
+                stack.Children.Add(new Expander
+                {
+                    Header = "Choose stations ▾",
+                    IsExpanded = false,
+                    Margin = new Thickness(0, 6, 0, 0),
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(90, 150, 110)),
+                    Content = new Border
+                    {
+                        Child = BuildTwoColumnGrid(sectionEntries, accentColor),
+                        Margin = new Thickness(0, 4, 0, 0)
+                    }
+                });
+            }
+        }
+
+        private static UIElement BuildTwoColumnGrid(List<StationLoadEntry> entries, Color accentColor)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            int rowCount = (entries.Count + 1) / 2;
+            for (int r = 0; r < rowCount; r++)
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                int col = i % 2;
+                int row = i / 2;
+                var ui = BuildStationRowUI(entries[i], accentColor);
+                Grid.SetColumn(ui, col);
+                Grid.SetRow(ui, row);
+                grid.Children.Add(ui);
+            }
+
+            return grid;
+        }
+
+        private static UIElement BuildStationRowUI(StationLoadEntry entry, Color accentColor)
+        {
+            var outer = new StackPanel { Margin = new Thickness(0, 3, 8, 3) };
+
+            // Station name + checkbox row
+            var nameRow = new Grid();
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             entry.EnabledBox.Content = new TextBlock
             {
-                Text = entry.Station.StationName, FontSize = 11,
+                Text = entry.Station.StationName,
+                FontSize = 12,
                 Foreground = new SolidColorBrush(Color.FromRgb(175, 220, 190)),
-                TextWrapping = TextWrapping.NoWrap
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
-            row.Children.Add(entry.EnabledBox);
+            nameRow.Children.Add(entry.EnabledBox);
 
-            var sliderPanel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(sliderPanel, 1);
-
+            // Month slider
             var monthLabel = new TextBlock
             {
-                FontSize = 10, Width = 38, TextAlignment = TextAlignment.Right,
+                FontSize = 10,
+                Width = 32,
+                TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
+                Margin = new Thickness(0, 0, 4, 0)
             };
 
             entry.MonthSlider.ValueChanged += (s, e) =>
@@ -1180,18 +1411,146 @@ namespace MESInsight
             monthLabel.Text = initM == 1 ? "1 mo" : initM + " mo";
             monthLabel.Foreground = new SolidColorBrush(Color.FromRgb(100, 185, 130));
 
-            sliderPanel.Children.Add(monthLabel);
-            sliderPanel.Children.Add(entry.MonthSlider);
-            row.Children.Add(sliderPanel);
-            return row;
+            var sliderRow = new StackPanel { Orientation = Orientation.Horizontal };
+
+            sliderRow.Children.Add(monthLabel);
+            sliderRow.Children.Add(entry.MonthSlider);
+
+            Grid.SetColumn(sliderRow, 1);
+
+            nameRow.Children.Add(sliderRow);
+            outer.Children.Add(nameRow);
+
+            return outer;
         }
 
         // ── Load indicator ────────────────────────────────────────────────────
 
-        private static UIElement BuildLoadIndicator(
+        private UIElement BuildLoadIndicator(
             out ProgressBar loadBar,
             out TextBlock totalSizeLabel,
             out TextBlock totalWarningLabel)
+        {
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(20, 12, 20, 12)
+            };
+
+            var stack = new StackPanel();
+
+            // Estimated load label
+            var loadRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+            loadRow.Children.Add(new TextBlock
+            {
+                Text = "Estimated load:  ", FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            totalSizeLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            loadRow.Children.Add(totalSizeLabel);
+            stack.Children.Add(loadRow);
+
+            // Gradient progress bar — green to red spectrum, dimmed unfilled part
+            var barContainer = new Grid { Height = 14, Margin = new Thickness(0, 0, 0, 6) };
+
+            var bgBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+            var fgBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+
+            var spectrumStops = new (double stop, byte r, byte g, byte b)[]
+            {
+                (0.00, 46, 185, 80),
+                (0.25, 160, 200, 60),
+                (0.50, 220, 180, 30),
+                (0.75, 220, 80, 40),
+                (1.00, 160, 30, 20)
+            };
+
+            foreach (var (stop, r, g, b) in spectrumStops)
+            {
+                bgBrush.GradientStops.Add(new GradientStop(Color.FromArgb(45, r, g, b), stop));
+                fgBrush.GradientStops.Add(new GradientStop(Color.FromRgb(r, g, b), stop));
+            }
+
+            var bgRect = new System.Windows.Shapes.Rectangle
+            {
+                Fill = bgBrush, RadiusX = 5, RadiusY = 5,
+                HorizontalAlignment = HorizontalAlignment.Stretch, Height = 14
+            };
+            barContainer.Children.Add(bgRect);
+
+            loadBar = new ProgressBar
+            {
+                Height = 14, Minimum = 0, Maximum = 100, Value = 0,
+                Foreground = fgBrush,
+                Background = System.Windows.Media.Brushes.Transparent,
+                BorderThickness = new Thickness(0)
+            };
+            barContainer.Children.Add(loadBar);
+            stack.Children.Add(barContainer);
+
+            // Warning label
+            totalWarningLabel = new TextBlock
+            {
+                FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap
+            };
+            stack.Children.Add(totalWarningLabel);
+
+            // RAM row — dynamic, updated by timer
+            long availMb = GetAvailableRamMb();
+            long totalRamMb = GetTotalRamMb();
+
+            var ramRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+            ramRow.Children.Add(new TextBlock
+            {
+                Text = "Available RAM:  ", FontSize = 13, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            _ramValueLabel = new TextBlock
+            {
+                FontSize = 14, FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            // Set initial value
+            if (availMb < 0)
+            {
+                _ramValueLabel.Text = "unknown";
+                _ramValueLabel.Foreground = new SolidColorBrush(Color.FromRgb(100, 110, 100));
+            }
+            else
+            {
+                string availText = availMb >= 1024 ? (availMb / 1024.0).ToString("0.#") + " GB" : availMb + " MB";
+                string totalText = totalRamMb >= 1024
+                    ? (totalRamMb / 1024.0).ToString("0.#") + " GB"
+                    : totalRamMb + " MB";
+                _ramValueLabel.Text = $"{availText}  /  {totalText} total";
+
+                double usedRatio = 1.0 - (availMb / (double)Math.Max(1, totalRamMb));
+                Color ramColor = usedRatio > 0.85
+                    ? Color.FromRgb(230, 100, 80)
+                    : usedRatio > 0.65
+                        ? Color.FromRgb(210, 160, 50)
+                        : Color.FromRgb(80, 185, 120);
+                _ramValueLabel.Foreground = new SolidColorBrush(ramColor);
+            }
+
+            ramRow.Children.Add(_ramValueLabel);
+            stack.Children.Add(ramRow);
+
+            border.Child = stack;
+            return border;
+        }
+
+        // ── Message type section ──────────────────────────────────────────────
+
+        private Dictionary<MessageType, CheckBox> _messageTypeCheckboxes = new Dictionary<MessageType, CheckBox>();
+
+        private UIElement BuildMessageTypeSection()
         {
             var border = new Border
             {
@@ -1202,42 +1561,69 @@ namespace MESInsight
             };
 
             var stack = new StackPanel();
-
-            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 5) };
-            labelRow.Children.Add(new TextBlock
+            stack.Children.Add(new TextBlock
             {
-                Text = "Estimated load:  ", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82))
+                Text = "Message types to include:",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 170, 135)),
+                Margin = new Thickness(0, 0, 0, 6)
             });
-            totalSizeLabel = new TextBlock { FontSize = 11 };
-            labelRow.Children.Add(totalSizeLabel);
-            stack.Children.Add(labelRow);
 
-            loadBar = new ProgressBar
+            var wrapPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+
+            foreach (var msgType in AllMessageTypes)
             {
-                Height = 8, Minimum = 0, Maximum = 100, Value = 0,
-                Background = new SolidColorBrush(Color.FromRgb(20, 40, 26)),
-                BorderThickness = new Thickness(0)
-            };
-            stack.Children.Add(loadBar);
+                var cb = new CheckBox
+                {
+                    IsChecked = true,
+                    Margin = new Thickness(0, 0, 16, 4)
+                };
+                cb.Content = new TextBlock
+                {
+                    Text = msgType.ToString().Replace("REQ_", "").Replace("_", " "),
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 165))
+                };
+                _messageTypeCheckboxes[msgType] = cb;
+                wrapPanel.Children.Add(cb);
+            }
 
-            totalWarningLabel = new TextBlock
-                { FontSize = 10, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
-            stack.Children.Add(totalWarningLabel);
-
+            stack.Children.Add(wrapPanel);
             border.Child = stack;
             return border;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
+        private static Button BuildLoadButton()
+        {
+            return new Button
+            {
+                Content = "Load →",
+                Padding = new Thickness(22, 8, 22, 8),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Background = new SolidColorBrush(Color.FromRgb(22, 100, 50)),
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 245, 205)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(50, 180, 90)),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand
+            };
+        }
+
         private static Slider BuildSlider(int defaultIndex)
         {
             return new Slider
             {
-                Minimum = 0, Maximum = MonthOptions.Length - 1, Value = defaultIndex,
-                TickFrequency = 1, IsSnapToTickEnabled = true,
+                Minimum = 0,
+                Maximum = MonthOptions.Length - 1,
+                Value = defaultIndex,
+                TickFrequency = 1,
+                IsSnapToTickEnabled = true,
                 TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight,
-                SmallChange = 1, LargeChange = 1,
+                SmallChange = 1,
+                LargeChange = 1,
                 VerticalAlignment = VerticalAlignment.Center
             };
         }
@@ -1251,12 +1637,12 @@ namespace MESInsight
 
             var left = new TextBlock
             {
-                Text = "1 mo", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
+                Text = "1 mo", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0)
             };
             var right = new TextBlock
             {
-                Text = "24 mo", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
+                Text = "12 mo", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)),
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0)
             };
 
@@ -1267,8 +1653,6 @@ namespace MESInsight
             grid.Children.Add(right);
             return grid;
         }
-
-        // ── Header ────────────────────────────────────────────────────────────
 
         private static UIElement BuildHeader()
         {
@@ -1282,22 +1666,20 @@ namespace MESInsight
             var stack = new StackPanel();
             stack.Children.Add(new TextBlock
             {
-                Text = "Load Options", FontSize = 17, FontWeight = FontWeights.SemiBold,
+                Text = "⏳  Load Options", FontSize = 17, FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220))
             });
             stack.Children.Add(new TextBlock
             {
                 Text = "Select stations and how much historical data to load.", FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(90, 140, 105)), Margin = new Thickness(0, 4, 0, 0),
-                TextWrapping = TextWrapping.Wrap
+                Foreground = new SolidColorBrush(Color.FromRgb(90, 140, 105)),
+                Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap
             });
             border.Child = stack;
             return border;
         }
 
-        // ── Footer ────────────────────────────────────────────────────────────
-
-        private static UIElement BuildFooter(CheckBox cbDateFilter, Action onLoad, Action onCancel)
+        private static UIElement BuildFooter(CheckBox cbDateFilter, Button btnLoad, Action onCancel)
         {
             var border = new Border
             {
@@ -1328,20 +1710,10 @@ namespace MESInsight
                 Content = "Cancel", Padding = new Thickness(18, 8, 18, 8), Margin = new Thickness(0, 0, 10, 0),
                 FontSize = 12, Background = new SolidColorBrush(Color.FromRgb(18, 36, 22)),
                 Foreground = new SolidColorBrush(Color.FromRgb(130, 160, 135)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 70, 44)), BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand
+                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 70, 44)),
+                BorderThickness = new Thickness(1), Cursor = Cursors.Hand
             };
             btnCancel.Click += (s, e) => onCancel();
-
-            var btnLoad = new Button
-            {
-                Content = "Load →", Padding = new Thickness(22, 8, 22, 8), FontSize = 13,
-                FontWeight = FontWeights.SemiBold, Background = new SolidColorBrush(Color.FromRgb(22, 100, 50)),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 245, 205)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(50, 180, 90)), BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand
-            };
-            btnLoad.Click += (s, e) => onLoad();
 
             btnRow.Children.Add(btnCancel);
             btnRow.Children.Add(btnLoad);
