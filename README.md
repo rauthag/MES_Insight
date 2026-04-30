@@ -1,6 +1,6 @@
-# 📊 MES Insight
+# 📊 MES Insight - WPF C# Application
 
-A desktop tool for analyzing and visualizing response times of MES (Manufacturing Execution System) between MES PC and PLC. It helps identify performance bottlenecks, communication lags, and system stability issues.
+A desktop application for analyzing and visualizing response times of MES (Manufacturing Execution System) between MES PC and PLC. It helps identify performance bottlenecks, communication lags, and system stability issues.
 
 ## 📸 Screenshots
 
