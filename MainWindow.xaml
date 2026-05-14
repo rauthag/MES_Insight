@@ -4,7 +4,7 @@
         Title="MES Insight" WindowStartupLocation="Manual"
         Background="#0D1117"
         MinWidth="1024" MinHeight="600"
-        FontFamily="Inter, Segoe UI, sans-serif">
+        FontFamily="pack://application:,,,/Fonts/#Inter 18pt">
 
     <Window.Resources>
         <Style x:Key="ThinScrollBarThumb" TargetType="{x:Type Thumb}">
@@ -40,7 +40,12 @@
             </Style.Triggers>
         </Style>
 
+        <Style TargetType="{x:Type TextBlock}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
+        </Style>
+
         <Style TargetType="{x:Type TextBox}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#161B22" />
             <Setter Property="Foreground" Value="#C9D1D9" />
             <Setter Property="BorderBrush" Value="#30363D" />
@@ -73,7 +78,12 @@
             </Setter>
         </Style>
 
+        <Style TargetType="{x:Type Button}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
+        </Style>
+
         <Style TargetType="{x:Type ComboBox}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#161B22" />
             <Setter Property="Foreground" Value="#C9D1D9" />
             <Setter Property="BorderBrush" Value="#30363D" />
@@ -83,6 +93,7 @@
         </Style>
 
         <Style TargetType="{x:Type DatePicker}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#161B22" />
             <Setter Property="Foreground" Value="#C9D1D9" />
             <Setter Property="BorderBrush" Value="#30363D" />
@@ -97,6 +108,7 @@
         </Style>
 
         <Style TargetType="{x:Type TabItem}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#0D3320" />
             <Setter Property="Foreground" Value="#4CAF72" />
             <Setter Property="BorderBrush" Value="#1A5C35" />
@@ -136,6 +148,7 @@
         </Style>
 
         <Style TargetType="{x:Type DataGrid}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#0D1117" />
             <Setter Property="Foreground" Value="#C9D1D9" />
             <Setter Property="BorderBrush" Value="#21262D" />
@@ -148,6 +161,7 @@
         </Style>
 
         <Style TargetType="{x:Type DataGridColumnHeader}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#161B22" />
             <Setter Property="Foreground" Value="#8B949E" />
             <Setter Property="BorderBrush" Value="#21262D" />
@@ -168,8 +182,9 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
-        <!-- Modern CheckBox style -->
+
         <Style TargetType="{x:Type CheckBox}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Foreground" Value="#C9D1D9" />
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Template">
@@ -212,7 +227,6 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Row 0: Title bar with Load Logs on the right -->
         <Grid Grid.Row="0" Background="#0A1F12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -246,7 +260,6 @@
                     VerticalAlignment="Center" Cursor="Hand" />
         </Grid>
 
-        <!-- Row 1: Station chevron bar -->
         <Border Grid.Row="1" Background="#071810"
                 BorderBrush="#0D3020" BorderThickness="0,1,0,1">
             <Grid>
@@ -256,11 +269,8 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <!-- Stations dropdown — fixed left -->
                 <ContentControl x:Name="StationDropdownHost" Grid.Column="0" />
-                <!-- Scroll left — fixed -->
                 <ContentControl x:Name="BtnScrollLeftHost" Grid.Column="1" />
-                <!-- Scrollable chevrons -->
                 <ScrollViewer x:Name="StationBarScrollViewer"
                               Grid.Column="2"
                               HorizontalScrollBarVisibility="Hidden"
@@ -270,19 +280,16 @@
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center" />
                 </ScrollViewer>
-                <!-- Scroll right — fixed -->
                 <ContentControl x:Name="BtnScrollRightHost" Grid.Column="3" />
             </Grid>
         </Border>
 
-        <!-- Row 2: Main content -->
         <Grid Grid.Row="2" Margin="8" Background="#0D1117">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="270" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left panel -->
             <Grid Grid.Column="0" Margin="0,0,8,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -290,7 +297,6 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- Statistics -->
                 <Border Grid.Row="0"
                         Background="#161B22"
                         BorderBrush="#21262D" BorderThickness="1"
@@ -370,7 +376,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Filters -->
                 <Border Grid.Row="1" Background="#161B22"
                         BorderBrush="#21262D" BorderThickness="1"
                         Padding="12" CornerRadius="6" Margin="0,0,0,6">
@@ -453,7 +458,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Records table -->
                 <Border Grid.Row="2" Background="#161B22"
                         BorderBrush="#21262D" BorderThickness="1" CornerRadius="6">
                     <Grid>
@@ -476,7 +480,6 @@
                 </Border>
             </Grid>
 
-            <!-- Right panel: charts -->
             <TabControl x:Name="MainTabControl" Grid.Column="1"
                         SelectionChanged="MainTabControl_SelectionChanged">
                 <TabItem Header="UNIT INFO" Tag="UNIT_INFO">
@@ -517,7 +520,6 @@
             </TabControl>
         </Grid>
 
-        <!-- Loading overlay -->
         <Grid x:Name="LoadingOverlay" Visibility="Collapsed"
               Panel.ZIndex="1000" Grid.Row="0" Grid.RowSpan="3">
             <Grid.Background>
@@ -559,7 +561,6 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- Left: progress panel -->
                         <StackPanel Grid.Column="0" VerticalAlignment="Center"
                                     HorizontalAlignment="Center" Width="460">
 
@@ -810,22 +811,11 @@
                                            FontSize="10" Foreground="#6E7681"
                                            HorizontalAlignment="Right"
                                            VerticalAlignment="Center" />
-                                <!-- WIP: Skip station button — not functional yet
-                                <Button x:Name="BtnSkipStation" Content="⏭  Skip this station"
-                                        Click="BtnSkipStation_Click"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        Visibility="Collapsed" Height="26" Padding="16,0"
-                                        Background="#3D2000" Foreground="#E8721A"
-                                        BorderBrush="#E8721A" BorderThickness="1"
-                                        FontSize="11" FontWeight="SemiBold" Cursor="Hand" />
-                                -->
                             </Grid>
                         </StackPanel>
 
-                        <!-- Divider -->
                         <Border Grid.Column="1" Background="#1A5C35" Margin="0,16,0,16" />
 
-                        <!-- Right: station log -->
                         <Grid Grid.Column="2" Margin="0">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />

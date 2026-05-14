@@ -78,7 +78,6 @@ namespace MESInsight
         private List<ResponseRecord> _filteredRecords = new List<ResponseRecord>();
 
         private List<StationInfo> _loadedStations = new List<StationInfo>();
-        private List<StationInfo> _lazyLoadStations = new List<StationInfo>();
         private StationInfo _activeStation = null;
 
         private Dictionary<string, (List<ResponseRecord> records, string stationName)> _stationDataCache
@@ -106,8 +105,6 @@ namespace MESInsight
             new Dictionary<MessageType, (Border, StackPanel)>();
 
         private HashSet<MessageType> _tabsUserHasAlreadySeen = new HashSet<MessageType>();
-
-        private System.Threading.CancellationTokenSource _loadingCancellation;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -167,12 +164,6 @@ namespace MESInsight
 
         private async Task LoadAllStationsFromRoot(string rootPath)
         {
-            _loadingCancellation?.Cancel();
-            _loadingCancellation?.Dispose();
-            _loadingCancellation = new System.Threading.CancellationTokenSource();
-
-            var cancellationToken = _loadingCancellation.Token;
-
             ShowLoadingOverlay("Scanning...", "Looking for stations...", 0, detail: rootPath);
 
             await Task.Yield();
@@ -212,14 +203,16 @@ namespace MESInsight
             var backflushList = allStations.Where(s => s.Category == StationCategory.Backflush).ToList();
             var connectorList = allStations.Where(s => s.Category == StationCategory.Connector).ToList();
 
-            var scanSpinner = ShowScanningSpinner("Scanning stations...", allStations);
+            var scanSpinner = ShowScanningSpinner("Scanning stations...");
 
             var fileCounts = await Task.Run(() =>
-                DataLoader.CountFilesByMonthCutoffs(rootPath, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }));
+                DataLoader.CountFilesByMonthCutoffs(rootPath,
+                    new[] { 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365 }));
 
             scanSpinner?.Close();
 
-            var optDlg = new LoadOptionsDialog(ghpStations, lcsStationsList, backflushList, connectorList, fileCounts);
+            var optDlg = new StartupWindow.LoadOptionsDialog(ghpStations, lcsStationsList, backflushList, connectorList,
+                fileCounts);
             optDlg.Owner = this;
             if (optDlg.ShowDialog() != true) return;
 
@@ -235,11 +228,7 @@ namespace MESInsight
                      (optDlg.IncludeLcs && s.Category == StationCategory.LCS) ||
                      (optDlg.IncludeBackflush && s.Category == StationCategory.Backflush) ||
                      (optDlg.IncludeConnectors && s.Category == StationCategory.Connector)) &&
-                    !optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
-                .ToList();
-
-            _lazyLoadStations = allStations
-                .Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
+                    !optDlg.ExcludedFolderPaths.Contains(s.FolderPath))
                 .ToList();
 
             _pendingOptionalStations = new List<StationInfo>();
@@ -304,14 +293,6 @@ namespace MESInsight
 
             for (int i = 0; i < stations.Count; i++)
             {
-                // cancel loading and rest of the stations move to Lazy load
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    for (int j = i; j < stations.Count; j++)
-                        _lazyLoadStations.Add(stations[j]);
-                    break;
-                }
-
                 var st = stations[i];
 
                 // Mark current station as loading in bar
@@ -356,15 +337,10 @@ namespace MESInsight
                     }));
 
 
-// Folder name is primary — use productline= only if folder name looks generic
-                string displayName = DataLoader.IsGenericPlaceholderName(st.StationName) &&
-                                     !string.IsNullOrEmpty(loadResult.StationName) &&
-                                     !DataLoader.IsGenericPlaceholderName(loadResult.StationName)
+                // Priority: log content name > folder name already set by BuildStationInfo
+                string displayName = !string.IsNullOrEmpty(loadResult.StationName)
                     ? loadResult.StationName
                     : st.StationName;
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"STATION: folder={System.IO.Path.GetFileName(st.FolderPath)} | loadResult={loadResult.StationName} | displayName={displayName}");
 
                 st.StationName = displayName;
                 _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
@@ -482,17 +458,13 @@ namespace MESInsight
                         }));
                     }));
 
-                string displayName = DataLoader.IsGenericPlaceholderName(st.StationName) &&
-                                     loadResult.StationName.Length > 0 &&
-                                     !DataLoader.IsGenericPlaceholderName(loadResult.StationName)
-                    ? loadResult.StationName
-                    : st.StationName;
+                string displayName = loadResult.StationName.Length > 0 ? loadResult.StationName : st.StationName;
 
                 _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
                 _loadedStations.Add(st);
 
                 if (!string.IsNullOrEmpty(loadResult.StationName))
-                    st.StationName = displayName;
+                    st.StationName = loadResult.StationName;
 
                 totalFiles += liveFileCount;
 
@@ -520,15 +492,6 @@ namespace MESInsight
             // Deduplicate names after all station names are finalized
             DataLoader.DeduplicateNames(_loadedStations);
 
-            foreach (var loadedStation in _loadedStations)
-            {
-                if (_stationDataCache.ContainsKey(loadedStation.FolderPath))
-                {
-                    var cachedEntry = _stationDataCache[loadedStation.FolderPath];
-                    _stationDataCache[loadedStation.FolderPath] = (cachedEntry.records, loadedStation.StationName);
-                }
-            }
-
 
             _isBackgroundLoading = false;
             HideLoadingOverlay();
@@ -542,14 +505,12 @@ namespace MESInsight
             _stationLoadingState[folderPath] = isLoading;
         }
 
-        private Window ShowScanningSpinner(string message, List<StationInfo> foundStations = null)
+        private Window ShowScanningSpinner(string message)
         {
-            bool hasStations = foundStations != null && foundStations.Count > 0;
-
             var win = new Window
             {
-                Width = 360,
-                Height = hasStations ? Math.Min(420, 110 + foundStations.Count * 24) : 80,
+                Width = 280,
+                Height = 70,
                 WindowStyle = WindowStyle.None,
                 AllowsTransparency = true,
                 Background = new SolidColorBrush(Color.FromArgb(235, 8, 20, 12)),
@@ -564,11 +525,12 @@ namespace MESInsight
                 CornerRadius = new CornerRadius(8)
             };
 
-            var root = new StackPanel { Margin = new Thickness(16, 12, 16, 14) };
-
-            // Spinner row
-            var spinRow = new StackPanel
-                { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, hasStations ? 10 : 0) };
+            var stack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
 
             var spin = new TextBlock
             {
@@ -581,51 +543,16 @@ namespace MESInsight
                 RenderTransform = new RotateTransform(0)
             };
 
-            spinRow.Children.Add(spin);
-            spinRow.Children.Add(new TextBlock
+            stack.Children.Add(spin);
+            stack.Children.Add(new TextBlock
             {
                 Text = message,
                 FontSize = 12,
                 Foreground = new SolidColorBrush(Color.FromRgb(180, 225, 195)),
                 VerticalAlignment = VerticalAlignment.Center
             });
-            root.Children.Add(spinRow);
 
-            // Stations found
-            if (hasStations)
-            {
-                root.Children.Add(new TextBlock
-                {
-                    Text = foundStations.Count + " stations found",
-                    FontSize = 11,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(63, 185, 80)),
-                    Margin = new Thickness(0, 0, 0, 6)
-                });
-
-                var scroll = new ScrollViewer
-                {
-                    MaxHeight = 280,
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-                };
-
-                var list = new StackPanel();
-                foreach (var st in foundStations)
-                {
-                    list.Children.Add(new TextBlock
-                    {
-                        Text = "  ·  " + st.StationName,
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromRgb(140, 200, 160)),
-                        Margin = new Thickness(0, 1, 0, 1)
-                    });
-                }
-
-                scroll.Content = list;
-                root.Children.Add(scroll);
-            }
-
-            border.Child = root;
+            border.Child = stack;
             win.Content = border;
 
             var timer = new System.Windows.Threading.DispatcherTimer
@@ -1467,21 +1394,6 @@ namespace MESInsight
 
                 StationBarPanel.Children.Add(chevron);
             }
-
-            if (_lazyLoadStations != null && _lazyLoadStations.Count > 0)
-            {
-                var separator = new Border
-                {
-                    Width = 1,
-                    Background = new SolidColorBrush(Color.FromRgb(40, 70, 50)),
-                    Margin = new Thickness(4, 6, 4, 6),
-                    VerticalAlignment = VerticalAlignment.Stretch
-                };
-                StationBarPanel.Children.Add(separator);
-
-                foreach (var lazySt in _lazyLoadStations)
-                    StationBarPanel.Children.Add(BuildLazyChevron(lazySt));
-            }
         }
 
         private Button BuildScrollButton(string label, Action onClick)
@@ -1659,96 +1571,6 @@ namespace MESInsight
             return canvas;
         }
 
-        private Canvas BuildLazyChevron(StationInfo station)
-        {
-            string displayName = station.StationName;
-            const double h = 44;
-            const double tip = 12;
-
-            var fillColor = Color.FromRgb(18, 30, 22);
-            var hoverColor = Color.FromRgb(30, 60, 40);
-            var strokeColor = Color.FromRgb(40, 80, 52);
-            var nameColor = Color.FromRgb(90, 120, 100);
-
-            var measureBlock = new TextBlock { Text = displayName + "  ⏳", FontSize = 11 };
-            measureBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double nameW = measureBlock.DesiredSize.Width;
-            double canvasW = nameW + 22 + tip + 14;
-
-            var canvas = new Canvas
-            {
-                Width = canvasW,
-                Height = h,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Margin = new Thickness(-1, 0, 0, 0),
-                Tag = station.FolderPath
-            };
-
-            var poly = new System.Windows.Shapes.Polygon
-            {
-                Fill = new SolidColorBrush(fillColor),
-                Stroke = new SolidColorBrush(strokeColor),
-                StrokeThickness = 1
-            };
-            poly.Points.Add(new Point(0, 0));
-            poly.Points.Add(new Point(canvasW - tip, 0));
-            poly.Points.Add(new Point(canvasW, h / 2));
-            poly.Points.Add(new Point(canvasW - tip, h));
-            poly.Points.Add(new Point(0, h));
-            poly.Points.Add(new Point(tip, h / 2));
-            canvas.Children.Add(poly);
-
-            var nameBlock = new TextBlock
-            {
-                Text = displayName + "  ⏳",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(nameColor)
-            };
-            Canvas.SetLeft(nameBlock, 22);
-            Canvas.SetTop(nameBlock, (h - 14) / 2.0);
-            canvas.Children.Add(nameBlock);
-
-            // Hover — zmení text na "Click to load" a zosvetlí
-            canvas.MouseEnter += (s, e) =>
-            {
-                poly.Fill = new SolidColorBrush(hoverColor);
-                nameBlock.Text = "⏳  Click to load";
-                nameBlock.Foreground = new SolidColorBrush(Color.FromRgb(140, 200, 160));
-            };
-            canvas.MouseLeave += (s, e) =>
-            {
-                poly.Fill = new SolidColorBrush(fillColor);
-                nameBlock.Text = displayName + "  ⏳";
-                nameBlock.Foreground = new SolidColorBrush(nameColor);
-            };
-
-            var captured = station;
-            canvas.MouseLeftButtonUp += async (s, e) => await LoadLazyStation(captured);
-
-            return canvas;
-        }
-
-        private async Task LoadLazyStation(StationInfo station)
-        {
-            _lazyLoadStations.Remove(station);
-            _loadedStations.Add(station);
-            RebuildStationBar();
-
-            // Načítaj stanicu rovnako ako pri štandartnom načítaní
-            var loader = new DataLoader { DateFilter = _dataLoader?.DateFilter };
-            var result = await Task.Run(() => loader.Load(station.FolderPath));
-
-            string displayName = !string.IsNullOrEmpty(result.StationName)
-                ? result.StationName
-                : station.StationName;
-
-            station.StationName = displayName;
-            _stationDataCache[station.FolderPath] = (result.Records, displayName);
-
-            RebuildStationBar();
-            await SwitchToStation(station);
-        }
-
         private void UpdateActiveStationButton()
         {
             if (StationBarPanel == null) return;
@@ -1896,15 +1718,12 @@ namespace MESInsight
             if (LoadingOverlay == null) return;
             LoadingOverlay.Visibility = Visibility.Collapsed;
             _skipButtonTimer?.Stop();
+            // WIP: BtnSkipStation not active yet
         }
 
         private void BtnCloseLoadingOverlay_Click(object sender, RoutedEventArgs e)
         {
-            _loadingCancellation?.Cancel();
-            _loadingCancellation?.Dispose();
-            _loadingCancellation = null;
             HideLoadingOverlay();
-            _isBackgroundLoading = false;
         }
 
         #endregion

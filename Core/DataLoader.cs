@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using MESInsight.Core;
@@ -33,9 +34,7 @@ namespace RTAnalyzer.Core
                 : StationName;
 
         public string FullLabel =>
-            !string.IsNullOrEmpty(LineName)
-                ? LineName + "  ·  " + DisplayTitle
-                : DisplayTitle;
+            !string.IsNullOrEmpty(LineName) ? LineName + "  ·  " + DisplayTitle : DisplayTitle;
     }
 
     public class DataLoadResult
@@ -46,133 +45,118 @@ namespace RTAnalyzer.Core
         public string ComputerName { get; set; } = "";
     }
 
+    public class MonthFileInfo
+    {
+        public int FileCount { get; set; }
+        public long SizeMb { get; set; }
+    }
+
     public class DataLoader
     {
         public DateTime? DateFilter { get; set; } = null;
 
-        public static Dictionary<int, MonthFileInfo> CountFilesByMonthCutoffs(string rootPath, int[] months)
-        {
-            var result = new Dictionary<int, MonthFileInfo>();
-            foreach (int m in months)
-                result[m] = new MonthFileInfo();
+        #region Compiled Regex
 
+        private static readonly Regex RxYyyyMmDd = new Regex(@"(\d{4})(\d{2})(\d{2})", RegexOptions.Compiled);
+        private static readonly Regex RxMmYyyy = new Regex(@"^(\d{2})[_.](\d{4})", RegexOptions.Compiled);
+
+        private static readonly Regex RxZipMonthYear =
+            new Regex(@"^(\d{2})\.(\d{4})\.zip$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxTracerFile =
+            new Regex(@"^\d{8}_\d+_tracer", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxMsgFile =
+            new Regex(@"^\d{8}_\d+_messages", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLineCode =
+            new Regex(@"^L\d{3}[^0-9]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLineCodeSmt = new Regex(@"^(?:SMT|THT|AOI|ICT|SMD|FCT|TRT|SPI)\d+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxComputerCode = new Regex(@"^[A-Z]{2,4}\d{3,}[A-Z0-9]*$", RegexOptions.Compiled);
+
+        private static readonly Regex
+            RxMonCode = new Regex(@"^MON\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex
+            RxLcsCode = new Regex(@"^LCS\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxMonFolder =
+            new Regex(@"(?:^|[_\s])MON\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxOvnFolder =
+            new Regex(@"(?:^|[_\s])OVN\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxOrFolder =
+            new Regex(@"^OR_[A-Z]{2,4}\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxRoutePrefix =
+            new Regex(@"^(?:OR_|OP\d+_OR_)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxPlaceholder =
+            new Regex(@"^[A-Z]+XXX", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxGenericLine =
+            new Regex(@"^L\d{3}[A-Z0-9]*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLcsPath =
+            new Regex(@"[\\/]lcs", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLcsName =
+            new Regex(@"(?:^|[ _-])LCS[0-9]+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        #endregion
+
+        #region Constants
+
+        private static readonly string[] BlockedExtensions =
+        {
+            ".dll", ".exe", ".config", ".xml", ".json", ".db", ".ini",
+            ".bat", ".ps1", ".msi", ".pdb", ".manifest", ".resx", ".cs", ".csproj", ".sln"
+        };
+
+        private static readonly string[] TimestampFormats =
+        {
+            "dd.MM.yyyy HH:mm:ss.ffff",
+            "dd.MM.yyyy HH:mm:ss.fff",
+            "dd.MM.yyyy HH:mm:ss",
+            "dd/MM/yyyy HH:mm:ss.fff",
+            "dd/MM/yyyy HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.fff",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-ddTHH:mm:ss.fff",
+            "yyyy-MM-ddTHH:mm:ss"
+        };
+
+        private static readonly string[] MesMessageTypes =
+        {
+            "REQ_UNIT_INFO", "REQ_NEXT_OPERATION", "UNIT_CHECKIN", "UNIT_RESULT",
+            "REQ_LOADED_MATERIAL", "REQ_UNLOAD_MATERIAL", "LOAD_MATERIAL",
+            "REQ_MATERIAL_INFO", "REQ_SETUP_CHANGE2"
+        };
+
+        #endregion
+
+        #region Public API
+
+        public static Dictionary<int, MonthFileInfo> CountFilesByMonthCutoffs(string rootPath, int[] days)
+        {
+            var result = InitMonthResult(days);
             try
             {
-                var allFiles = Directory.GetFiles(rootPath, "*", SearchOption.AllDirectories)
-                    .Where(f =>
-                    {
-                        string ext = Path.GetExtension(f).ToLowerInvariant();
-                        return ext == ".zip" || ext == ".txt" || ext == ".log" || ext == "";
-                    })
-                    .ToList();
-
-                foreach (string file in allFiles)
-                {
-                    DateTime fileDate = EstimateFileDate(file);
-                    long fileBytes = new FileInfo(file).Length;
-
-                    foreach (int m in months)
-                    {
-                        if (fileDate >= DateTime.Now.AddMonths(-m))
-                        {
-                            result[m].FileCount++;
-                            result[m].SizeMb += fileBytes;
-                        }
-                    }
-                }
-
-                foreach (int m in months)
-                    result[m].SizeMb /= 1024 * 1024;
+                var files = GetCountableFiles(rootPath);
+                foreach (string file in files)
+                    AccumulateFileIntoMonthBuckets(file, days, result);
+                foreach (int d in days)
+                    result[d].SizeMb /= 1024 * 1024;
             }
             catch
             {
             }
 
             return result;
-        }
-
-        // Tries to get the real data date from file name first, then from first line content.
-        // Much more reliable than LastWriteTime which changes on any file operation.
-        private static DateTime EstimateFileDate(string filePath)
-        {
-            string fileName = Path.GetFileName(filePath);
-
-            var nameMatch = System.Text.RegularExpressions.Regex.Match(
-                fileName, @"(\d{4})(\d{2})(\d{2})",
-                System.Text.RegularExpressions.RegexOptions.None);
-            if (nameMatch.Success)
-            {
-                if (int.TryParse(nameMatch.Groups[1].Value, out int y) &&
-                    int.TryParse(nameMatch.Groups[2].Value, out int mo) &&
-                    int.TryParse(nameMatch.Groups[3].Value, out int d) &&
-                    mo >= 1 && mo <= 12 && d >= 1 && d <= 31)
-                    return new DateTime(y, mo, d);
-            }
-
-            var monthYearMatch = System.Text.RegularExpressions.Regex.Match(
-                fileName, @"^(\d{2})[_.](\d{4})",
-                System.Text.RegularExpressions.RegexOptions.None);
-
-            if (monthYearMatch.Success)
-            {
-                if (int.TryParse(monthYearMatch.Groups[1].Value, out int mo2) &&
-                    int.TryParse(monthYearMatch.Groups[2].Value, out int y2) &&
-                    mo2 >= 1 && mo2 <= 12)
-                    return new DateTime(y2, mo2, 1);
-            }
-
-            try
-            {
-                string ext = Path.GetExtension(fileName).ToLowerInvariant();
-                if (ext == ".zip") return File.GetLastWriteTime(filePath);
-
-                using (var reader = new StreamReader(filePath))
-                {
-                    string firstLine = reader.ReadLine();
-                    if (firstLine != null)
-                    {
-                        DateTime parsed = ParseTimestampFromLogLine(firstLine);
-                        if (parsed != DateTime.MinValue)
-                            return parsed;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return File.GetLastWriteTime(filePath);
-        }
-
-        // Extracts date from the beginning of a log line — handles dd/MM/yyyy, dd.MM.yyyy, yyyy-MM-dd
-        private static DateTime ParseTimestampFromLogLine(string line)
-        {
-            if (line.Length < 10) return DateTime.MinValue;
-
-            string prefix = line.Substring(0, Math.Min(23, line.Length));
-
-            string[] formats =
-            {
-                "dd/MM/yyyy", "dd.MM.yyyy", "yyyy-MM-dd",
-                "dd/MM/yyyy HH:mm:ss", "dd.MM.yyyy HH:mm:ss",
-                "yyyy-MM-dd HH:mm:ss"
-            };
-
-            foreach (string fmt in formats)
-            {
-                if (prefix.Length >= fmt.Length)
-                {
-                    if (DateTime.TryParseExact(
-                            prefix.Substring(0, fmt.Length),
-                            fmt,
-                            System.Globalization.CultureInfo.InvariantCulture,
-                            System.Globalization.DateTimeStyles.None,
-                            out DateTime result))
-                        return result;
-                }
-            }
-
-            return DateTime.MinValue;
         }
 
         public static List<StationInfo> FindStations(string rootPath)
@@ -186,15 +170,12 @@ namespace RTAnalyzer.Core
                 stations.Add(BuildStationInfo(rootPath, rootPath));
 
             DeduplicateNames(stations);
-
             return stations;
         }
 
         public static void DeduplicateNames(List<StationInfo> stations)
         {
-            var groups = stations.GroupBy(s => s.StationName).Where(g => g.Count() > 1);
-
-            foreach (var group in groups)
+            foreach (var group in stations.GroupBy(s => s.StationName).Where(g => g.Count() > 1))
             {
                 int idx = 1;
                 foreach (var st in group)
@@ -202,14 +183,102 @@ namespace RTAnalyzer.Core
             }
         }
 
+        public static bool IsGenericPlaceholderName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return true;
+            string t = name.Trim();
+            return RxPlaceholder.IsMatch(t) || RxGenericLine.IsMatch(t);
+        }
+
+        public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null)
+        {
+            var result = new DataLoadResult();
+            if (!Directory.Exists(path)) return result;
+
+            var info = BuildStationInfo(path, path);
+            result.LineName = info.LineName;
+            result.ComputerName = info.ComputerName;
+
+            progressCallback?.Invoke("Scanning files...", 0, null);
+
+            var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+            var bag = new ConcurrentBag<ResponseRecord>();
+            var nameHolder = new string[1];
+            var lastUiTick = new long[1];
+            int processed = 0;
+
+            var opts = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+
+            Parallel.ForEach(files, opts, file =>
+            {
+                int pct = (Interlocked.Increment(ref processed) * 95) / Math.Max(1, files.Length);
+                string fileName = Path.GetFileName(file);
+                string ext = Path.GetExtension(file).ToLower();
+
+                var local = LoadSingleFile(file, fileName, ext, pct, lastUiTick, progressCallback);
+                if (local == null) return;
+
+                foreach (var r in local.Records)
+                    bag.Add(r);
+
+                TryUpdateStationNameHolder(nameHolder, local.StationName);
+                ReportFileProgress(file, path, fileName, pct, lastUiTick, progressCallback);
+            });
+
+            result.Records = bag.OrderBy(r => r.TimestampParsed).ToList();
+            result.StationName = nameHolder[0] ?? "";
+
+            progressCallback?.Invoke("Processing message types...", 100, result.StationName);
+            LogRecordTypeSummary(result.Records);
+
+            return result;
+        }
+
+        #endregion
+
+        #region File Discovery
+
+        private static Dictionary<int, MonthFileInfo> InitMonthResult(int[] days)
+        {
+            var result = new Dictionary<int, MonthFileInfo>();
+            foreach (int d in days)
+                result[d] = new MonthFileInfo();
+            return result;
+        }
+
+        private static List<string> GetCountableFiles(string rootPath)
+        {
+            return Directory.GetFiles(rootPath, "*", SearchOption.AllDirectories)
+                .Where(f =>
+                {
+                    string ext = Path.GetExtension(f).ToLowerInvariant();
+                    return ext == ".zip" || ext == ".txt" || ext == ".log" || ext == "";
+                })
+                .ToList();
+        }
+
+        private static void AccumulateFileIntoMonthBuckets(string file, int[] days,
+            Dictionary<int, MonthFileInfo> result)
+        {
+            DateTime fileDate = EstimateFileDate(file);
+            long fileBytes = new FileInfo(file).Length;
+
+            foreach (int d in days)
+            {
+                if (fileDate >= DateTime.Now.AddDays(-d))
+                {
+                    result[d].FileCount++;
+                    result[d].SizeMb += fileBytes;
+                }
+            }
+        }
+
         private static void ScanForStations(string rootPath, string currentPath, List<StationInfo> stations, int depth)
         {
             if (depth > 8) return;
-
             foreach (string dir in Directory.GetDirectories(currentPath))
             {
-                string name = System.IO.Path.GetFileName(dir);
-
+                string name = Path.GetFileName(dir);
                 if (IsStationFolder(name, dir))
                     stations.Add(BuildStationInfo(rootPath, dir));
                 else
@@ -219,15 +288,10 @@ namespace RTAnalyzer.Core
 
         private static bool IsStationFolder(string name, string dirPath)
         {
-            var opts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-
-            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"(?:^|[_\s])MON\d+", opts)) return true;
-            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"(?:^|[_\s])OVN\d+", opts)) return true;
-            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^OR_[A-Z]{2,4}\d+", opts)) return true;
-
-            if (HasDirectLogFiles(dirPath)) return true;
-
-            return false;
+            return RxMonFolder.IsMatch(name)
+                   || RxOvnFolder.IsMatch(name)
+                   || RxOrFolder.IsMatch(name)
+                   || HasDirectLogFiles(dirPath);
         }
 
         private static bool HasDirectLogFiles(string dirPath)
@@ -236,13 +300,206 @@ namespace RTAnalyzer.Core
             {
                 foreach (string f in Directory.GetFiles(dirPath))
                 {
-                    string fname = System.IO.Path.GetFileName(f);
-                    string ext = System.IO.Path.GetExtension(fname).ToLowerInvariant();
+                    string fname = Path.GetFileName(f);
+                    string ext = Path.GetExtension(fname).ToLowerInvariant();
                     if ((ext == ".txt" || ext == ".log" || ext == "" || ext == ".zip") && ShouldProcessFile(fname))
                         return true;
                 }
+            }
+            catch
+            {
+            }
 
-                return false;
+            return false;
+        }
+
+        #endregion
+
+        #region Station Metadata
+
+        private static StationInfo BuildStationInfo(string rootPath, string stationPath)
+        {
+            string relative = stationPath.Replace(rootPath, "").TrimStart('\\', '/');
+            string[] parts = relative.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            string[] rootParts = rootPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] allParts = rootParts.Concat(parts).ToArray();
+
+            string name = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
+            string line = ExtractLineName(allParts);
+            string computer = ExtractComputerName(allParts);
+            var category = DetermineCategory(stationPath, name);
+
+            return new StationInfo
+            {
+                FolderPath = stationPath,
+                StationName = name,
+                LineName = line,
+                ComputerName = computer,
+                Category = category
+            };
+        }
+
+        private static string ExtractLineName(string[] parts)
+        {
+            foreach (string p in parts)
+                if (RxLineCode.IsMatch(p) || RxLineCodeSmt.IsMatch(p))
+                    return p;
+            return "";
+        }
+
+        private static string ExtractComputerName(string[] parts)
+        {
+            foreach (string p in parts)
+                if (RxComputerCode.IsMatch(p) && !RxMonCode.IsMatch(p) && !RxLcsCode.IsMatch(p)
+                    && !RxLineCode.IsMatch(p) && !RxLineCodeSmt.IsMatch(p))
+                    return p;
+            return "";
+        }
+
+        private static StationCategory DetermineCategory(string stationPath, string stationName)
+        {
+            if (RxLcsPath.IsMatch(stationPath) || RxLcsName.IsMatch(stationName))
+                return StationCategory.LCS;
+            if (stationPath.ToLowerInvariant().Contains("backflush") ||
+                stationName.ToLowerInvariant().Contains("backflush"))
+                return StationCategory.Backflush;
+            return StationCategory.GHP;
+        }
+
+        private static string ExtractStationNameFromFolderName(string folderName)
+        {
+            return RxRoutePrefix.Replace(folderName, "").Replace("_", " ").Trim();
+        }
+
+        private static void TryUpdateStationNameHolder(string[] holder, string candidate)
+        {
+            if (string.IsNullOrEmpty(candidate) || IsGenericPlaceholderName(candidate)) return;
+            string current;
+            do
+            {
+                current = Volatile.Read(ref holder[0]);
+                if (!string.IsNullOrEmpty(current) && !IsGenericPlaceholderName(current)) return;
+            } while (Interlocked.CompareExchange(ref holder[0], candidate, current) != current);
+        }
+
+        #endregion
+
+        #region File Filtering
+
+        private static bool ShouldProcessFile(string fileName)
+        {
+            string ext = Path.GetExtension(fileName).ToLowerInvariant();
+            string lower = fileName.ToLowerInvariant();
+
+            foreach (string b in BlockedExtensions)
+                if (ext == b)
+                    return false;
+
+            if (IsBlockedFileName(fileName)) return false;
+
+            return IsWhitelistedFileName(fileName, lower);
+        }
+
+        private static bool IsBlockedFileName(string fileName)
+        {
+            string[] blocked =
+            {
+                "FraMES", "frames", "GHPEquipmentConnector", "FujiConnector",
+                "VitescoTHTAssemblyApi", "LineControlServer", "AOIService", "AOIViscom",
+                "EquipmentConnector", "SMDAssemblyAPI", "OIBConnector", "LaserService",
+                "VitescoComcell", "FRESH_Log", "FRESH Error", "FraMES Client Error",
+                "Communications", "PLCmessages"
+            };
+            foreach (string b in blocked)
+                if (fileName.StartsWith(b, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private static bool IsWhitelistedFileName(string fileName, string lower)
+        {
+            if (fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)) return true;
+            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
+            if (RxMsgFile.IsMatch(fileName)) return true;
+            if (RxTracerFile.IsMatch(fileName)) return true;
+            if (lower == "messages.txt" || lower == "tracer.txt") return true;
+            if (lower.Contains("message")) return true;
+            if (fileName.StartsWith("Logging", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static bool IsGhpLogFile(string fileName)
+        {
+            return fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)
+                   || fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool NeedsProbe(string fileName)
+        {
+            return fileName.StartsWith("Logging", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ZipIsInDateRange(string zipFile, DateTime? cutoff)
+        {
+            if (cutoff == null) return true;
+            var m = RxZipMonthYear.Match(Path.GetFileName(zipFile));
+            if (!m.Success) return true;
+            if (!int.TryParse(m.Groups[1].Value, out int month)) return true;
+            if (!int.TryParse(m.Groups[2].Value, out int year)) return true;
+            return new DateTime(year, month, DateTime.DaysInMonth(year, month)) >= cutoff.Value;
+        }
+
+        #endregion
+
+        #region File Probing
+
+        private static bool ProbeFileForMesData(string filePath)
+        {
+            try
+            {
+                using (var fs = File.OpenRead(filePath))
+                {
+                    long len = fs.Length;
+                    if (len == 0) return false;
+
+                    if (ProbeAt(fs, 0, 800)) return true;
+                    if (len > 1600 && ProbeAt(fs, len / 2, 800)) return true;
+                    if (len > 2400 && ProbeAt(fs, len - 800, 800)) return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static bool ProbeAt(FileStream fs, long offset, int size)
+        {
+            var buf = new byte[size];
+            fs.Seek(Math.Max(0, offset), SeekOrigin.Begin);
+            int n = fs.Read(buf, 0, size);
+            return ContainsMesSignature(System.Text.Encoding.UTF8.GetString(buf, 0, n));
+        }
+
+        private static bool ContainsMesSignature(string text)
+        {
+            return (text.Contains("[S") && text.Contains("->C]"))
+                   || text.Contains("VitescoComcell")
+                   || text.Contains("<STX>");
+        }
+
+        private static bool ProbeZipEntryForMesData(ZipArchiveEntry entry)
+        {
+            try
+            {
+                using (Stream stream = entry.Open())
+                {
+                    byte[] buf = new byte[800];
+                    int n = stream.Read(buf, 0, buf.Length);
+                    return ContainsMesSignature(System.Text.Encoding.UTF8.GetString(buf, 0, n));
+                }
             }
             catch
             {
@@ -250,251 +507,94 @@ namespace RTAnalyzer.Core
             }
         }
 
-        private static StationInfo BuildStationInfo(string rootPath, string stationPath)
+        #endregion
+
+        #region File Loading
+
+        private DataLoadResult LoadSingleFile(string file, string fileName, string ext, int pct,
+            long[] lastUiTick, Action<string, int, string> progressCallback)
         {
-            string relativePath = stationPath.Replace(rootPath, "").TrimStart('\\', '/');
-            string[] parts = relativePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-
-            string stationName = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
-            string lineName = "";
-            string computerName = "";
-
-            foreach (string part in parts)
+            if (ext == ".zip")
             {
-                if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^L\d{3}[^0-9]",
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                    lineName = part;
-                else if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^[A-Z]{2,4}\d{3,}[A-Z0-9]*$") &&
-                         !System.Text.RegularExpressions.Regex.IsMatch(part, @"^MON\d+",
-                             System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
-                         !System.Text.RegularExpressions.Regex.IsMatch(part, @"^LCS\d+",
-                             System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                    computerName = part;
+                if (!ZipIsInDateRange(file, DateFilter)) return null;
+                progressCallback?.Invoke($"Reading {fileName}", pct, "Opening ZIP archive...");
+                var zipResult = new DataLoadResult();
+                LoadFromZip(file, zipResult);
+                return zipResult;
             }
 
-            var category = StationCategory.GHP;
-            string fullLower = stationPath.ToLowerInvariant();
+            if (!ShouldProcessFile(fileName)) return null;
+            if (NeedsProbe(fileName) && !ProbeFileForMesData(file)) return null;
 
-            if (fullLower.Contains("\\lcs") || fullLower.Contains("/lcs") ||
-                System.Text.RegularExpressions.Regex.IsMatch(stationName, @"(?:^|[ _-])LCS[0-9]+",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                category = StationCategory.LCS;
-            else if (fullLower.Contains("backflush") || stationName.ToLowerInvariant().Contains("backflush"))
-                category = StationCategory.Backflush;
+            return LoadTextFile(file, fileName, ext, pct, lastUiTick, progressCallback);
+        }
 
-            return new StationInfo
+        private DataLoadResult LoadTextFile(string file, string fileName, string ext, int pct,
+            long[] lastUiTick, Action<string, int, string> progressCallback)
+        {
+            var local = new DataLoadResult();
+
+            if (ext == ".log" && IsGhpLogFile(fileName))
             {
-                FolderPath = stationPath,
-                StationName = stationName,
-                LineName = lineName,
-                ComputerName = computerName,
-                Category = category
+                progressCallback?.Invoke($"Reading {fileName}", pct, "GHP format — scanning...");
+                using (Stream fs = File.OpenRead(file))
+                    ReadGhpFormatLines(fs, fileName, local,
+                        MakeGhpProgressCallback(fileName, pct, lastUiTick, progressCallback));
+                return local;
+            }
+
+            int before = local.Records.Count;
+            using (Stream fs = File.OpenRead(file))
+                ReadOldFormatLines(fs, fileName, local, DateFilter,
+                    MakeOldFormatProgressCallback(fileName, pct, lastUiTick, progressCallback));
+
+            if (local.Records.Count == before)
+            {
+                progressCallback?.Invoke($"Reading {fileName}", pct, "Trying GHP format...");
+                using (Stream fs = File.OpenRead(file))
+                    ReadGhpFormatLines(fs, fileName, local,
+                        MakeGhpProgressCallback(fileName, pct, lastUiTick, progressCallback));
+            }
+
+            return local;
+        }
+
+        private static Action<int, int, int> MakeOldFormatProgressCallback(string fileName, int pct,
+            long[] lastUiTick, Action<string, int, string> progressCallback)
+        {
+            return (lineNum, recCount, filePct) =>
+            {
+                long t = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                long pt = Interlocked.Read(ref lastUiTick[0]);
+                if (t - pt >= 120 && Interlocked.CompareExchange(ref lastUiTick[0], t, pt) == pt)
+                    progressCallback?.Invoke($"Reading {fileName}", pct,
+                        $"Line {lineNum:N0}  ·  {recCount:N0} records  ·  {filePct}% of file");
             };
         }
 
-        // Odstráni route prefix (OR_, OP560_OR_ a pod.) z názvu priečinka
-        private static string ExtractStationNameFromFolderName(string folderName)
+        private static Action<int, int, int> MakeGhpProgressCallback(string fileName, int pct,
+            long[] lastUiTick, Action<string, int, string> progressCallback)
         {
-            string withoutRoutePrefix = System.Text.RegularExpressions.Regex.Replace(
-                folderName, @"^(?:OR_|OP\d+_OR_)", "",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            return withoutRoutePrefix.Replace("_", " ").Trim();
-        }
-
-        // Vráti true ak je názov generický placeholder — napr. MONXXX, OPXXX
-        public static bool IsGenericPlaceholderName(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return true;
-
-            string trimmed = name.Trim();
-
-            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[A-Z]+XXX",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                return true;
-
-            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^L\d{3}[A-Z0-9]*$",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                return true;
-
-            return false;
-        }
-
-        public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null)
-        {
-            var result = new DataLoadResult();
-            if (!Directory.Exists(path)) return result;
-
-            var stationInfo = BuildStationInfo(path, path);
-            result.LineName = stationInfo.LineName;
-            result.ComputerName = stationInfo.ComputerName;
-
-            progressCallback?.Invoke("Scanning files...", 0, null);
-
-            string[] files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
-            int totalFiles = files.Length;
-            int processedFiles = 0;
-
-            var bag = new ConcurrentBag<ResponseRecord>();
-            var stationNameHolder = new string[1];
-            var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
-            long lastUiTick = 0;
-
-            Parallel.ForEach(files, options, file =>
+            return (ln, rc, fp) =>
             {
-                int current = Interlocked.Increment(ref processedFiles);
-                int pct = (current * 95) / Math.Max(1, totalFiles);
-
-                string ext = Path.GetExtension(file).ToLower();
-                string fileName = Path.GetFileName(file);
-
-                var localResult = new DataLoadResult();
-                string fileType = "file";
-
-                if (ext == ".zip")
-                {
-                    fileType = "ZIP";
-                    progressCallback?.Invoke($"Reading {fileName}", pct, "Opening ZIP archive...");
-                    LoadFromZip(file, localResult);
-                }
-                else if (ShouldProcessFile(fileName))
-                {
-                    DateTime? cutoff = DateFilter;
-                    if (ext == ".log" && IsGhpLogFile(fileName))
-                    {
-                        fileType = "GHP log";
-                        progressCallback?.Invoke($"Reading {fileName}", pct, "GHP format — scanning...");
-                        using (Stream fs = File.OpenRead(file))
-                            ReadGhpFormatLines(fs, fileName, localResult, (ln, rc, fp) =>
-                            {
-                                long t3 = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-                                long pt3 = Interlocked.Read(ref lastUiTick);
-                                if (t3 - pt3 >= 120 && Interlocked.CompareExchange(ref lastUiTick, t3, pt3) == pt3)
-                                    progressCallback?.Invoke($"Reading {fileName}",
-                                        pct, $"GHP  ·  Line {ln:N0}  ·  {rc:N0} records  ·  {fp}% of file");
-                            });
-                    }
-                    else
-                    {
-                        fileType = "message log";
-                        int prevCount = localResult.Records.Count;
-
-                        using (Stream fs = File.OpenRead(file))
-                            ReadOldFormatLines(fs, fileName, localResult, cutoff, (lineNum, recCount, filePct) =>
-                            {
-                                long t2 = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-                                long pt2 = Interlocked.Read(ref lastUiTick);
-                                if (t2 - pt2 >= 120 && Interlocked.CompareExchange(ref lastUiTick, t2, pt2) == pt2)
-                                    progressCallback?.Invoke(
-                                        $"Reading {fileName}",
-                                        pct,
-                                        $"Line {lineNum:N0}  ·  {recCount:N0} records  ·  {filePct}% of file");
-                            });
-
-                        if (localResult.Records.Count == prevCount)
-                        {
-                            progressCallback?.Invoke($"Reading {fileName}", pct, "Trying GHP format...");
-                            using (Stream fs = File.OpenRead(file))
-                                ReadGhpFormatLines(fs, fileName, localResult, (ln, rc, fp) =>
-                                {
-                                    long t4 = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-                                    long pt4 = Interlocked.Read(ref lastUiTick);
-                                    if (t4 - pt4 >= 120 && Interlocked.CompareExchange(ref lastUiTick, t4, pt4) == pt4)
-                                        progressCallback?.Invoke($"Reading {fileName}",
-                                            pct,
-                                            $"GHP fallback  ·  Line {ln:N0}  ·  {rc:N0} records  ·  {fp}% of file");
-                                });
-                        }
-                    }
-                }
-
-                foreach (var r in localResult.Records)
-                    bag.Add(r);
-
-                TryUpdateStationNameHolder(stationNameHolder, localResult.StationName);
-
-                long now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-                long prev = Interlocked.Read(ref lastUiTick);
-                if (now - prev >= 80 && Interlocked.CompareExchange(ref lastUiTick, now, prev) == prev)
-                {
-                    string subFolder = Path.GetDirectoryName(file)?.Replace(path, "").TrimStart('\\', '/');
-                    progressCallback?.Invoke(
-                        $"Reading {fileName}",
-                        pct,
-                        $"{fileType}  ·  {(string.IsNullOrEmpty(subFolder) ? "/" : subFolder)}");
-                }
-            });
-
-            result.Records = bag.OrderBy(r => r.TimestampParsed).ToList();
-            result.StationName = stationNameHolder[0] ?? "";
-
-            progressCallback?.Invoke("Processing message types...", 100, result.StationName);
-
-            var byStx = new Dictionary<string, int>();
-            foreach (var r in result.Records)
-            {
-                string stxType = r.Type.ToString();
-                if (!byStx.ContainsKey(stxType)) byStx[stxType] = 0;
-                byStx[stxType]++;
-            }
-
-            System.Diagnostics.Debug.WriteLine("=== IdentifyType (STX) ===");
-            foreach (var kv in byStx.OrderByDescending(x => x.Value))
-                System.Diagnostics.Debug.WriteLine($"  {kv.Key}: {kv.Value}");
-            System.Diagnostics.Debug.WriteLine($"  TOTAL: {result.Records.Count}");
-
-            return result;
-        }
-
-        // Station name priority: valid productline = from any log file > folder name fallback. Generic values (L220S01, MONXXX) are skipped
-        private static void TryUpdateStationNameHolder(string[] holder, string candidateName)
-        {
-            if (string.IsNullOrEmpty(candidateName)) return;
-            if (IsGenericPlaceholderName(candidateName)) return;
-
-            string current;
-            do
-            {
-                current = Volatile.Read(ref holder[0]);
-                bool currentIsEmptyOrGeneric = string.IsNullOrEmpty(current) || IsGenericPlaceholderName(current);
-                if (!currentIsEmptyOrGeneric) return;
-            } while (Interlocked.CompareExchange(ref holder[0], candidateName, current) != current);
-        }
-
-        private static bool IsGhpLogFile(string fileName)
-        {
-            if (fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)) return true;
-            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
-        }
-
-        private static bool ShouldProcessFile(string fileName)
-        {
-            string ext = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
-            string lower = fileName.ToLowerInvariant();
-
-            string[] blockedExtensions =
-            {
-                ".dll", ".exe", ".config", ".xml", ".json",
-                ".db", ".ini", ".bat", ".ps1", ".msi", ".pdb",
-                ".manifest", ".resx", ".cs", ".csproj", ".sln"
+                long t = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                long pt = Interlocked.Read(ref lastUiTick[0]);
+                if (t - pt >= 120 && Interlocked.CompareExchange(ref lastUiTick[0], t, pt) == pt)
+                    progressCallback?.Invoke($"Reading {fileName}", pct,
+                        $"GHP  ·  Line {ln:N0}  ·  {rc:N0} records  ·  {fp}% of file");
             };
+        }
 
-            foreach (string b in blockedExtensions)
-                if (ext == b)
-                    return false;
-
-            if (fileName.StartsWith("FraMES", StringComparison.OrdinalIgnoreCase)) return false;
-            if (fileName.StartsWith("GHPEquipmentConnector", StringComparison.OrdinalIgnoreCase)) return false;
-            if (fileName.StartsWith("Logging", StringComparison.OrdinalIgnoreCase)) return false;
-
-            if (fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)) return true;
-            if (fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase)) return true;
-            if (System.Text.RegularExpressions.Regex.IsMatch(fileName, @"^\d{8}_\d+_messages")) return true;
-            if (lower.Contains("message")) return true;
-            if (lower.Contains("frames")) return true;
-
-            return false;
+        private static void ReportFileProgress(string file, string path, string fileName, int pct,
+            long[] lastUiTick, Action<string, int, string> progressCallback)
+        {
+            long now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            long prev = Interlocked.Read(ref lastUiTick[0]);
+            if (now - prev >= 80 && Interlocked.CompareExchange(ref lastUiTick[0], now, prev) == prev)
+            {
+                string sub = Path.GetDirectoryName(file)?.Replace(path, "").TrimStart('\\', '/');
+                progressCallback?.Invoke($"Reading {fileName}", pct, string.IsNullOrEmpty(sub) ? "/" : sub);
+            }
         }
 
         private static void LoadFromZip(string zipFile, DataLoadResult result)
@@ -502,49 +602,58 @@ namespace RTAnalyzer.Core
             try
             {
                 using (ZipArchive zip = ZipFile.OpenRead(zipFile))
-                {
                     foreach (ZipArchiveEntry entry in zip.Entries)
-                    {
-                        string entryName = entry.Name;
-                        string sourceName = Path.GetFileName(zipFile) + " > " + entryName;
-                        string ext = Path.GetExtension(entryName).ToLowerInvariant();
-
-                        if (!ShouldProcessFile(entryName)) continue;
-
-                        if (ext == ".log" && IsGhpLogFile(entryName))
-                        {
-                            using (Stream stream = entry.Open())
-                                ReadGhpFormatLines(stream, sourceName, result);
-                        }
-                        else if (ext == ".txt" || ext == "" || ext == ".log")
-                        {
-                            var tempResult = new DataLoadResult();
-
-                            using (Stream stream = entry.Open())
-                                ReadOldFormatLines(stream, sourceName, tempResult);
-
-                            if (tempResult.Records.Count == 0)
-                            {
-                                using (Stream stream = entry.Open())
-                                    ReadGhpFormatLines(stream, sourceName, tempResult);
-                            }
-
-                            foreach (var r in tempResult.Records)
-                                result.Records.Add(r);
-
-                            if (!string.IsNullOrEmpty(tempResult.StationName) &&
-                                !IsGenericPlaceholderName(tempResult.StationName) &&
-                                (string.IsNullOrEmpty(result.StationName) ||
-                                 IsGenericPlaceholderName(result.StationName)))
-                                result.StationName = tempResult.StationName;
-                        }
-                    }
-                }
+                        TryLoadZipEntry(entry, Path.GetFileName(zipFile), result);
             }
             catch
             {
             }
         }
+
+        private static void TryLoadZipEntry(ZipArchiveEntry entry, string zipName, DataLoadResult result)
+        {
+            string entryName = entry.Name;
+            string sourceName = zipName + " > " + entryName;
+            string ext = Path.GetExtension(entryName).ToLowerInvariant();
+
+            if (!ShouldProcessFile(entryName)) return;
+
+            if (ext == ".log" && IsGhpLogFile(entryName))
+            {
+                using (Stream stream = entry.Open())
+                    ReadGhpFormatLines(stream, sourceName, result);
+                return;
+            }
+
+            if (ext != ".txt" && ext != "" && ext != ".log") return;
+
+            if (NeedsProbe(entryName) && !ProbeZipEntryForMesData(entry)) return;
+
+            var temp = new DataLoadResult();
+
+            using (Stream stream = entry.Open())
+                ReadOldFormatLines(stream, sourceName, temp);
+
+            if (temp.Records.Count == 0)
+                using (Stream stream = entry.Open())
+                    ReadGhpFormatLines(stream, sourceName, temp);
+
+            foreach (var r in temp.Records)
+                result.Records.Add(r);
+
+            MergeStationName(result, temp.StationName);
+        }
+
+        private static void MergeStationName(DataLoadResult target, string candidate)
+        {
+            if (!string.IsNullOrEmpty(candidate) && !IsGenericPlaceholderName(candidate) &&
+                (string.IsNullOrEmpty(target.StationName) || IsGenericPlaceholderName(target.StationName)))
+                target.StationName = candidate;
+        }
+
+        #endregion
+
+        #region Old Format Parsing
 
         private static void ReadOldFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
             DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
@@ -553,98 +662,94 @@ namespace RTAnalyzer.Core
             long readBytes = 0;
             int lineNum = 0;
             int recCount = 0;
+            string plcLine = null;
 
             using (var reader = new StreamReader(dataStream))
             {
-                string plcMsgLine = null;
                 string line;
-
                 while ((line = reader.ReadLine()) != null)
                 {
                     lineNum++;
                     readBytes += line.Length + 2;
 
-                    TryExtractStationNameOldFormat(line, result);
+                    TryExtractStationName(line, result);
 
                     if (line.Contains("[C->S"))
                     {
-                        plcMsgLine = line;
+                        plcLine = line;
                         continue;
                     }
 
-                    int prevCount = result.Records.Count;
-                    TryParseOldFormatRecord(line, sourceName, result, plcMsgLine, cutoff);
-                    if (result.Records.Count > prevCount) recCount++;
-                    plcMsgLine = null;
+                    int before = result.Records.Count;
+                    TryParseOldRecord(line, sourceName, result, plcLine, cutoff);
+                    if (result.Records.Count > before) recCount++;
+                    plcLine = null;
 
                     if (lineNum % 2000 == 0)
-                    {
-                        int pct = totalBytes > 0 ? (int)(readBytes * 100 / totalBytes) : 0;
-                        lineProgress?.Invoke(lineNum, recCount, pct);
-                    }
+                        lineProgress?.Invoke(lineNum, recCount, ProgressPct(readBytes, totalBytes));
                 }
             }
         }
 
-        private static void TryExtractStationNameOldFormat(string line, DataLoadResult result)
+        private static void TryExtractStationName(string line, DataLoadResult result)
         {
             if (!string.IsNullOrEmpty(result.StationName) && !IsGenericPlaceholderName(result.StationName)) return;
             if (!line.Contains("productline=\"")) return;
 
-            int start = line.IndexOf("productline=\"", StringComparison.Ordinal) + 13;
-            int end = line.IndexOf("\"", start, StringComparison.Ordinal);
-
-            if (end <= start) return;
-
-            string extracted = line.Substring(start, end - start).Replace("_", " ").Trim();
-            if (!IsGenericPlaceholderName(extracted))
-                result.StationName = extracted;
+            string extracted = ExtractQuotedValue(line, "productline=\"");
+            if (extracted != null && !IsGenericPlaceholderName(extracted))
+                result.StationName = extracted.Replace("_", " ").Trim();
         }
 
-        private static void TryParseOldFormatRecord(string line, string sourceName, DataLoadResult result,
-            string plcMsgLine, DateTime? cutoff = null)
+        private static void TryParseOldRecord(string line, string sourceName, DataLoadResult result,
+            string plcLine, DateTime? cutoff)
         {
             if (!line.Contains("[S") || !line.Contains("->C]")) return;
 
-            string[] columns = line.Split('\t');
-            if (columns.Length < 2) return;
+            string[] cols = line.Split('\t');
+            if (cols.Length < 2) return;
+            if (!int.TryParse(cols[cols.Length - 1], out int rt)) return;
 
-            string lastCol = columns[columns.Length - 1];
-            if (!int.TryParse(lastCol, out int timeValue)) return;
+            string mes = cols.Length >= 4 ? cols[3] : line;
+            string plc = plcLine ?? "";
 
-            string mesMsgText = columns.Length >= 4 ? columns[3] : line;
-            string plcMsgText = plcMsgLine ?? "";
+            TryParseTimestampFlexible(cols[0], out DateTime ts);
+            if (cutoff.HasValue && ts != DateTime.MinValue && ts < cutoff.Value) return;
 
-            DateTimeHelper.TryParseTimestamp(columns[0], out DateTime parsedTimestamp);
-
-            if (cutoff.HasValue && parsedTimestamp != DateTime.MinValue && parsedTimestamp < cutoff.Value)
-                return;
-
-            result.Records.Add(new ResponseRecord
-            {
-                Timestamp = columns[0],
-                TimestampParsed = parsedTimestamp,
-                ResponseTime = timeValue,
-                FileName = sourceName,
-                Type = ParseMessageType(line),
-                Uid = ExtractAttribute(mesMsgText, "uid=") ?? ExtractAttribute(plcMsgText, "uid="),
-                UidIn = ExtractAttribute(mesMsgText, "uid_in=") ?? ExtractAttribute(plcMsgText, "uid_in="),
-                UidOut = ExtractAttribute(mesMsgText, "uid_out=") ?? ExtractAttribute(plcMsgText, "uid_out="),
-                UidType = ExtractAttribute(mesMsgText, "uid_type=") ?? ExtractAttribute(plcMsgText, "uid_type="),
-                Result = ExtractAttribute(mesMsgText, "result=") ?? ExtractAttribute(plcMsgText, "result="),
-                CarrierId = ExtractAttribute(mesMsgText, "Carrier_ID_val=") ??
-                            ExtractAttribute(plcMsgText, "Carrier_ID_val="),
-                Material = ExtractAttribute(mesMsgText, "material=") ?? ExtractAttribute(plcMsgText, "material="),
-                Setup = ExtractAttribute(mesMsgText, "setup=") ?? ExtractAttribute(plcMsgText, "setup=")
-            });
+            result.Records.Add(BuildOldRecord(cols[0], ts, rt, sourceName, mes, plc));
         }
+
+        private static ResponseRecord BuildOldRecord(string rawTs, DateTime ts, int rt,
+            string source, string mes, string plc)
+        {
+            return new ResponseRecord
+            {
+                Timestamp = rawTs,
+                TimestampParsed = ts,
+                ResponseTime = rt,
+                FileName = source,
+                Type = ParseMessageType(mes),
+                Uid = Attr(mes, "uid=") ?? Attr(plc, "uid="),
+                UidIn = Attr(mes, "uid_in=") ?? Attr(plc, "uid_in="),
+                UidOut = Attr(mes, "uid_out=") ?? Attr(plc, "uid_out="),
+                UidType = Attr(mes, "uid_type=") ?? Attr(plc, "uid_type="),
+                Result = Attr(mes, "result=") ?? Attr(plc, "result="),
+                CarrierId = Attr(mes, "Carrier_ID_val=") ?? Attr(plc, "Carrier_ID_val="),
+                Material = Attr(mes, "material=") ?? Attr(plc, "material="),
+                Setup = Attr(mes, "setup=") ?? Attr(plc, "setup=")
+            };
+        }
+
+        #endregion
+
+        #region GHP Format Parsing
 
         private static void ReadGhpFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
             Action<int, int, int> lineProgress = null)
         {
-            var pendingRequests = new Dictionary<string, string>();
-            long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
-            long readBytes = 0;
+            var pending = new Dictionary<string, string>();
+            long total = dataStream.CanSeek ? dataStream.Length : 0;
+            long read = 0;
             int lineNum = 0;
             int recCount = 0;
 
@@ -654,111 +759,115 @@ namespace RTAnalyzer.Core
                 while ((line = reader.ReadLine()) != null)
                 {
                     lineNum++;
-                    readBytes += line.Length + 2;
+                    read += line.Length + 2;
 
-                    if (line.Contains("productline=\"") &&
-                        (string.IsNullOrEmpty(result.StationName) || IsGenericPlaceholderName(result.StationName)))
-                    {
-                        int ps = line.IndexOf("productline=\"", StringComparison.Ordinal) + 13;
-                        int pe = line.IndexOf("\"", ps, StringComparison.Ordinal);
-                        if (pe > ps)
-                        {
-                            string extracted = line.Substring(ps, pe - ps).Replace("_", " ").Trim();
-                            if (!IsGenericPlaceholderName(extracted))
-                                result.StationName = extracted;
-                        }
-                    }
+                    TryExtractStationName(line, result);
 
-                    bool isRequest = line.Contains("=>[VitescoComcell]");
-                    bool isResponse = line.Contains("<=[VitescoComcell]");
-                    if (!isRequest && !isResponse) continue;
+                    bool isReq = line.Contains("=>[VitescoComcell]");
+                    bool isResp = line.Contains("<=[VitescoComcell]");
+                    if (!isReq && !isResp) continue;
 
-                    int stxPos = line.IndexOf('\x02');
-                    int etxPos = line.LastIndexOf('\x03');
-                    if (stxPos < 0 || etxPos <= stxPos) continue;
+                    string body = ExtractGhpBody(line);
+                    if (body == null) continue;
 
-                    string body = line.Substring(stxPos + 1, etxPos - stxPos - 1);
                     string pairKey = ExtractGhpPairKey(body);
                     if (pairKey == null) continue;
 
-                    if (isRequest)
+                    if (isReq)
                     {
-                        pendingRequests[pairKey] = body;
+                        pending[pairKey] = body;
                         continue;
                     }
 
-                    string afterEtx = line.Substring(etxPos + 1).TrimStart(',').Trim();
-                    if (!int.TryParse(afterEtx, out int responseTime)) continue;
+                    if (!TryExtractGhpResponseTime(line, body, out int rt)) continue;
 
-                    string timestampRaw = line.Length >= 23 ? line.Substring(0, 23) : "";
-                    string timestampNormalized = timestampRaw.Replace(',', '.');
-                    DateTimeHelper.TryParseTimestamp(timestampNormalized, out DateTime parsedTimestamp);
+                    string rawTs = line.Length >= 23 ? line.Substring(0, 23) : "";
+                    TryParseTimestampFlexible(rawTs, out DateTime ts);
 
-                    pendingRequests.TryGetValue(pairKey, out string reqBody);
-                    string mergedBody = (reqBody ?? "") + " " + body;
-
-                    result.Records.Add(new ResponseRecord
-                    {
-                        Timestamp = timestampRaw,
-                        TimestampParsed = parsedTimestamp,
-                        ResponseTime = responseTime,
-                        FileName = sourceName,
-                        Type = ParseGhpMessageType(body),
-                        Uid = ExtractAttribute(mergedBody, "uid="),
-                        UidIn = ExtractAttribute(mergedBody, "uid_in="),
-                        UidOut = ExtractAttribute(mergedBody, "uid_out="),
-                        UidType = ExtractAttribute(mergedBody, "uid_type="),
-                        Result = ExtractAttribute(mergedBody, "result="),
-                        CarrierId = ExtractAttribute(mergedBody, "Carrier_ID_val="),
-                        Material = ExtractAttribute(mergedBody, "material="),
-                        Setup = ExtractAttribute(mergedBody, "setup=")
-                    });
-
-                    pendingRequests.Remove(pairKey);
+                    pending.TryGetValue(pairKey, out string reqBody);
+                    result.Records.Add(BuildGhpRecord(rawTs, ts, rt, sourceName, body, reqBody));
+                    pending.Remove(pairKey);
                     recCount++;
 
                     if (lineNum % 1000 == 0)
-                    {
-                        int pct = totalBytes > 0 ? (int)(readBytes * 100 / totalBytes) : 0;
-                        lineProgress?.Invoke(lineNum, recCount, pct);
-                    }
+                        lineProgress?.Invoke(lineNum, recCount, ProgressPct(read, total));
                 }
             }
         }
 
-        private static string ExtractGhpPairKey(string body)
+        private static string ExtractGhpBody(string line)
         {
-            int first = body.IndexOf(',');
-            if (first < 0) return null;
-            int second = body.IndexOf(',', first + 1);
-            if (second < 0) return null;
-            int third = body.IndexOf(',', second + 1);
-            if (third < 0) return null;
-            return body.Substring(0, third);
+            int stx = line.IndexOf('\x02');
+            int etx = line.LastIndexOf('\x03');
+            if (stx < 0 || etx <= stx) return null;
+            return line.Substring(stx + 1, etx - stx - 1);
         }
 
-        private static MessageType ParseGhpMessageType(string msgBody)
+        private static bool TryExtractGhpResponseTime(string line, string body, out int rt)
         {
-            int commaPos = msgBody.IndexOf(',');
-            string typeName = commaPos > 0 ? msgBody.Substring(0, commaPos).Trim() : msgBody.Trim();
-            return MapMessageTypeName(typeName);
+            rt = 0;
+            int etx = line.LastIndexOf('\x03');
+            if (etx < 0) return false;
+            string after = line.Substring(etx + 1).TrimStart(',').Trim();
+            return int.TryParse(after, out rt);
         }
+
+        private static ResponseRecord BuildGhpRecord(string rawTs, DateTime ts, int rt,
+            string source, string body, string reqBody)
+        {
+            string merged = (reqBody ?? "") + " " + body;
+            return new ResponseRecord
+            {
+                Timestamp = rawTs,
+                TimestampParsed = ts,
+                ResponseTime = rt,
+                FileName = source,
+                Type = ParseGhpMessageType(body),
+                Uid = Attr(merged, "uid="),
+                UidIn = Attr(merged, "uid_in="),
+                UidOut = Attr(merged, "uid_out="),
+                UidType = Attr(merged, "uid_type="),
+                Result = Attr(merged, "result="),
+                CarrierId = Attr(merged, "Carrier_ID_val="),
+                Material = Attr(merged, "material="),
+                Setup = Attr(merged, "setup=")
+            };
+        }
+
+        private static string ExtractGhpPairKey(string body)
+        {
+            int a = body.IndexOf(',');
+            if (a < 0) return null;
+            int b = body.IndexOf(',', a + 1);
+            if (b < 0) return null;
+            int c = body.IndexOf(',', b + 1);
+            if (c < 0) return null;
+            return body.Substring(0, c);
+        }
+
+        #endregion
+
+        #region Message Type Parsing
 
         private static MessageType ParseMessageType(string text)
         {
-            var start = text.IndexOf("<STX>", StringComparison.Ordinal);
+            int start = text.IndexOf("<STX>", StringComparison.Ordinal);
             if (start < 0) return MessageType.OTHER;
             start += 5;
-
-            var end = text.IndexOf(",", start, StringComparison.Ordinal);
+            int end = text.IndexOf(",", start, StringComparison.Ordinal);
             if (end < 0) return MessageType.OTHER;
-
             return MapMessageTypeName(text.Substring(start, end - start).Trim());
         }
 
-        private static MessageType MapMessageTypeName(string typeName)
+        private static MessageType ParseGhpMessageType(string body)
         {
-            switch (typeName)
+            int comma = body.IndexOf(',');
+            return MapMessageTypeName(comma > 0 ? body.Substring(0, comma).Trim() : body.Trim());
+        }
+
+        private static MessageType MapMessageTypeName(string name)
+        {
+            switch (name)
             {
                 case "REQ_UNIT_INFO": return MessageType.UNIT_INFO;
                 case "REQ_NEXT_OPERATION": return MessageType.NEXT_OPERATION;
@@ -773,11 +882,69 @@ namespace RTAnalyzer.Core
             }
         }
 
-        private static string ExtractAttribute(string text, string key)
+        #endregion
+
+        #region Timestamp Parsing
+
+        private static bool TryParseTimestampFlexible(string raw, out DateTime result)
+        {
+            result = DateTime.MinValue;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+            string s = (raw.Length > 26 ? raw.Substring(0, 26) : raw).Replace(',', '.');
+            foreach (string fmt in TimestampFormats)
+                if (DateTime.TryParseExact(s, fmt,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out result))
+                    return true;
+            return false;
+        }
+
+        private static DateTime EstimateFileDate(string filePath)
+        {
+            string fileName = Path.GetFileName(filePath);
+
+            var nm = RxYyyyMmDd.Match(fileName);
+            if (nm.Success &&
+                int.TryParse(nm.Groups[1].Value, out int y) &&
+                int.TryParse(nm.Groups[2].Value, out int mo) &&
+                int.TryParse(nm.Groups[3].Value, out int d) &&
+                mo >= 1 && mo <= 12 && d >= 1 && d <= 31)
+                return new DateTime(y, mo, d);
+
+            var mm = RxMmYyyy.Match(fileName);
+            if (mm.Success &&
+                int.TryParse(mm.Groups[1].Value, out int mo2) &&
+                int.TryParse(mm.Groups[2].Value, out int y2) &&
+                mo2 >= 1 && mo2 <= 12)
+                return new DateTime(y2, mo2, 1);
+
+            try
+            {
+                if (Path.GetExtension(fileName).ToLowerInvariant() == ".zip")
+                    return File.GetLastWriteTime(filePath);
+
+                using (var reader = new StreamReader(filePath))
+                {
+                    string first = reader.ReadLine();
+                    if (first != null && TryParseTimestampFlexible(first, out DateTime parsed))
+                        return parsed;
+                }
+            }
+            catch
+            {
+            }
+
+            return File.GetLastWriteTime(filePath);
+        }
+
+        #endregion
+
+        #region Attribute Extraction
+
+        private static string Attr(string text, string key)
         {
             int start = text.IndexOf(key, StringComparison.Ordinal);
             if (start < 0) return null;
-
             start += key.Length;
             if (start >= text.Length) return null;
 
@@ -785,19 +952,47 @@ namespace RTAnalyzer.Core
             {
                 start++;
                 int end = text.IndexOf('"', start);
-                if (end < 0) return null;
-                return text.Substring(start, end - start);
+                return end < 0 ? null : text.Substring(start, end - start);
             }
 
             int endSpace = text.IndexOf(' ', start);
-            if (endSpace < 0) endSpace = text.Length;
-            return text.Substring(start, endSpace - start);
+            return text.Substring(start, (endSpace < 0 ? text.Length : endSpace) - start);
         }
-    }
 
-    public class MonthFileInfo
-    {
-        public int FileCount { get; set; }
-        public long SizeMb { get; set; }
+        private static string ExtractQuotedValue(string line, string key)
+        {
+            int start = line.IndexOf(key, StringComparison.Ordinal);
+            if (start < 0) return null;
+            start += key.Length;
+            int end = line.IndexOf('"', start);
+            return end <= start ? null : line.Substring(start, end - start);
+        }
+
+        #endregion
+
+        #region Utilities
+
+        private static int ProgressPct(long read, long total)
+        {
+            return total > 0 ? (int)(read * 100 / total) : 0;
+        }
+
+        private static void LogRecordTypeSummary(List<ResponseRecord> records)
+        {
+            var by = new Dictionary<string, int>();
+            foreach (var r in records)
+            {
+                string t = r.Type.ToString();
+                if (!by.ContainsKey(t)) by[t] = 0;
+                by[t]++;
+            }
+
+            System.Diagnostics.Debug.WriteLine("=== Record Types ===");
+            foreach (var kv in by.OrderByDescending(x => x.Value))
+                System.Diagnostics.Debug.WriteLine($"  {kv.Key}: {kv.Value}");
+            System.Diagnostics.Debug.WriteLine($"  TOTAL: {records.Count}");
+        }
+
+        #endregion
     }
 }
