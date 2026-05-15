@@ -136,11 +136,16 @@ namespace MESInsight
                 if (LoadingStationLog != null)
                     LoadingStationLog.ItemsSource = _stationLogEntries;
 
-                var startup = new StartupWindow();
+                StartupWindow startup = new StartupWindow();
                 bool? result = startup.ShowDialog();
                 if (result == true && !string.IsNullOrEmpty(startup.SelectedPath))
                     Dispatcher.BeginInvoke(new Action(async () =>
-                        await LoadAllStationsFromRoot(startup.SelectedPath)));
+                    {
+                        if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
+                            await LoadAllStationsFromPaths(startup.SelectedPaths);
+                        else
+                            await LoadAllStationsFromRoot(startup.SelectedPath);
+                    }));
             };
         }
 
@@ -162,19 +167,244 @@ namespace MESInsight
             await LoadAllStationsFromRoot(folderPath);
         }
 
+        private async Task LoadAllStationsFromPaths(List<string> paths)
+        {
+            ShowLoadingOverlay("Scanning...", "Building station list from selection...", 0);
+            await Task.Yield();
+
+            System.Text.RegularExpressions.RegexOptions rxOpts =
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+
+            List<StationInfo> allStations = await Task.Run(() =>
+            {
+                List<StationInfo> result = new List<StationInfo>();
+                foreach (string path in paths)
+                {
+                    List<StationInfo> found = DataLoader.FindStations(path);
+                    if (found.Count == 0)
+                        found.Add(new StationInfo
+                        {
+                            FolderPath = path,
+                            StationName = System.IO.Path.GetFileName(path)
+                        });
+                    result.AddRange(found);
+                }
+
+                return result;
+            });
+
+            foreach (StationInfo st in allStations)
+            {
+                if (st.Category != StationCategory.GHP) continue;
+                string n = st.StationName + " " + st.FolderPath;
+                if (System.Text.RegularExpressions.Regex.IsMatch(n, @"(?:^|[ _-])LCS[0-9]+", rxOpts))
+                    st.Category = StationCategory.LCS;
+                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"backflush", rxOpts))
+                    st.Category = StationCategory.Backflush;
+                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"connector|comcell|ghpnetty", rxOpts))
+                    st.Category = StationCategory.Connector;
+            }
+
+            HideLoadingOverlay();
+
+            List<StationInfo> ghpStations = allStations
+                .Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
+            List<StationInfo> lcsStations = allStations.Where(s => s.Category == StationCategory.LCS).ToList();
+            List<StationInfo> backflushList = allStations.Where(s => s.Category == StationCategory.Backflush).ToList();
+            List<StationInfo> connectorList = allStations.Where(s => s.Category == StationCategory.Connector).ToList();
+
+            Window scanSpinner = ShowScanningSpinner("Counting files...");
+            string commonRoot = paths.Count == 1
+                ? paths[0]
+                : System.IO.Path.GetDirectoryName(paths[0]) ?? paths[0];
+
+            Dictionary<int, MonthFileInfo> fileCounts = await Task.Run(() =>
+                DataLoader.CountFilesByMonthCutoffs(commonRoot,
+                    new[] { 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365 }));
+            scanSpinner?.Close();
+
+            StartupWindow.LoadOptionsDialog optDlg =
+                new StartupWindow.LoadOptionsDialog(ghpStations, lcsStations, backflushList, connectorList, fileCounts)
+                    { Owner = this };
+            if (optDlg.ShowDialog() != true) return;
+
+            _dataLoader.DateFilter = optDlg.FilterByDate
+                ? DateTime.Now.AddDays(-optDlg.MaxMonths)
+                : (DateTime?)null;
+
+            List<StationInfo> stations = allStations
+                .Where(s =>
+                    ((s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown) ||
+                     (optDlg.IncludeLcs && s.Category == StationCategory.LCS) ||
+                     (optDlg.IncludeBackflush && s.Category == StationCategory.Backflush) ||
+                     (optDlg.IncludeConnectors && s.Category == StationCategory.Connector)) &&
+                    !optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
+                .ToList();
+
+            _pendingOptionalStations = new List<StationInfo>();
+            _isBackgroundLoading = true;
+            _isOverlayMinimized = false;
+            ShowLoadingOverlay("Loading...", "Preparing...", 0);
+            await Task.Yield();
+
+            _loadedStations = stations;
+            _stationDataCache.Clear();
+            _stationChartCache.Clear();
+            _stationLogEntries.Clear();
+
+            void AddSection(string header, List<StationInfo> list)
+            {
+                if (list.Count == 0) return;
+                _stationLogEntries.Add(new LoadingStationLogEntry
+                {
+                    StatusIcon = "", IconColor = "#3FB950",
+                    Line1 = header, Line2 = "", Line1Color = "#3FB950", IsHeader = true
+                });
+                foreach (StationInfo st in list)
+                    _stationLogEntries.Add(new LoadingStationLogEntry
+                    {
+                        StatusIcon = "○", IconColor = "#4E5A4E",
+                        Line1 = st.StationName,
+                        Line2 = string.Join("  ·  ", new[] { st.LineName, st.ComputerName }
+                            .Where(x => !string.IsNullOrEmpty(x))),
+                        Line1Color = "#8B949E"
+                    });
+            }
+
+            AddSection("GHP STATIONS", ghpStations.Where(s => stations.Contains(s)).ToList());
+            AddSection("LCS STATIONS", lcsStations.Where(s => stations.Contains(s)).ToList());
+            AddSection("BACKFLUSH STATIONS", backflushList.Where(s => stations.Contains(s)).ToList());
+
+            ShowLoadingOverlay(
+                "Found " + stations.Count + " station" + (stations.Count != 1 ? "s" : ""),
+                "Preparing to load...", 5, typeCount: stations.Count);
+            await Task.Delay(300);
+            RebuildStationBar();
+
+            int totalFiles = 0;
+
+            for (int i = 0; i < stations.Count; i++)
+            {
+                StationInfo st = stations[i];
+                int liveFileCount = 0;
+
+                UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
+
+                DataLoadResult loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
+                    (status, percent, extra) =>
+                    {
+                        if (status.StartsWith("Reading "))
+                            System.Threading.Interlocked.Increment(ref liveFileCount);
+
+                        int fc = liveFileCount;
+                        int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
+
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            bool isReading = status.StartsWith("Reading ");
+                            string fileName = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
+                            string detail;
+                            if (isReading && fc > 0)
+                            {
+                                detail = "File " + fc + (fileName != null ? "  —  " + fileName : "");
+                                if (!string.IsNullOrEmpty(extra)) detail += Environment.NewLine + extra;
+                            }
+                            else if (status.StartsWith("Scanning")) detail = "Scanning for log files...";
+                            else detail = status;
+
+                            ShowLoadingOverlay(
+                                "Station " + (i + 1) + " / " + stations.Count,
+                                st.StationName, innerPct,
+                                detail: detail, fileCount: fc, typeCount: stations.Count);
+                        }));
+                    }));
+
+                string displayName = !string.IsNullOrEmpty(loadResult.StationName)
+                    ? loadResult.StationName
+                    : st.StationName;
+                st.StationName = displayName;
+                _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
+
+                if (i < _stationLogEntries.Count)
+                {
+                    _stationLogEntries[i].StatusIcon = loadResult.Records.Count > 0 ? "✓" : "✕";
+                    _stationLogEntries[i].IconColor = loadResult.Records.Count > 0 ? "#3FB950" : "#C03030";
+                    _stationLogEntries[i].Line1Color = loadResult.Records.Count > 0 ? "#C9D1D9" : "#C03030";
+                    _stationLogEntries[i].Line1 = displayName +
+                                                  (loadResult.Records.Count > 0
+                                                      ? "  —  " + loadResult.Records.Count.ToString("N0") + " records"
+                                                      : "  —  no records");
+                }
+
+                totalFiles += liveFileCount;
+
+                ShowLoadingOverlay(
+                    "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
+                    st.StationName,
+                    5 + ((i * 88 + 44) / stations.Count),
+                    detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
+                    fileCount: totalFiles, recordCount: loadResult.Records.Count, typeCount: stations.Count);
+
+                await Task.Yield();
+
+                Dictionary<(MessageType, ChartType), ChartData> stationCharts =
+                    await BuildChartsForRecords(loadResult.Records, displayName);
+                _stationChartCache[st.FolderPath] = stationCharts;
+
+                UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
+
+                if (i == 0)
+                {
+                    bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
+                    await SwitchToStation(st);
+                    if (overlayWasVisible)
+                        ShowLoadingOverlay(
+                            "Loading " + (i + 2) + " / " + stations.Count + "...", "",
+                            5 + ((i + 1) * 88 / stations.Count), typeCount: stations.Count);
+                }
+
+                RebuildStationBar();
+            }
+
+            int totalRecords = stations.Sum(s =>
+                _stationDataCache.ContainsKey(s.FolderPath)
+                    ? _stationDataCache[s.FolderPath].records.Count
+                    : 0);
+
+            ShowLoadingOverlay(
+                "All stations ready",
+                stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
+                100, fileCount: totalFiles, recordCount: totalRecords, typeCount: stations.Count);
+
+            await Task.Delay(400);
+
+            if (stations.Count > 0)
+                await SwitchToStation(stations[0]);
+
+            _isBackgroundLoading = false;
+            RebuildStationBar();
+            HideLoadingOverlay();
+
+            await Task.Run(() =>
+            {
+                GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+                GC.WaitForPendingFinalizers();
+            });
+        }
+
         private async Task LoadAllStationsFromRoot(string rootPath)
         {
             ShowLoadingOverlay("Scanning...", "Looking for stations...", 0, detail: rootPath);
 
             await Task.Yield();
 
-            var allStations = await Task.Run(() => DataLoader.FindStations(rootPath));
+            List<StationInfo> allStations = await Task.Run(() => DataLoader.FindStations(rootPath));
 
             if (allStations.Count == 0)
                 allStations.Add(new StationInfo
                     { FolderPath = rootPath, StationName = System.IO.Path.GetFileName(rootPath) });
 
-            var rxOpts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            System.Text.RegularExpressions.RegexOptions rxOpts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
             foreach (var st in allStations)
             {
                 if (st.Category != StationCategory.GHP) continue;
@@ -188,7 +418,8 @@ namespace MESInsight
             HideLoadingOverlay();
 
             // Detect connectors
-            var rxOpts2 = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            System.Text.RegularExpressions.RegexOptions
+                rxOpts2 = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
             foreach (var st in allStations)
             {
                 if (st.Category != StationCategory.GHP) continue;
@@ -197,22 +428,22 @@ namespace MESInsight
                     st.Category = StationCategory.Connector;
             }
 
-            var ghpStations = allStations
+            List<StationInfo> ghpStations = allStations
                 .Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
-            var lcsStationsList = allStations.Where(s => s.Category == StationCategory.LCS).ToList();
-            var backflushList = allStations.Where(s => s.Category == StationCategory.Backflush).ToList();
-            var connectorList = allStations.Where(s => s.Category == StationCategory.Connector).ToList();
+            List<StationInfo> lcsStationsList = allStations.Where(s => s.Category == StationCategory.LCS).ToList();
+            List<StationInfo> backflushList = allStations.Where(s => s.Category == StationCategory.Backflush).ToList();
+            List<StationInfo> connectorList = allStations.Where(s => s.Category == StationCategory.Connector).ToList();
 
-            var scanSpinner = ShowScanningSpinner("Scanning stations...");
+            Window scanSpinner = ShowScanningSpinner("Scanning stations...");
 
-            var fileCounts = await Task.Run(() =>
-                DataLoader.CountFilesByMonthCutoffs(rootPath,
-                    new[] { 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365 }));
+            Dictionary<int, MonthFileInfo> fileCounts = await Task.Run(() =>
+                DataLoader.CountFilesByMonthCutoffs(rootPath, new[] { 1, 2, 3, 6, 12, 24 }));
 
             scanSpinner?.Close();
 
-            var optDlg = new StartupWindow.LoadOptionsDialog(ghpStations, lcsStationsList, backflushList, connectorList,
-                fileCounts);
+            StartupWindow.LoadOptionsDialog optDlg = new StartupWindow.LoadOptionsDialog(ghpStations, lcsStationsList,
+                backflushList,
+                connectorList, fileCounts);
             optDlg.Owner = this;
             if (optDlg.ShowDialog() != true) return;
 
@@ -222,7 +453,7 @@ namespace MESInsight
 
             _dataLoader.DateFilter = dateFilter;
 
-            var stations = allStations
+            List<StationInfo> stations = allStations
                 .Where(s =>
                     ((s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown) ||
                      (optDlg.IncludeLcs && s.Category == StationCategory.LCS) ||
@@ -243,10 +474,10 @@ namespace MESInsight
             _stationChartCache.Clear();
             _stationLogEntries.Clear();
 
-            var ghpLogList = stations
+            List<StationInfo> ghpLogList = stations
                 .Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
-            var lcsLogList = stations.Where(s => s.Category == StationCategory.LCS).ToList();
-            var backflushLogList = stations.Where(s => s.Category == StationCategory.Backflush).ToList();
+            List<StationInfo> lcsLogList = stations.Where(s => s.Category == StationCategory.LCS).ToList();
+            List<StationInfo> backflushLogList = stations.Where(s => s.Category == StationCategory.Backflush).ToList();
 
             void AddSection(string header, List<StationInfo> list)
             {
@@ -293,14 +524,14 @@ namespace MESInsight
 
             for (int i = 0; i < stations.Count; i++)
             {
-                var st = stations[i];
+                StationInfo st = stations[i];
 
                 // Mark current station as loading in bar
                 UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
 
                 int liveFileCount = 0;
 
-                var loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
+                DataLoadResult loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
                     (status, percent, extra) =>
                     {
                         if (status.StartsWith("Reading "))
@@ -369,7 +600,8 @@ namespace MESInsight
 
                 await Task.Yield();
 
-                var stationCharts = await BuildChartsForRecords(loadResult.Records, displayName);
+                Dictionary<(MessageType, ChartType), ChartData> stationCharts =
+                    await BuildChartsForRecords(loadResult.Records, displayName);
 
                 _stationChartCache[st.FolderPath] = stationCharts;
 
@@ -410,7 +642,7 @@ namespace MESInsight
 
         private async Task LoadOptionalStations()
         {
-            var toLoad = _pendingOptionalStations.ToList();
+            List<StationInfo> toLoad = _pendingOptionalStations.ToList();
             _pendingOptionalStations.Clear();
 
             RebuildStationBar();
@@ -419,11 +651,11 @@ namespace MESInsight
 
             for (int i = 0; i < toLoad.Count; i++)
             {
-                var st = toLoad[i];
+                StationInfo st = toLoad[i];
 
                 int liveFileCount = 0;
 
-                var loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
+                DataLoadResult loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
                     (status, percent, extra) =>
                     {
                         if (status.StartsWith("Reading "))
@@ -479,7 +711,8 @@ namespace MESInsight
 
                 await Task.Yield();
 
-                var stationCharts = await BuildChartsForRecords(loadResult.Records, displayName);
+                Dictionary<(MessageType, ChartType), ChartData> stationCharts =
+                    await BuildChartsForRecords(loadResult.Records, displayName);
                 _stationChartCache[st.FolderPath] = stationCharts;
             }
 
@@ -507,7 +740,7 @@ namespace MESInsight
 
         private Window ShowScanningSpinner(string message)
         {
-            var win = new Window
+            Window win = new Window
             {
                 Width = 280,
                 Height = 70,
@@ -518,21 +751,21 @@ namespace MESInsight
                 Topmost = true
             };
 
-            var border = new Border
+            Border border = new Border
             {
                 BorderBrush = new SolidColorBrush(Color.FromRgb(30, 100, 55)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8)
             };
 
-            var stack = new StackPanel
+            StackPanel stack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            var spin = new TextBlock
+            TextBlock spin = new TextBlock
             {
                 Text = "↻",
                 FontSize = 20,
@@ -555,7 +788,7 @@ namespace MESInsight
             border.Child = stack;
             win.Content = border;
 
-            var timer = new System.Windows.Threading.DispatcherTimer
+            System.Windows.Threading.DispatcherTimer timer = new System.Windows.Threading.DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(60)
             };
@@ -601,7 +834,7 @@ namespace MESInsight
 
             label += "  (" + _pendingOptionalStations.Count + ")";
 
-            var btn = new Button
+            Button btn = new Button
             {
                 Content = label,
                 FontSize = 10,
@@ -629,12 +862,13 @@ namespace MESInsight
             List<ResponseRecord> records,
             string stationName)
         {
-            var result = new Dictionary<(MessageType, ChartType), ChartData>();
-            var messageTypes = GetAllSupportedMessageTypes();
+            Dictionary<(MessageType, ChartType), ChartData> result =
+                new Dictionary<(MessageType, ChartType), ChartData>();
+            MessageType[] messageTypes = GetAllSupportedMessageTypes();
 
             var preparedInputs = await Task.Run(() =>
             {
-                var tempFactory = new ChartFactory(
+                ChartFactory tempFactory = new ChartFactory(
                     _dayRecordsPanelBuilder,
                     new Dictionary<MessageType, (Border, ColumnDefinition, bool)>(),
                     new Dictionary<MessageType, CartesianChart>(),
@@ -654,7 +888,7 @@ namespace MESInsight
 
                 foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
                 {
-                    var data = _chartFactory.BuildSingle(chartType, input);
+                    ChartData data = _chartFactory.BuildSingle(chartType, input);
 
                     if (data != null)
                         result[(messageType, chartType)] = data;
@@ -728,7 +962,7 @@ namespace MESInsight
             if (!(MainTabControl.SelectedItem is TabItem currentTab)) return;
             if (currentTab.Tag == null) return;
 
-            var currentType = TryParseMessageType(currentTab.Tag.ToString());
+            MessageType? currentType = TryParseMessageType(currentTab.Tag.ToString());
 
             bool currentHasData = currentType.HasValue &&
                                   _filteredRecords.Any(r => r.Type == currentType.Value);
@@ -741,7 +975,7 @@ namespace MESInsight
             foreach (TabItem tab in MainTabControl.Items)
             {
                 if (tab.Tag == null) continue;
-                var type = TryParseMessageType(tab.Tag.ToString());
+                MessageType? type = TryParseMessageType(tab.Tag.ToString());
                 if (!type.HasValue) continue;
                 int count = _filteredRecords.Count(r => r.Type == type.Value);
                 if (count > bestCount)
@@ -787,9 +1021,12 @@ namespace MESInsight
 
         private async void BtnSelectFolder_Click(object sender, RoutedEventArgs e)
         {
-            var startup = new StartupWindow();
+            StartupWindow startup = new StartupWindow();
             if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
-            await LoadAllStationsFromRoot(startup.SelectedPath);
+            if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
+                await LoadAllStationsFromPaths(startup.SelectedPaths);
+            else
+                await LoadAllStationsFromRoot(startup.SelectedPath);
         }
 
         private async void BtnResetFilter_Click(object sender, RoutedEventArgs e)
@@ -818,8 +1055,8 @@ namespace MESInsight
             if (_tabsUserHasAlreadySeen.Contains(type.Value)) return;
 
             _tabsUserHasAlreadySeen.Add(type.Value);
-            var chart = _trendChartByMessageType[type.Value];
-            var clipRect = new System.Windows.Media.RectangleGeometry();
+            CartesianChart chart = _trendChartByMessageType[type.Value];
+            System.Windows.Media.RectangleGeometry clipRect = new System.Windows.Media.RectangleGeometry();
             TrendChartRenderer.PlayRevealAnimation(chart, clipRect, 2000);
         }
 
@@ -842,7 +1079,7 @@ namespace MESInsight
         private async void OnShowAllRecordsRequested(MessageType messageType)
         {
             if (!_dayRecordsPanelByMessageType.ContainsKey(messageType)) return;
-            var state = _dayRecordsPanelByMessageType[messageType];
+            (Border panel, ColumnDefinition col, bool open) state = _dayRecordsPanelByMessageType[messageType];
 
             var records = _filteredRecords.Where(r => r.Type == messageType).ToList();
             if (records.Count == 0)
@@ -889,7 +1126,7 @@ namespace MESInsight
             if (!string.IsNullOrWhiteSpace(TxtFilterUidOut.Text)) return true;
             if (!string.IsNullOrWhiteSpace(TxtFilterMaterial.Text)) return true;
             if (!string.IsNullOrWhiteSpace(TxtFilterCarrierId.Text)) return true;
-            var result = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
+            string result = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
             return !string.IsNullOrEmpty(result) && result != "All";
         }
 
@@ -997,7 +1234,7 @@ namespace MESInsight
 
         private async Task BuildAllChartDataFromFilteredRecords()
         {
-            var messageTypes = GetAllSupportedMessageTypes();
+            MessageType[] messageTypes = GetAllSupportedMessageTypes();
             int totalSteps = messageTypes.Length * 3;
             int doneCount = 0;
 
@@ -1031,7 +1268,7 @@ namespace MESInsight
 
             int nonEmpty = preparedInputs.Count(kv => kv.Value.Records.Count > 0);
 
-            var typeLines = preparedInputs
+            IEnumerable<string> typeLines = preparedInputs
                 .OrderByDescending(kv => kv.Value.Records.Count)
                 .Select(kv =>
                     kv.Key.ToString().Replace("_", " ") + ":  " + kv.Value.Records.Count.ToString("N0") + " records");
@@ -1060,7 +1297,7 @@ namespace MESInsight
                                 + "   ·   " + input.Records.Count.ToString("N0") + " records"
                                 + "   ·   " + typeName);
 
-                    var data = _chartFactory.BuildSingle(chartType, input);
+                    ChartData data = _chartFactory.BuildSingle(chartType, input);
                     if (data != null)
                         _chartCache[(messageType, chartType)] = data;
 
@@ -1079,7 +1316,7 @@ namespace MESInsight
         private async Task RenderAllCachedChartsToUI()
         {
             string station = TxtStationName.Text;
-            var types = GetAllSupportedMessageTypes();
+            MessageType[] types = GetAllSupportedMessageTypes();
 
             ShowLoadingOverlay(station, "Rendering charts to UI...", 82,
                 detail: "Writing " + _chartCache.Count + " charts into " + types.Length + " tabs");
@@ -1087,7 +1324,7 @@ namespace MESInsight
 
             for (int i = 0; i < types.Length; i++)
             {
-                var mt = types[i];
+                MessageType mt = types[i];
                 ShowLoadingOverlay(station,
                     "Rendering  " + mt.ToString().Replace("_", " "),
                     82 + (i * 5 / types.Length),
@@ -1107,7 +1344,7 @@ namespace MESInsight
 
         private async Task CycleThroughAllTabsToTriggerWpfLayoutRendering()
         {
-            var originalTab = MainTabControl.SelectedItem;
+            object originalTab = MainTabControl.SelectedItem;
 
             foreach (var messageType in GetAllSupportedMessageTypes())
             {
@@ -1140,12 +1377,12 @@ namespace MESInsight
         {
             try
             {
-                var targetPanel = GetChartPanelForMessageType(messageType);
+                StackPanel targetPanel = GetChartPanelForMessageType(messageType);
                 if (targetPanel == null) return;
                 targetPanel.Children.Clear();
 
                 double availableHeight = ActualHeight - 160;
-                var context = new RenderContext
+                RenderContext context = new RenderContext
                     { AvailableHeightPixels = (int)availableHeight, MessageType = messageType };
 
                 _chartCache.TryGetValue((messageType, ChartType.Trend), out ChartData trendData);
@@ -1223,7 +1460,7 @@ namespace MESInsight
             foreach (TabItem tab in MainTabControl.Items)
             {
                 if (tab.Tag == null) continue;
-                var type = TryParseMessageType(tab.Tag.ToString());
+                MessageType? type = TryParseMessageType(tab.Tag.ToString());
                 if (type == null) continue;
                 bool highlight = anyActive && _filteredRecords.Any(r => r.Type == type.Value);
                 tab.FontWeight = highlight ? FontWeights.Bold : FontWeights.Normal;
@@ -1235,12 +1472,12 @@ namespace MESInsight
 
         private void UpdateTabEmptyState()
         {
-            var tabs = MainTabControl.Items.OfType<TabItem>()
+            List<TabItem> tabs = MainTabControl.Items.OfType<TabItem>()
                 .Where(t => t.Tag != null && TryParseMessageType(t.Tag.ToString()) != null)
                 .ToList();
 
-            var withData = tabs.Where(t => HasRecordsForTab(t)).ToList();
-            var withoutData = tabs.Where(t => !HasRecordsForTab(t)).ToList();
+            List<TabItem> withData = tabs.Where(t => HasRecordsForTab(t)).ToList();
+            List<TabItem> withoutData = tabs.Where(t => !HasRecordsForTab(t)).ToList();
 
             foreach (var tab in withData)
             {
@@ -1271,7 +1508,7 @@ namespace MESInsight
 
         private bool HasRecordsForTab(TabItem tab)
         {
-            var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
+            MessageType? type = TryParseMessageType(tab.Tag?.ToString() ?? "");
             if (type == null) return false;
             return _allRecords.Any(r => r.Type == type.Value);
         }
@@ -1311,7 +1548,7 @@ namespace MESInsight
             // ── Dropdown (fixed, outside scroll) ────────────────────────────
             if (StationDropdownHost != null)
             {
-                var dropdown = new Button
+                Button dropdown = new Button
                 {
                     Content = "▾  Stations",
                     FontSize = 11,
@@ -1326,12 +1563,13 @@ namespace MESInsight
                     Margin = new Thickness(0, 0, 2, 0)
                 };
 
-                var contextMenu = new ContextMenu { Background = new SolidColorBrush(Color.FromRgb(13, 30, 18)) };
+                ContextMenu contextMenu = new ContextMenu
+                    { Background = new SolidColorBrush(Color.FromRgb(13, 30, 18)) };
 
                 foreach (var st in _loadedStations)
                 {
-                    var captured = st;
-                    var item = new MenuItem
+                    StationInfo captured = st;
+                    MenuItem item = new MenuItem
                     {
                         Header = st.StationName + (!string.IsNullOrEmpty(st.LineName) ? "  ·  " + st.LineName : ""),
                         FontSize = 11,
@@ -1383,11 +1621,11 @@ namespace MESInsight
                 !_stationDataCache.ContainsKey(s.FolderPath) ||
                 _stationDataCache[s.FolderPath].records.Count == 0).ToList();
 
-            var ordered = withRecords.Concat(withoutRecords).ToList();
+            List<StationInfo> ordered = withRecords.Concat(withoutRecords).ToList();
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var chevron = BuildChevron(ordered[i], i == 0);
+                Canvas chevron = BuildChevron(ordered[i], i == 0);
 
                 if (withoutRecords.Contains(ordered[i]))
                     chevron.Opacity = 0.35;
@@ -1398,7 +1636,7 @@ namespace MESInsight
 
         private Button BuildScrollButton(string label, Action onClick)
         {
-            var btn = new Button
+            Button btn = new Button
             {
                 Content = label,
                 FontSize = 12,
@@ -1430,11 +1668,11 @@ namespace MESInsight
             const double tip = 12;
 
             // Active = orange (7-day avg line colour), inactive = light green
-            var fillColor = isActive ? Color.FromRgb(140, 80, 10) : Color.FromRgb(22, 110, 55);
-            var hoverColor = isActive ? Color.FromRgb(170, 100, 15) : Color.FromRgb(30, 140, 70);
-            var strokeColor = isActive ? Color.FromRgb(220, 140, 40) : Color.FromRgb(56, 190, 100);
-            var nameColor = isActive ? Color.FromRgb(255, 220, 160) : Color.FromRgb(210, 245, 220);
-            var subColor = isActive ? Color.FromRgb(220, 170, 100) : Color.FromRgb(130, 210, 155);
+            Color fillColor = isActive ? Color.FromRgb(140, 80, 10) : Color.FromRgb(22, 110, 55);
+            Color hoverColor = isActive ? Color.FromRgb(170, 100, 15) : Color.FromRgb(30, 140, 70);
+            Color strokeColor = isActive ? Color.FromRgb(220, 140, 40) : Color.FromRgb(56, 190, 100);
+            Color nameColor = isActive ? Color.FromRgb(255, 220, 160) : Color.FromRgb(210, 245, 220);
+            Color subColor = isActive ? Color.FromRgb(220, 170, 100) : Color.FromRgb(130, 210, 155);
 
             // Use LineName + ComputerName, fallback to ComputerName alone
             string subText = string.Join("  ·  ", new[] { station.LineName, station.ComputerName }
@@ -1443,7 +1681,7 @@ namespace MESInsight
             bool hasSub = !string.IsNullOrEmpty(subText);
 
             // Measure text to size canvas
-            var measureBlock = new TextBlock
+            TextBlock measureBlock = new TextBlock
             {
                 Text = stationDisplayName, FontSize = 11,
                 FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal
@@ -1453,7 +1691,7 @@ namespace MESInsight
 
             if (hasSub)
             {
-                var subMeasure = new TextBlock { Text = subText, FontSize = 9 };
+                TextBlock subMeasure = new TextBlock { Text = subText, FontSize = 9 };
                 subMeasure.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 nameW = Math.Max(nameW, subMeasure.DesiredSize.Width);
             }
@@ -1461,7 +1699,7 @@ namespace MESInsight
             double leftPad = isFirst ? 14 : 22;
             double canvasW = nameW + leftPad + tip + 14;
 
-            var canvas = new Canvas
+            Canvas canvas = new Canvas
             {
                 Width = canvasW,
                 Height = h,
@@ -1470,7 +1708,7 @@ namespace MESInsight
                 Tag = station.FolderPath
             };
 
-            var poly = new System.Windows.Shapes.Polygon
+            System.Windows.Shapes.Polygon poly = new System.Windows.Shapes.Polygon
             {
                 Fill = new SolidColorBrush(fillColor),
                 Stroke = new SolidColorBrush(strokeColor),
@@ -1502,7 +1740,7 @@ namespace MESInsight
             bool isCurrentlyLoading = _stationLoadingState.ContainsKey(station.FolderPath) &&
                                       _stationLoadingState[station.FolderPath];
 
-            var nameBlock = new TextBlock
+            TextBlock nameBlock = new TextBlock
             {
                 Text = stationDisplayName,
                 FontSize = 11,
@@ -1517,7 +1755,7 @@ namespace MESInsight
 
             if (isCurrentlyLoading)
             {
-                var loadingTimer = new System.Windows.Threading.DispatcherTimer
+                System.Windows.Threading.DispatcherTimer loadingTimer = new System.Windows.Threading.DispatcherTimer
                 {
                     Interval = TimeSpan.FromMilliseconds(150)
                 };
@@ -1540,7 +1778,7 @@ namespace MESInsight
 
             if (hasSub)
             {
-                var subBlock = new TextBlock
+                TextBlock subBlock = new TextBlock
                 {
                     Text = subText,
                     FontSize = 9,
@@ -1556,7 +1794,7 @@ namespace MESInsight
             canvas.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverColor);
             canvas.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fillColor);
 
-            var captured = station;
+            StationInfo captured = station;
 
             async void ClickHandler(object s, System.Windows.Input.MouseButtonEventArgs e)
             {
@@ -1590,7 +1828,7 @@ namespace MESInsight
                 {
                     if (child is Canvas chevron)
                     {
-                        var tag = chevron.Tag as string;
+                        string tag = chevron.Tag as string;
                         if (tag == _activeStation.FolderPath)
                         {
                             double center = offset + chevron.Width / 2;
@@ -1619,7 +1857,7 @@ namespace MESInsight
 
             int steps = 12;
             int step = 0;
-            var timer = new System.Windows.Threading.DispatcherTimer
+            System.Windows.Threading.DispatcherTimer timer = new System.Windows.Threading.DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(16)
             };

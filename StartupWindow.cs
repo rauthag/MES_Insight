@@ -18,6 +18,7 @@ namespace MESInsight
     public class StartupWindow : Window
     {
         public string SelectedPath { get; private set; }
+        public List<string> SelectedPaths { get; private set; } = new List<string>();
         public StartupMode Mode { get; private set; }
 
         private static readonly Color BgColor = Color.FromRgb(22, 80, 45);
@@ -71,9 +72,9 @@ namespace MESInsight
         public StartupWindow()
         {
             Title = "MES Insight";
-            Width = 1000;
-            Height = 860;
-            ResizeMode = ResizeMode.NoResize;
+            Width = 1100;
+            Height = 980;
+            ResizeMode = ResizeMode.CanResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = new SolidColorBrush(BgColor);
             FontFamily = new FontFamily(new Uri("pack://application:,,,/"), "./Fonts/#Inter 18pt");
@@ -82,15 +83,16 @@ namespace MESInsight
 
         private UIElement BuildLayout()
         {
-            var root = new Grid();
+            Grid root = new Grid();
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(60) });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34) });
 
-            Grid.SetRow(BuildHeader(), 0);
-            root.Children.Add(BuildHeader());
+            Border header = BuildHeader();
+            Grid.SetRow(header, 0);
+            root.Children.Add(header);
 
-            var centerGrid = new Grid();
+            Grid centerGrid = new Grid();
             _canvas = BuildHexCanvas();
             centerGrid.Children.Add(_canvas);
 
@@ -104,21 +106,22 @@ namespace MESInsight
             Grid.SetRow(centerGrid, 1);
             root.Children.Add(centerGrid);
 
-            Grid.SetRow(BuildFooter(), 2);
-            root.Children.Add(BuildFooter());
+            Border footer = BuildFooter();
+            Grid.SetRow(footer, 2);
+            root.Children.Add(footer);
 
             return root;
         }
 
         private Border BuildHeader()
         {
-            var header = new Border
+            Border header = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(14, 55, 28)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(180, 80, 10)),
                 BorderThickness = new Thickness(0, 0, 0, 5)
             };
-            var hStack = new StackPanel
+            StackPanel hStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -133,7 +136,7 @@ namespace MESInsight
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(0, 0, 10, 0)
             });
-            var ts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            StackPanel ts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             ts.Children.Add(new TextBlock
             {
                 Text = "MES Insight",
@@ -155,17 +158,17 @@ namespace MESInsight
 
         private Border BuildFooter()
         {
-            var footer = new Border
+            Border footer = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(14, 55, 28)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(180, 80, 10)),
                 BorderThickness = new Thickness(0, 5, 0, 0)
             };
-            var footerGrid = new Grid { Margin = new Thickness(28, 0, 28, 0) };
+            Grid footerGrid = new Grid { Margin = new Thickness(28, 0, 28, 0) };
             footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var left = new TextBlock
+            TextBlock left = new TextBlock
             {
                 Text = "MES Insight v1.0 | \u00A9 2026",
                 FontSize = 15,
@@ -173,7 +176,7 @@ namespace MESInsight
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Left
             };
-            var right = new TextBlock
+            TextBlock right = new TextBlock
             {
                 Text = "Author: Lukas Paucin | lukas.paucin@mail.schaeffler.com",
                 FontSize = 15,
@@ -201,11 +204,11 @@ namespace MESInsight
 
             bool sampleOk = Directory.Exists(SampleDataPath);
 
-            var canvas = new Canvas
+            Canvas canvas = new Canvas
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Width = rowOff + 2 * stepX + W + 0.1,
+                Width = 3 * stepX - gap + 0.1,
                 Height = stepY + H
             };
 
@@ -227,7 +230,7 @@ namespace MESInsight
             double left, double top,
             bool disabled, bool isExit = false)
         {
-            var grid = new Grid
+            Grid grid = new Grid
             {
                 Width = W,
                 Height = H,
@@ -239,13 +242,13 @@ namespace MESInsight
             double cx = W / 2;
             double cy = H / 2;
 
-            var outer = new Polygon
+            Polygon outer = new Polygon
             {
                 Fill = new SolidColorBrush(HexFill),
                 Stroke = new SolidColorBrush(HexFill),
                 StrokeThickness = 0.3
             };
-            var inner = new Polygon
+            Polygon inner = new Polygon
             {
                 Fill = new SolidColorBrush(HexFill),
                 Stroke = new SolidColorBrush(HexStroke),
@@ -263,7 +266,7 @@ namespace MESInsight
             grid.Children.Add(outer);
             grid.Children.Add(inner);
 
-            var stack = new StackPanel
+            StackPanel stack = new StackPanel
             {
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center
@@ -340,7 +343,6 @@ namespace MESInsight
                 case "LOCAL FOLDER": ExpandHex(title, BuildLocalFolderContent()); break;
                 case "REMOTE BACKUP LOGS": ExpandHex(title, BuildRemoteContent()); break;
                 case "RECENT DATA": ExpandHex(title, BuildRecentContent()); break;
-                case "STATIONS / LINES": ExpandHex(title, BuildStationsContent()); break;
             }
         }
 
@@ -379,7 +381,7 @@ namespace MESInsight
 
         private static void AnimateOpacity(UIElement el, double from, double to, int ms, Action onComplete = null)
         {
-            var anim = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(ms))
+            DoubleAnimation anim = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(ms))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
             };
@@ -390,7 +392,7 @@ namespace MESInsight
 
         private UIElement BuildBackButton()
         {
-            var btn = new Border
+            Border btn = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(14, 40, 20)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(180, 80, 10)),
@@ -401,7 +403,7 @@ namespace MESInsight
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 0, 0, 16)
             };
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new TextBlock
             {
                 Text = "\u2190",
@@ -426,7 +428,7 @@ namespace MESInsight
 
         private UIElement WrapExpanded(string title, UIElement inner)
         {
-            var root = new Grid { Margin = new Thickness(36, 28, 36, 28) };
+            Grid root = new Grid { Margin = new Thickness(36, 28, 36, 28) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -434,7 +436,7 @@ namespace MESInsight
             Grid.SetRow(BuildBackButton(), 0);
             root.Children.Add(BuildBackButton());
 
-            var titleBlock = new TextBlock
+            TextBlock titleBlock = new TextBlock
             {
                 Text = title,
                 FontSize = 20,
@@ -453,11 +455,11 @@ namespace MESInsight
 
         private UIElement BuildLocalFolderContent()
         {
-            var stack = new StackPanel();
+            StackPanel stack = new StackPanel();
 
             Action<string> pick = startPath =>
             {
-                var browser = new System.Windows.Forms.FolderBrowserDialog
+                System.Windows.Forms.FolderBrowserDialog browser = new System.Windows.Forms.FolderBrowserDialog
                 {
                     Description = "Select logs folder",
                     SelectedPath = startPath,
@@ -483,7 +485,7 @@ namespace MESInsight
                 Margin = new Thickness(0, 16, 0, 10)
             });
 
-            var pathBox = new TextBox
+            TextBox pathBox = new TextBox
             {
                 Background = new SolidColorBrush(Color.FromRgb(12, 30, 18)),
                 Foreground = new SolidColorBrush(Color.FromRgb(200, 240, 210)),
@@ -496,7 +498,7 @@ namespace MESInsight
             };
             stack.Children.Add(pathBox);
 
-            var btnGo = new Border
+            Border btnGo = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(160, 80, 10)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(220, 120, 30)),
@@ -536,20 +538,75 @@ namespace MESInsight
 
         private UIElement BuildRemoteContent()
         {
-            var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
+            List<LineNode> allLines = LoadStationCache();
+            bool hasCached = allLines.Count > 0;
+
+            Grid root = new Grid { Margin = new Thickness(36, 28, 36, 28) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            UIElement backBtn = BuildBackButton();
+            Grid.SetRow(backBtn, 0);
+            root.Children.Add(backBtn);
+
+            Grid titleRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            titleRow.Children.Add(new TextBlock
             {
-                Text = "Connecting to server...",
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 160, 120)),
-                Margin = new Thickness(0, 0, 0, 12),
-                TextWrapping = TextWrapping.Wrap
+                Text = "\U0001F310  Remote Backup Logs",
+                FontSize = 20,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 210, 140)),
+                VerticalAlignment = VerticalAlignment.Center
             });
-            stack.Children.Add(MakeTile("\U0001F310", "Browse Remote Backup Logs",
+
+            TextBlock refreshSpinLabel = new TextBlock
+            {
+                Text = "\u21BB",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 220, 140)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new System.Windows.Media.RotateTransform(0)
+            };
+            Border btnRefresh = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(18, 55, 30)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(50, 130, 75)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(12, 5, 14, 5),
+                Cursor = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            StackPanel btnContent = new StackPanel { Orientation = Orientation.Horizontal };
+            btnContent.Children.Add(refreshSpinLabel);
+            btnContent.Children.Add(new TextBlock
+            {
+                Text = "Refresh structure",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(150, 230, 175)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            btnRefresh.Child = btnContent;
+            btnRefresh.MouseEnter += (s, e) => btnRefresh.Background = new SolidColorBrush(Color.FromRgb(26, 80, 44));
+            btnRefresh.MouseLeave += (s, e) => btnRefresh.Background = new SolidColorBrush(Color.FromRgb(18, 55, 30));
+            Grid.SetColumn(btnRefresh, 1);
+            titleRow.Children.Add(btnRefresh);
+            Grid.SetRow(titleRow, 1);
+            root.Children.Add(titleRow);
+
+            Border browseTile = MakeTile("\U0001F4C2", "Browse folder",
                 ResolveRemotePath(),
                 () =>
                 {
-                    var browser = new System.Windows.Forms.FolderBrowserDialog
+                    System.Windows.Forms.FolderBrowserDialog browser = new System.Windows.Forms.FolderBrowserDialog
                     {
                         Description = "Select a specific station folder (e.g. OHD0179N)",
                         SelectedPath = ResolveRemotePath(),
@@ -560,15 +617,384 @@ namespace MESInsight
                     Mode = StartupMode.Remote;
                     SaveRecentPath(SelectedPath);
                     DialogResult = true;
-                }));
+                });
+            Grid.SetRow(browseTile, 2);
+            root.Children.Add(browseTile);
 
-            return WrapExpanded("\U0001F310  Remote Backup Logs", stack);
+            TextBox searchBox = new TextBox
+            {
+                Background = new SolidColorBrush(Color.FromRgb(10, 28, 16)),
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 240, 210)),
+                CaretBrush = new SolidColorBrush(Color.FromRgb(100, 220, 140)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(40, 100, 55)),
+                BorderThickness = new Thickness(1),
+                FontSize = 12,
+                Padding = new Thickness(10, 7, 10, 7),
+                Margin = new Thickness(0, 8, 0, 6),
+                Text = ""
+            };
+
+            TextBlock searchPlaceholder = new TextBlock
+            {
+                Text = "  \uD83D\uDD0D  Search stations...",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(80, 120, 90)),
+                IsHitTestVisible = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0)
+            };
+
+            Grid searchHost = new Grid { Margin = new Thickness(0, 8, 0, 6) };
+            searchHost.Children.Add(searchBox);
+            searchHost.Children.Add(searchPlaceholder);
+            searchBox.TextChanged += (s, e) =>
+                searchPlaceholder.Visibility = string.IsNullOrEmpty(searchBox.Text)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+            Grid treeSection = new Grid();
+            treeSection.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            treeSection.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+
+            ScrollViewer treeScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = new SolidColorBrush(Color.FromRgb(8, 20, 12)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(0)
+            };
+
+            StackPanel treeStack = new StackPanel();
+            treeScroll.Content = treeStack;
+            Grid.SetColumn(treeScroll, 0);
+            treeSection.Children.Add(treeScroll);
+
+            ScrollViewer rawScrollViewer = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = new SolidColorBrush(Color.FromRgb(5, 14, 8)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
+                BorderThickness = new Thickness(0, 1, 1, 1),
+                Padding = new Thickness(0)
+            };
+
+            TextBlock rawText = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 160, 120)),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 10,
+                TextWrapping = TextWrapping.NoWrap,
+                Padding = new Thickness(10, 8, 10, 8),
+                Text = hasCached ? "" : "Click \u21BB Refresh to scan..."
+            };
+            rawScrollViewer.Content = rawText;
+            Grid.SetColumn(rawScrollViewer, 1);
+            treeSection.Children.Add(rawScrollViewer);
+
+            Grid bottomGrid = new Grid();
+            bottomGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            bottomGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(bottomGrid, 3);
+
+            StackPanel searchAndStatus = new StackPanel();
+            searchAndStatus.Children.Add(searchHost);
+            Grid.SetRow(searchAndStatus, 0);
+            bottomGrid.Children.Add(searchAndStatus);
+
+            Grid.SetRow(treeSection, 1);
+            bottomGrid.Children.Add(treeSection);
+            root.Children.Add(bottomGrid);
+
+            HashSet<string> selectedPaths = new HashSet<string>();
+
+            Border loadBtn = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(22, 100, 50)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(50, 180, 90)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(20, 8, 20, 8),
+                Cursor = Cursors.Hand,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 6, 0, 6),
+                Visibility = Visibility.Collapsed
+            };
+            TextBlock loadBtnText = new TextBlock
+            {
+                Text = "Load selected  \u2192",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 245, 205))
+            };
+            loadBtn.Child = loadBtnText;
+            loadBtn.MouseEnter += (s, e) => loadBtn.Background = new SolidColorBrush(Color.FromRgb(30, 130, 65));
+            loadBtn.MouseLeave += (s, e) => loadBtn.Background = new SolidColorBrush(Color.FromRgb(22, 100, 50));
+            loadBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                if (selectedPaths.Count == 0) return;
+                SelectedPath = selectedPaths.First();
+                SelectedPaths = selectedPaths.ToList();
+                Mode = StartupMode.Remote;
+                foreach (string p in selectedPaths) SaveRecentPath(p);
+                DialogResult = true;
+            };
+            searchAndStatus.Children.Add(loadBtn);
+
+            System.Action updateLoadBtn = () =>
+            {
+                loadBtn.Visibility = selectedPaths.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                loadBtnText.Text = selectedPaths.Count == 1
+                    ? "Load selected  \u2192"
+                    : "Load " + selectedPaths.Count + " stations  \u2192";
+            };
+
+            System.Action<Border, TextBlock, string, bool> applySelection = (border, nameBlock, path, selected) =>
+            {
+                if (selected)
+                {
+                    border.Background = new SolidColorBrush(Color.FromRgb(20, 80, 35));
+                    border.BorderBrush = new SolidColorBrush(Color.FromRgb(50, 180, 90));
+                    border.BorderThickness = new Thickness(1);
+                    nameBlock.Foreground = new SolidColorBrush(Color.FromRgb(140, 255, 170));
+                    nameBlock.FontWeight = FontWeights.SemiBold;
+                }
+                else
+                {
+                    border.Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+                    border.BorderBrush = null;
+                    border.BorderThickness = new Thickness(0);
+                    nameBlock.Foreground = new SolidColorBrush(Color.FromRgb(190, 235, 205));
+                    nameBlock.FontWeight = FontWeights.Normal;
+                }
+            };
+
+            System.Action<List<LineNode>> renderTree = (lines) =>
+            {
+                treeStack.Children.Clear();
+                string filter = searchBox.Text.Trim().ToLowerInvariant();
+
+                foreach (LineNode line in lines)
+                {
+                    var matchingComps = line.Computers
+                        .Select(c => new
+                        {
+                            Comp = c,
+                            Stations = c.Stations.Where(st =>
+                                string.IsNullOrEmpty(filter) ||
+                                st.Name.ToLowerInvariant().Contains(filter) ||
+                                c.Name.ToLowerInvariant().Contains(filter) ||
+                                line.Name.ToLowerInvariant().Contains(filter)).ToList()
+                        })
+                        .Where(x => x.Stations.Count > 0)
+                        .ToList();
+
+                    if (matchingComps.Count == 0) continue;
+
+                    List<(Border border, TextBlock nameBlock, string path)> allStBordersInLine
+                        = new List<(Border, TextBlock, string)>();
+
+                    StackPanel lineSection = new StackPanel { Margin = new Thickness(0, 0, 0, 2) };
+
+                    Border lineHeader = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(25, 65, 38)),
+                        BorderBrush = new SolidColorBrush(Color.FromRgb(50, 120, 70)),
+                        BorderThickness = new Thickness(0, 0, 0, 1),
+                        Padding = new Thickness(8, 5, 8, 5),
+                        Cursor = Cursors.Hand
+                    };
+                    TextBlock lineNameBlock = new TextBlock
+                    {
+                        Text = "\u25B6  " + line.Name,
+                        FontSize = 12,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(255, 210, 140))
+                    };
+                    lineHeader.Child = lineNameBlock;
+                    lineHeader.MouseEnter += (s, e) =>
+                        lineHeader.Background = new SolidColorBrush(Color.FromRgb(35, 90, 50));
+                    lineHeader.MouseLeave += (s, e) =>
+                        lineHeader.Background = new SolidColorBrush(Color.FromRgb(25, 65, 38));
+                    lineHeader.MouseLeftButtonUp += (s, e) =>
+                    {
+                        bool anySelected = allStBordersInLine.Any(x => selectedPaths.Contains(x.path));
+                        foreach ((Border b, TextBlock nb, string p) in allStBordersInLine)
+                        {
+                            if (anySelected) selectedPaths.Remove(p);
+                            else selectedPaths.Add(p);
+                            applySelection(b, nb, p, selectedPaths.Contains(p));
+                        }
+
+                        updateLoadBtn();
+                    };
+                    lineSection.Children.Add(lineHeader);
+
+                    foreach (var item in matchingComps)
+                    {
+                        ComputerNode comp = item.Comp;
+                        List<(Border, TextBlock, string)> compStBorders = new List<(Border, TextBlock, string)>();
+
+                        Border compHeader = new Border
+                        {
+                            Padding = new Thickness(18, 3, 8, 3),
+                            Cursor = Cursors.Hand,
+                            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
+                        };
+                        TextBlock compNameBlock = new TextBlock
+                        {
+                            Text = "  \u251C\u2500 \U0001F4BB  " + comp.Name,
+                            FontSize = 11,
+                            FontWeight = FontWeights.SemiBold,
+                            Foreground = new SolidColorBrush(Color.FromRgb(120, 200, 150)),
+                            Margin = new Thickness(0, 2, 0, 1)
+                        };
+                        compHeader.Child = compNameBlock;
+                        compHeader.MouseEnter += (s, e) =>
+                            compHeader.Background = new SolidColorBrush(Color.FromRgb(15, 40, 22));
+                        compHeader.MouseLeave += (s, e) =>
+                            compHeader.Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+                        compHeader.MouseLeftButtonUp += (s, e) =>
+                        {
+                            bool anySelected = compStBorders.Any(x => selectedPaths.Contains(x.Item3));
+                            foreach ((Border b, TextBlock nb, string p) in compStBorders)
+                            {
+                                if (anySelected) selectedPaths.Remove(p);
+                                else selectedPaths.Add(p);
+                                applySelection(b, nb, p, selectedPaths.Contains(p));
+                            }
+
+                            updateLoadBtn();
+                        };
+                        lineSection.Children.Add(compHeader);
+
+                        for (int si = 0; si < item.Stations.Count; si++)
+                        {
+                            StationNode st = item.Stations[si];
+                            bool lastS = si == item.Stations.Count - 1;
+                            string capturedPath = st.FullPath;
+                            bool isSelected = selectedPaths.Contains(capturedPath);
+
+                            Border stBorder = new Border
+                            {
+                                Padding = new Thickness(4, 2, 6, 2),
+                                Margin = new Thickness(0, 0, 0, 1),
+                                CornerRadius = new CornerRadius(3),
+                                Background =
+                                    new SolidColorBrush(isSelected
+                                        ? Color.FromRgb(20, 80, 35)
+                                        : Color.FromArgb(0, 0, 0, 0)),
+                                BorderBrush = isSelected ? new SolidColorBrush(Color.FromRgb(50, 180, 90)) : null,
+                                BorderThickness = isSelected ? new Thickness(1) : new Thickness(0),
+                                Cursor = Cursors.Hand
+                            };
+                            StackPanel stRow = new StackPanel { Orientation = Orientation.Horizontal };
+                            stRow.Children.Add(new TextBlock
+                            {
+                                Text = lastS ? "      \u2514\u2500 " : "      \u251C\u2500 ",
+                                FontFamily = new FontFamily("Consolas"),
+                                FontSize = 11,
+                                Foreground = new SolidColorBrush(Color.FromRgb(50, 100, 65))
+                            });
+                            TextBlock stName = new TextBlock
+                            {
+                                Text = st.Name,
+                                FontSize = 11,
+                                FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
+                                Foreground = new SolidColorBrush(isSelected
+                                    ? Color.FromRgb(140, 255, 170)
+                                    : Color.FromRgb(190, 235, 205))
+                            };
+                            stRow.Children.Add(stName);
+                            stRow.Children.Add(new TextBlock
+                            {
+                                Text = "  " + capturedPath,
+                                FontSize = 9,
+                                FontFamily = new FontFamily("Consolas"),
+                                Foreground = new SolidColorBrush(Color.FromRgb(60, 100, 75)),
+                                VerticalAlignment = VerticalAlignment.Center
+                            });
+                            stBorder.Child = stRow;
+
+                            stBorder.MouseEnter += (s, e) =>
+                            {
+                                if (!selectedPaths.Contains(capturedPath))
+                                    stBorder.Background = new SolidColorBrush(Color.FromRgb(18, 50, 28));
+                            };
+                            stBorder.MouseLeave += (s, e) =>
+                            {
+                                if (!selectedPaths.Contains(capturedPath))
+                                    stBorder.Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+                            };
+                            stBorder.MouseLeftButtonUp += (s, e) =>
+                            {
+                                if (selectedPaths.Contains(capturedPath))
+                                    selectedPaths.Remove(capturedPath);
+                                else
+                                    selectedPaths.Add(capturedPath);
+                                applySelection(stBorder, stName, capturedPath, selectedPaths.Contains(capturedPath));
+                                updateLoadBtn();
+                            };
+
+                            compStBorders.Add((stBorder, stName, capturedPath));
+                            allStBordersInLine.Add((stBorder, stName, capturedPath));
+                            lineSection.Children.Add(stBorder);
+                        }
+                    }
+
+                    treeStack.Children.Add(lineSection);
+                }
+            };
+
+            if (hasCached)
+            {
+                rawText.Text = BuildRawTreeText(ResolveRemotePath(), allLines);
+                renderTree(allLines);
+            }
+
+            searchBox.TextChanged += (s, e) => renderTree(allLines);
+
+            bool isRefreshing = false;
+            btnRefresh.MouseLeftButtonUp += (s, e) =>
+            {
+                if (isRefreshing) return;
+                isRefreshing = true;
+                rawText.Text = "Scanning...";
+                treeStack.Children.Clear();
+                DoubleAnimation spinAnim = new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1))
+                    { RepeatBehavior = RepeatBehavior.Forever };
+                refreshSpinLabel.RenderTransform.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty,
+                    spinAnim);
+
+                Task.Run(() =>
+                {
+                    string remotePath = ResolveRemotePath();
+                    List<LineNode> freshLines = ScanLineStructure(remotePath);
+                    string raw = BuildRawTreeText(remotePath, freshLines);
+                    Dispatcher.Invoke(() =>
+                    {
+                        refreshSpinLabel.RenderTransform.BeginAnimation(
+                            System.Windows.Media.RotateTransform.AngleProperty, null);
+                        allLines.Clear();
+                        allLines.AddRange(freshLines);
+                        rawText.Text = raw;
+                        renderTree(allLines);
+                        SaveStationCache(allLines);
+                        isRefreshing = false;
+                    });
+                });
+            };
+
+            return root;
         }
+
 
         private UIElement BuildRecentContent()
         {
-            var paths = LoadRecentPaths();
-            var stack = new StackPanel();
+            List<string> paths = LoadRecentPaths();
+            StackPanel stack = new StackPanel();
 
             if (paths.Count == 0)
             {
@@ -582,19 +1008,19 @@ namespace MESInsight
                 return WrapExpanded("\u21BB  Recent Data", stack);
             }
 
-            var scroll = new ScrollViewer
+            ScrollViewer scroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
-            var inner = new StackPanel();
+            StackPanel inner = new StackPanel();
 
             foreach (string path in paths)
             {
                 string captured = path;
                 bool exists = Directory.Exists(path);
 
-                var row = new Border
+                Border row = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(12, 30, 18)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
@@ -605,7 +1031,7 @@ namespace MESInsight
                     Cursor = exists ? Cursors.Hand : Cursors.Arrow
                 };
 
-                var rowStack = new StackPanel();
+                StackPanel rowStack = new StackPanel();
                 rowStack.Children.Add(new TextBlock
                 {
                     Text = System.IO.Path.GetFileName(path.TrimEnd('\\', '/')),
@@ -655,7 +1081,7 @@ namespace MESInsight
 
         private UIElement BuildStationsContent()
         {
-            var root = new Grid { Margin = new Thickness(36, 28, 36, 28) };
+            Grid root = new Grid { Margin = new Thickness(36, 28, 36, 28) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -663,11 +1089,11 @@ namespace MESInsight
             Grid.SetRow(BuildBackButton(), 0);
             root.Children.Add(BuildBackButton());
 
-            var titleRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            Grid titleRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var titleBlock = new TextBlock
+            TextBlock titleBlock = new TextBlock
             {
                 Text = "🏭  Stations / Lines",
                 FontSize = 20,
@@ -677,7 +1103,7 @@ namespace MESInsight
             };
             titleRow.Children.Add(titleBlock);
 
-            var btnRefresh = new Border
+            Border btnRefresh = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(22, 70, 40)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(60, 160, 90)),
@@ -688,8 +1114,8 @@ namespace MESInsight
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Right
             };
-            var btnRefreshContent = new StackPanel { Orientation = Orientation.Horizontal };
-            var refreshSpinLabel = new TextBlock
+            StackPanel btnRefreshContent = new StackPanel { Orientation = Orientation.Horizontal };
+            TextBlock refreshSpinLabel = new TextBlock
             {
                 Text = "↻",
                 FontSize = 14,
@@ -715,12 +1141,12 @@ namespace MESInsight
             Grid.SetRow(titleRow, 1);
             root.Children.Add(titleRow);
 
-            var mainContent = new Grid();
+            Grid mainContent = new Grid();
             mainContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             mainContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
             mainContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
 
-            var treeContainer = new Border
+            Border treeContainer = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(8, 20, 12)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
@@ -729,7 +1155,7 @@ namespace MESInsight
                 Margin = new Thickness(0, 0, 0, 0)
             };
 
-            var loadingText = new TextBlock
+            TextBlock loadingText = new TextBlock
             {
                 Text = "⏳  Scanning network structure...",
                 FontSize = 12,
@@ -742,7 +1168,7 @@ namespace MESInsight
             Grid.SetColumn(treeContainer, 0);
             mainContent.Children.Add(treeContainer);
 
-            var rawTextBorder = new Border
+            Border rawTextBorder = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(5, 14, 8)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
@@ -750,7 +1176,7 @@ namespace MESInsight
                 CornerRadius = new CornerRadius(0, 8, 8, 0),
                 Margin = new Thickness(-1, 0, 0, 0)
             };
-            var rawText = new TextBox
+            TextBox rawText = new TextBox
             {
                 Background = System.Windows.Media.Brushes.Transparent,
                 Foreground = new SolidColorBrush(Color.FromRgb(100, 160, 120)),
@@ -784,8 +1210,9 @@ namespace MESInsight
                 treeContainer.Child = loadingText;
                 rawText.Text = "Scanning...";
 
-                var anim = new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromSeconds(1))
-                    { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
+                DoubleAnimation anim =
+                    new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromSeconds(1))
+                        { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
                 refreshSpinLabel.RenderTransformOrigin = new Point(0.5, 0.5);
                 refreshSpinLabel.RenderTransform = new System.Windows.Media.RotateTransform(0);
                 refreshSpinLabel.RenderTransform.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty,
@@ -794,7 +1221,7 @@ namespace MESInsight
                 Task.Run(() =>
                 {
                     string remotePath = ResolveRemotePath();
-                    var lines = ScanLineStructure(remotePath);
+                    List<LineNode> lines = ScanLineStructure(remotePath);
                     string raw = BuildRawTreeText(remotePath, lines);
 
                     Dispatcher.Invoke(() =>
@@ -843,37 +1270,42 @@ namespace MESInsight
 
         private static List<LineNode> ScanLineStructure(string rootPath)
         {
-            var lines = new List<LineNode>();
-            if (!Directory.Exists(rootPath)) return lines;
+            Dictionary<string, LineNode> lineMap = new Dictionary<string, LineNode>();
             try
             {
-                foreach (string lineDir in Directory.GetDirectories(rootPath))
+                List<StationInfo> stations = DataLoader.FindStations(rootPath);
+                foreach (var st in stations)
                 {
-                    var line = new LineNode { Name = System.IO.Path.GetFileName(lineDir), FullPath = lineDir };
-                    foreach (string compDir in Directory.GetDirectories(lineDir))
+                    string lineName = string.IsNullOrEmpty(st.LineName) ? "(No Line)" : st.LineName;
+                    string compName = string.IsNullOrEmpty(st.ComputerName) ? "(Unknown)" : st.ComputerName;
+
+                    if (!lineMap.TryGetValue(lineName, out LineNode lineNode))
                     {
-                        var comp = new ComputerNode { Name = System.IO.Path.GetFileName(compDir), FullPath = compDir };
-                        foreach (string stDir in GetStationDirs(compDir))
-                            comp.Stations.Add(new StationNode
-                                { Name = System.IO.Path.GetFileName(stDir).Replace("_", " "), FullPath = stDir });
-                        if (comp.Stations.Count > 0)
-                            line.Computers.Add(comp);
+                        lineNode = new LineNode { Name = lineName, FullPath = rootPath };
+                        lineMap[lineName] = lineNode;
                     }
 
-                    if (line.Computers.Count > 0)
-                        lines.Add(line);
+                    ComputerNode comp = lineNode.Computers.FirstOrDefault(c => c.Name == compName);
+                    if (comp == null)
+                    {
+                        comp = new ComputerNode { Name = compName, FullPath = st.FolderPath };
+                        lineNode.Computers.Add(comp);
+                    }
+
+                    comp.Stations.Add(new StationNode { Name = st.StationName, FullPath = st.FolderPath });
                 }
             }
             catch
             {
             }
 
-            return lines;
+            return lineMap.Values.OrderBy(l => l.Name).ToList();
         }
+
 
         private static IEnumerable<string> GetStationDirs(string compDir)
         {
-            var result = new List<string>();
+            List<string> result = new List<string>();
             try
             {
                 foreach (string d in Directory.GetDirectories(compDir))
@@ -910,23 +1342,23 @@ namespace MESInsight
 
         private static string BuildRawTreeText(string rootPath, List<LineNode> lines)
         {
-            var sb = new System.Text.StringBuilder();
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
             sb.AppendLine(rootPath);
             for (int li = 0; li < lines.Count; li++)
             {
-                var line = lines[li];
+                LineNode line = lines[li];
                 bool lastL = li == lines.Count - 1;
                 sb.AppendLine((lastL ? "└── " : "├── ") + line.Name);
                 string linePrefix = lastL ? "    " : "│   ";
                 for (int ci = 0; ci < line.Computers.Count; ci++)
                 {
-                    var comp = line.Computers[ci];
+                    ComputerNode comp = line.Computers[ci];
                     bool lastC = ci == line.Computers.Count - 1;
                     sb.AppendLine(linePrefix + (lastC ? "└── " : "├── ") + comp.Name);
                     string compPrefix = linePrefix + (lastC ? "    " : "│   ");
                     for (int si = 0; si < comp.Stations.Count; si++)
                     {
-                        var st = comp.Stations[si];
+                        StationNode st = comp.Stations[si];
                         bool lastS = si == comp.Stations.Count - 1;
                         sb.AppendLine(compPrefix + (lastS ? "└── " : "├── ") + st.Name);
                     }
@@ -938,19 +1370,19 @@ namespace MESInsight
 
         private UIElement BuildStationTree(List<LineNode> lines)
         {
-            var scroll = new ScrollViewer
+            ScrollViewer scroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Padding = new Thickness(10)
             };
-            var mainStack = new StackPanel();
+            StackPanel mainStack = new StackPanel();
 
             foreach (var line in lines)
             {
-                var lineSection = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
+                StackPanel lineSection = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
 
-                var lineHeader = new Border
+                Border lineHeader = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(25, 65, 38)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(50, 120, 70)),
@@ -968,14 +1400,14 @@ namespace MESInsight
 
                 foreach (var comp in line.Computers)
                 {
-                    var compRow = new Border
+                    Border compRow = new Border
                     {
                         Padding = new Thickness(18, 3, 8, 3),
                         BorderBrush = new SolidColorBrush(Color.FromRgb(30, 65, 40)),
                         BorderThickness = new Thickness(0, 0, 0, 0)
                     };
 
-                    var compStack = new StackPanel();
+                    StackPanel compStack = new StackPanel();
                     compStack.Children.Add(new TextBlock
                     {
                         Text = "├─ 💻  " + comp.Name,
@@ -987,11 +1419,11 @@ namespace MESInsight
 
                     for (int si = 0; si < comp.Stations.Count; si++)
                     {
-                        var st = comp.Stations[si];
+                        StationNode st = comp.Stations[si];
                         bool lastS = si == comp.Stations.Count - 1;
                         string capturedPath = st.FullPath;
 
-                        var stBorder = new Border
+                        Border stBorder = new Border
                         {
                             Padding = new Thickness(4, 2, 6, 2),
                             Margin = new Thickness(0, 0, 0, 1),
@@ -1000,7 +1432,7 @@ namespace MESInsight
                             Cursor = Cursors.Hand
                         };
 
-                        var stRow = new StackPanel { Orientation = Orientation.Horizontal };
+                        StackPanel stRow = new StackPanel { Orientation = Orientation.Horizontal };
                         stRow.Children.Add(new TextBlock
                         {
                             Text = lastS ? "    └─ " : "    ├─ ",
@@ -1008,7 +1440,7 @@ namespace MESInsight
                             FontFamily = new FontFamily("Consolas"),
                             Foreground = new SolidColorBrush(Color.FromRgb(50, 100, 65))
                         });
-                        var stNameBlock = new TextBlock
+                        TextBlock stNameBlock = new TextBlock
                         {
                             Text = st.Name,
                             FontSize = 11,
@@ -1016,7 +1448,7 @@ namespace MESInsight
                         };
                         stRow.Children.Add(stNameBlock);
 
-                        var pathBlock = new TextBlock
+                        TextBlock pathBlock = new TextBlock
                         {
                             Text = "  " + capturedPath,
                             FontSize = 9,
@@ -1060,7 +1492,7 @@ namespace MESInsight
 
         private Border MakeTile(string icon, string title, string sub, Action onClick)
         {
-            var tile = new Border
+            Border tile = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(14, 40, 22)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(160, 80, 10)),
@@ -1071,7 +1503,7 @@ namespace MESInsight
                 Cursor = Cursors.Hand,
                 MaxWidth = 500
             };
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new TextBlock
             {
                 Text = icon,
@@ -1079,7 +1511,7 @@ namespace MESInsight
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 14, 0)
             });
-            var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            StackPanel texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             texts.Children.Add(new TextBlock
             {
                 Text = title,
@@ -1107,13 +1539,81 @@ namespace MESInsight
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "MESInsight", "recent.txt");
 
+        private static string StationCacheFile =>
+            System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MESInsight", "station_cache.txt");
+
+        private static void SaveStationCache(List<LineNode> lines)
+        {
+            try
+            {
+                string dir = System.IO.Path.GetDirectoryName(StationCacheFile) ?? "";
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                foreach (var line in lines)
+                {
+                    sb.AppendLine("L:" + line.Name + "|" + line.FullPath);
+                    foreach (var comp in line.Computers)
+                    {
+                        sb.AppendLine("C:" + comp.Name + "|" + comp.FullPath);
+                        foreach (var st in comp.Stations)
+                            sb.AppendLine("S:" + st.Name + "|" + st.FullPath);
+                    }
+                }
+
+                File.WriteAllText(StationCacheFile, sb.ToString(), System.Text.Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
+        private static List<LineNode> LoadStationCache()
+        {
+            List<LineNode> result = new List<LineNode>();
+            try
+            {
+                if (!File.Exists(StationCacheFile)) return result;
+                LineNode currentLine = null;
+                ComputerNode currentComp = null;
+                foreach (string raw in File.ReadAllLines(StationCacheFile, System.Text.Encoding.UTF8))
+                {
+                    if (raw.StartsWith("L:"))
+                    {
+                        string[] parts = raw.Substring(2).Split(new[] { '|' }, 2);
+                        currentLine = new LineNode { Name = parts[0], FullPath = parts.Length > 1 ? parts[1] : "" };
+                        currentComp = null;
+                        result.Add(currentLine);
+                    }
+                    else if (raw.StartsWith("C:") && currentLine != null)
+                    {
+                        string[] parts = raw.Substring(2).Split(new[] { '|' }, 2);
+                        currentComp = new ComputerNode { Name = parts[0], FullPath = parts.Length > 1 ? parts[1] : "" };
+                        currentLine.Computers.Add(currentComp);
+                    }
+                    else if (raw.StartsWith("S:") && currentComp != null)
+                    {
+                        string[] parts = raw.Substring(2).Split(new[] { '|' }, 2);
+                        currentComp.Stations.Add(new StationNode
+                            { Name = parts[0], FullPath = parts.Length > 1 ? parts[1] : "" });
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return result;
+        }
+
         private static void SaveRecentPath(string path)
         {
             try
             {
                 string dir = System.IO.Path.GetDirectoryName(RecentPathFile) ?? "";
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                var paths = LoadRecentPaths();
+                List<string> paths = LoadRecentPaths();
                 paths.Remove(path);
                 paths.Insert(0, path);
                 if (paths.Count > 10) paths = paths.Take(10).ToList();
@@ -1153,7 +1653,7 @@ namespace MESInsight
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
                 Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
-                var root = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
+                StackPanel root = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
                 root.Children.Add(new TextBlock
                 {
                     Text = "Recent Data",
@@ -1168,7 +1668,7 @@ namespace MESInsight
                     string captured = path;
                     bool exists = Directory.Exists(path);
 
-                    var row = new Border
+                    Border row = new Border
                     {
                         Background = new SolidColorBrush(Color.FromRgb(12, 26, 16)),
                         BorderBrush = new SolidColorBrush(Color.FromRgb(26, 70, 38)),
@@ -1179,7 +1679,7 @@ namespace MESInsight
                         Cursor = exists ? Cursors.Hand : Cursors.Arrow
                     };
 
-                    var stack = new StackPanel();
+                    StackPanel stack = new StackPanel();
                     stack.Children.Add(new TextBlock
                     {
                         Text = System.IO.Path.GetFileName(path.TrimEnd((char)92, '/')),
@@ -1221,7 +1721,7 @@ namespace MESInsight
                     root.Children.Add(row);
                 }
 
-                var btnCancel = new Button
+                Button btnCancel = new Button
                 {
                     Content = "Cancel",
                     Padding = new Thickness(16, 7, 16, 7),
@@ -1260,7 +1760,7 @@ namespace MESInsight
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
                 Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
-                var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
+                StackPanel root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
                 root.Children.Add(new TextBlock
                 {
                     Text = "Additional station types detected",
@@ -1278,7 +1778,7 @@ namespace MESInsight
                     TextWrapping = TextWrapping.Wrap
                 });
 
-                var cbLcs = new CheckBox
+                CheckBox cbLcs = new CheckBox
                 {
                     Content = "LCS  (" + lcsCount + " station" + (lcsCount != 1 ? "s" : "") + ")",
                     FontSize = 11,
@@ -1287,7 +1787,7 @@ namespace MESInsight
                     IsChecked = false,
                     Margin = new Thickness(0, 0, 0, 10)
                 };
-                var cbBackflush = new CheckBox
+                CheckBox cbBackflush = new CheckBox
                 {
                     Content = "Backflush  (" + backflushCount + " station" + (backflushCount != 1 ? "s" : "") + ")",
                     FontSize = 11,
@@ -1299,9 +1799,9 @@ namespace MESInsight
                 root.Children.Add(cbLcs);
                 root.Children.Add(cbBackflush);
 
-                var btnRow = new StackPanel
+                StackPanel btnRow = new StackPanel
                     { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-                var btnConfirm = new Button
+                Button btnConfirm = new Button
                 {
                     Content = "Confirm →",
                     Padding = new Thickness(18, 7, 18, 7),
@@ -1374,7 +1874,7 @@ namespace MESInsight
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
                 Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
 
-                var screen = System.Windows.SystemParameters.WorkArea;
+                Rect screen = System.Windows.SystemParameters.WorkArea;
                 Width = Math.Min(1600, screen.Width * 0.92);
                 Height = Math.Min(1100, screen.Height * 0.92);
                 MinWidth = Math.Min(900, screen.Width * 0.6);
@@ -1384,9 +1884,9 @@ namespace MESInsight
                 int recommendedIndex = Array.IndexOf(MonthOptions, recommendedMonths);
                 if (recommendedIndex < 0) recommendedIndex = 11;
 
-                var allEntries = new List<StationLoadEntry>();
+                List<StationLoadEntry> allEntries = new List<StationLoadEntry>();
 
-                var root = new Grid();
+                Grid root = new Grid();
                 root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
                 root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1394,7 +1894,7 @@ namespace MESInsight
                 root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 root.Children.Add(BuildHeader());
 
-                var content = new StackPanel();
+                StackPanel content = new StackPanel();
 
                 TextBlock globalValueLabel, globalSizeLabel, globalWarningLabel;
                 Slider globalSlider;
@@ -1433,16 +1933,16 @@ namespace MESInsight
                     }
                 });
 
-                var cbGhp = AddStationSection(content, allEntries, "GHP Stations", ghpStations,
+                CheckBox cbGhp = AddStationSection(content, allEntries, "GHP Stations", ghpStations,
                     Color.FromRgb(63, 185, 80), true, recommendedIndex);
-                var cbLcs = AddStationSection(content, allEntries, "LCS Stations  ⚠ WIP", lcsStations,
+                CheckBox cbLcs = AddStationSection(content, allEntries, "LCS Stations  ⚠ WIP", lcsStations,
                     Color.FromRgb(80, 160, 220), false, recommendedIndex);
-                var cbBfl = AddStationSection(content, allEntries, "Backflush Stations  ⚠ WIP", backflushStations,
+                CheckBox cbBfl = AddStationSection(content, allEntries, "Backflush Stations  ⚠ WIP", backflushStations,
                     Color.FromRgb(220, 160, 60), false, recommendedIndex);
-                var cbCon = AddStationSection(content, allEntries, "Connectors", connectorStations,
+                CheckBox cbCon = AddStationSection(content, allEntries, "Connectors", connectorStations,
                     Color.FromRgb(180, 120, 220), false, recommendedIndex);
 
-                var scroll = new ScrollViewer
+                ScrollViewer scroll = new ScrollViewer
                 {
                     Content = content,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -1454,16 +1954,16 @@ namespace MESInsight
 
                 TextBlock totalSizeLabel, totalWarningLabel;
                 ProgressBar loadBar;
-                var indicator = BuildLoadIndicator(out loadBar, out totalSizeLabel, out totalWarningLabel);
+                UIElement indicator = BuildLoadIndicator(out loadBar, out totalSizeLabel, out totalWarningLabel);
                 Grid.SetRow(indicator, 2);
                 root.Children.Add(indicator);
 
-                var msgTypeSection = BuildMessageTypeSection();
+                UIElement msgTypeSection = BuildMessageTypeSection();
                 Grid.SetRow(msgTypeSection, 3);
                 root.Children.Add(msgTypeSection);
 
-                var btnLoad = BuildLoadButton();
-                var cbDateFilter = new CheckBox { IsChecked = true };
+                Button btnLoad = BuildLoadButton();
+                CheckBox cbDateFilter = new CheckBox { IsChecked = true };
 
                 btnLoad.Click += (s, e) =>
                 {
@@ -1492,7 +1992,7 @@ namespace MESInsight
                     DialogResult = true;
                 };
 
-                var footer = BuildFooter(cbDateFilter, btnLoad, onCancel: () =>
+                UIElement footer = BuildFooter(cbDateFilter, btnLoad, onCancel: () =>
                 {
                     _ramTimer?.Stop();
                     DialogResult = false;
@@ -1571,7 +2071,7 @@ namespace MESInsight
             {
                 try
                 {
-                    var s = new MEMORYSTATUSEX();
+                    MEMORYSTATUSEX s = new MEMORYSTATUSEX();
                     if (GlobalMemoryStatusEx(s)) return (long)(s.ullAvailPhys / 1024 / 1024);
                 }
                 catch
@@ -1585,7 +2085,7 @@ namespace MESInsight
             {
                 try
                 {
-                    var s = new MEMORYSTATUSEX();
+                    MEMORYSTATUSEX s = new MEMORYSTATUSEX();
                     if (GlobalMemoryStatusEx(s)) return (long)(s.ullTotalPhys / 1024 / 1024);
                 }
                 catch
@@ -1615,7 +2115,7 @@ namespace MESInsight
             {
                 if (fileCounts == null) return 180;
                 foreach (int days in MonthOptions)
-                    if (fileCounts.TryGetValue(days, out var info) && info.SizeMb <= OptimalSizeMb)
+                    if (fileCounts.TryGetValue(days, out MonthFileInfo info) && info.SizeMb <= OptimalSizeMb)
                         return days;
                 return MonthOptions[0];
             }
@@ -1626,7 +2126,8 @@ namespace MESInsight
                 ProgressBar loadBar, TextBlock totalSizeLabel, TextBlock totalWarningLabel,
                 Button btnLoad, LoadOptionsDialog dialog = null)
             {
-                var enabled = entries.Where(stEntry => stEntry.EnabledBox.IsChecked == true).ToList();
+                List<StationLoadEntry> enabled =
+                    entries.Where(stEntry => stEntry.EnabledBox.IsChecked == true).ToList();
                 if (enabled.Count == 0 || globalFileCounts == null)
                 {
                     loadBar.Value = 0;
@@ -1640,7 +2141,7 @@ namespace MESInsight
                 int totalStations = entries.Count > 0 ? entries.Count : 1;
                 long totalFileMb = 0;
                 int globalMonths = MonthOptions[(int)Math.Round(globalSlider.Value)];
-                if (globalFileCounts.TryGetValue(globalMonths, out var globalInfo))
+                if (globalFileCounts.TryGetValue(globalMonths, out MonthFileInfo globalInfo))
                     totalFileMb = globalInfo.SizeMb * enabled.Count / Math.Max(1, totalStations);
                 long estimatedRamMb = totalFileMb * 4;
                 long availableRamMb = GetAvailableRamMb();
@@ -1695,7 +2196,7 @@ namespace MESInsight
                 {
                     _ramEstimatedFill.Opacity = estimatedRamMb > 0 ? 1.0 : 0.0;
                     _ramEstimatedFill.Tag = new double[] { currentPct, afterPct };
-                    var fillParent = _ramEstimatedFill.Parent as Grid;
+                    Grid fillParent = _ramEstimatedFill.Parent as Grid;
                     if (fillParent != null && fillParent.ActualWidth > 0)
                     {
                         double startPx = currentPct * fillParent.ActualWidth;
@@ -1707,7 +2208,7 @@ namespace MESInsight
 
                 if (_ramEstimatedLabel != null)
                     _ramEstimatedLabel.Text = "Estimated after load:  " + FormatMb(afterLoadMb);
-                var parent = _ramEstimatedMarker.Parent as Grid;
+                Grid parent = _ramEstimatedMarker.Parent as Grid;
                 if (parent != null && parent.ActualWidth > 0)
                 {
                     double leftPx = afterPct * parent.ActualWidth - 5.0;
@@ -1719,14 +2220,14 @@ namespace MESInsight
                 Dictionary<int, MonthFileInfo> fileCounts, int defaultIndex, int recommendedMonths,
                 out Slider slider, out TextBlock valueLabel, out TextBlock sizeLabel, out TextBlock warningLabel)
             {
-                var border = new Border
+                Border border = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(10, 22, 14)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(30, 80, 44)),
                     BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
                     Padding = new Thickness(18, 14, 18, 14), Margin = new Thickness(0, 0, 0, 12)
                 };
-                var stack = new StackPanel();
+                StackPanel stack = new StackPanel();
                 stack.Children.Add(new TextBlock
                 {
                     Text = "Default data range  —  applies to all stations", FontSize = 12,
@@ -1735,7 +2236,7 @@ namespace MESInsight
                 });
                 slider = BuildSlider(defaultIndex);
                 stack.Children.Add(WrapSliderWithLabels(slider));
-                var infoRow = new StackPanel
+                StackPanel infoRow = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 2) };
                 valueLabel = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold };
                 sizeLabel = new TextBlock
@@ -1745,13 +2246,13 @@ namespace MESInsight
                 infoRow.Children.Add(valueLabel);
                 infoRow.Children.Add(sizeLabel);
                 stack.Children.Add(infoRow);
-                if (fileCounts != null && fileCounts.TryGetValue(recommendedMonths, out var recInfo))
+                if (fileCounts != null && fileCounts.TryGetValue(recommendedMonths, out MonthFileInfo recInfo))
                 {
                     string recSize = recInfo.SizeMb >= 1024
                         ? (recInfo.SizeMb / 1024.0).ToString("0.#") + " GB"
                         : recInfo.SizeMb + " MB";
                     int recDays = recommendedMonths;
-                    var recRow = new StackPanel
+                    StackPanel recRow = new StackPanel
                         { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 4) };
                     recRow.Children.Add(new TextBlock
                     {
@@ -1790,7 +2291,7 @@ namespace MESInsight
                 valueLabel.Text = lbl.EndsWith("w")
                     ? lbl.Replace("w", " week") + (lbl == "1w" ? "" : "s")
                     : lbl.Replace("m", " month") + (lbl == "1m" ? "" : "s");
-                if (fileCounts == null || !fileCounts.TryGetValue(days, out var info))
+                if (fileCounts == null || !fileCounts.TryGetValue(days, out MonthFileInfo info))
                 {
                     sizeLabel.Text = "";
                     warningLabel.Text = "";
@@ -1816,16 +2317,16 @@ namespace MESInsight
                 Color accentColor, bool defaultChecked, int defaultSliderIndex)
             {
                 if (stations.Count == 0) return null;
-                var border = new Border
+                Border border = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(10, 22, 14)),
                     BorderBrush = new SolidColorBrush(Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B)),
                     BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
                     Padding = new Thickness(16, 14, 16, 14), Margin = new Thickness(0, 0, 0, 10)
                 };
-                var stack = new StackPanel();
-                var cbSection = new CheckBox { IsChecked = defaultChecked };
-                var titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
+                StackPanel stack = new StackPanel();
+                CheckBox cbSection = new CheckBox { IsChecked = defaultChecked };
+                StackPanel titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
                 titlePanel.Children.Add(new TextBlock
                 {
                     Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold,
@@ -1847,11 +2348,11 @@ namespace MESInsight
                     Margin = new Thickness(0, 4, 0, 6), TextWrapping = TextWrapping.Wrap
                 });
 
-                var sectionEntries = new List<StationLoadEntry>();
+                List<StationLoadEntry> sectionEntries = new List<StationLoadEntry>();
                 foreach (var st in stations)
                 {
-                    var cb = new CheckBox { IsChecked = defaultChecked, IsEnabled = defaultChecked };
-                    var entry = new StationLoadEntry { Station = st, EnabledBox = cb };
+                    CheckBox cb = new CheckBox { IsChecked = defaultChecked, IsEnabled = defaultChecked };
+                    StationLoadEntry entry = new StationLoadEntry { Station = st, EnabledBox = cb };
                     allEntries.Add(entry);
                     sectionEntries.Add(entry);
                     cbSection.Checked += (s, e) =>
@@ -1875,9 +2376,9 @@ namespace MESInsight
                     Cursor = Cursors.Hand
                 };
 
-                var btnCheckAll = MakeBtn("✓ Check All", Color.FromRgb(100, 185, 130));
-                var btnUncheckAll = MakeBtn("○ Uncheck All", Color.FromRgb(120, 140, 125));
-                var btnCheckMax = MakeBtn("★ Check Maximum", Color.FromRgb(160, 200, 60));
+                Button btnCheckAll = MakeBtn("✓ Check All", Color.FromRgb(100, 185, 130));
+                Button btnUncheckAll = MakeBtn("○ Uncheck All", Color.FromRgb(120, 140, 125));
+                Button btnCheckMax = MakeBtn("★ Check Maximum", Color.FromRgb(160, 200, 60));
                 btnCheckMax.ToolTip =
                     "Loads the maximum number of stations that fit within available RAM (green zone only)";
 
@@ -1914,7 +2415,7 @@ namespace MESInsight
                         sectionEntries[idx].EnabledBox.IsChecked = idx < maxCount;
                 };
 
-                var btnRow = new StackPanel
+                StackPanel btnRow = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 4) };
                 btnRow.Children.Add(btnCheckAll);
                 btnRow.Children.Add(btnUncheckAll);
@@ -1931,7 +2432,7 @@ namespace MESInsight
                 }
                 else
                 {
-                    var expander = new Expander
+                    Expander expander = new Expander
                     {
                         Header = "Choose stations ▾", IsExpanded = false, Margin = new Thickness(0, 6, 0, 0),
                         FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(90, 150, 110)),
@@ -1956,7 +2457,7 @@ namespace MESInsight
                 bool colorCode = false)
             {
                 int cols = entries.Count > 12 ? 3 : 2;
-                var grid = new Grid();
+                Grid grid = new Grid();
                 for (int c = 0; c < cols; c++)
                     grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 int rowCount = (entries.Count + cols - 1) / cols;
@@ -1975,7 +2476,7 @@ namespace MESInsight
                             ratio <= 0.75 ? Color.FromRgb(220, 180, 30) : Color.FromRgb(220, 80, 40);
                     }
 
-                    var outer = new StackPanel { Margin = new Thickness(0, 2, 6, 2) };
+                    StackPanel outer = new StackPanel { Margin = new Thickness(0, 2, 6, 2) };
                     entries[i].EnabledBox.Content = new TextBlock
                     {
                         Text = entries[i].Station.StationName, FontSize = 12,
@@ -1995,14 +2496,14 @@ namespace MESInsight
             private UIElement BuildLoadIndicator(out ProgressBar loadBar, out TextBlock totalSizeLabel,
                 out TextBlock totalWarningLabel)
             {
-                var border = new Border
+                Border border = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
                     BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(20, 14, 20, 14)
                 };
-                var stack = new StackPanel();
-                var loadRow = new StackPanel
+                StackPanel stack = new StackPanel();
+                StackPanel loadRow = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
                 loadRow.Children.Add(new TextBlock
                 {
@@ -2034,7 +2535,7 @@ namespace MESInsight
                     Foreground = new SolidColorBrush(Color.FromRgb(100, 150, 115)), Margin = new Thickness(0, 0, 0, 6)
                 });
 
-                var ramLabels = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+                Grid ramLabels = new Grid { Margin = new Thickness(0, 0, 0, 3) };
                 ramLabels.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 ramLabels.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 ramLabels.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -2051,15 +2552,17 @@ namespace MESInsight
                 string totalRamText = totalRamMb >= 1024
                     ? (totalRamMb / 1024.0).ToString("0.#") + " GB total"
                     : totalRamMb + " MB total";
-                var totalRamLabel = new TextBlock
+                TextBlock totalRamLabel = new TextBlock
                     { Text = totalRamText, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(60, 90, 70)) };
                 Grid.SetColumn(totalRamLabel, 2);
                 ramLabels.Children.Add(totalRamLabel);
                 stack.Children.Add(ramLabels);
 
-                var ramBarOuter = new Grid { Height = 20, Margin = new Thickness(0, 0, 0, 4) };
-                var ramBgBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
-                var ramFgBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+                Grid ramBarOuter = new Grid { Height = 20, Margin = new Thickness(0, 0, 0, 4) };
+                LinearGradientBrush ramBgBrush = new LinearGradientBrush
+                    { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+                LinearGradientBrush ramFgBrush = new LinearGradientBrush
+                    { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
                 foreach (var (stop, r, g, b) in spectrumStops)
                 {
                     ramBgBrush.GradientStops.Add(new GradientStop(Color.FromArgb(35, r, g, b), stop));
@@ -2110,7 +2613,7 @@ namespace MESInsight
                 stack.Children.Add(ramBarOuter);
 
                 long usedMb = totalRamMb > 0 ? (long)((1.0 - availMb / (double)totalRamMb) * totalRamMb) : 0;
-                var legend = new StackPanel
+                StackPanel legend = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
                 legend.Children.Add(new Border
                 {
@@ -2162,22 +2665,22 @@ namespace MESInsight
 
             private UIElement BuildMessageTypeSection()
             {
-                var border = new Border
+                Border border = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
                     BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(20, 10, 20, 10)
                 };
-                var stack = new StackPanel();
+                StackPanel stack = new StackPanel();
                 stack.Children.Add(new TextBlock
                 {
                     Text = "Message types to include:", FontSize = 11, FontWeight = FontWeights.SemiBold,
                     Foreground = new SolidColorBrush(Color.FromRgb(120, 170, 135)), Margin = new Thickness(0, 0, 0, 6)
                 });
-                var wrapPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                WrapPanel wrapPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 foreach (var msgType in AllMessageTypes)
                 {
-                    var cb = new CheckBox { IsChecked = true, Margin = new Thickness(0, 0, 16, 4) };
+                    CheckBox cb = new CheckBox { IsChecked = true, Margin = new Thickness(0, 0, 16, 4) };
                     cb.Content = new TextBlock
                     {
                         Text = msgType.ToString().Replace("REQ_", "").Replace("_", " "), FontSize = 10,
@@ -2212,17 +2715,17 @@ namespace MESInsight
 
             private static UIElement WrapSliderWithLabels(Slider slider)
             {
-                var outerStack = new StackPanel();
-                var sliderGrid = new Grid();
+                StackPanel outerStack = new StackPanel();
+                Grid sliderGrid = new Grid();
                 sliderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 sliderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 sliderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var left = new TextBlock
+                TextBlock left = new TextBlock
                 {
                     Text = "1m", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(46, 185, 80)),
                     VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0)
                 };
-                var right = new TextBlock
+                TextBlock right = new TextBlock
                 {
                     Text = "12m", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(220, 140, 30)),
                     VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0)
@@ -2239,7 +2742,7 @@ namespace MESInsight
 
             private static UIElement BuildSliderTickRow()
             {
-                var tickPanel = new Canvas { Height = 20 };
+                Canvas tickPanel = new Canvas { Height = 20 };
                 var labels = new (int idx, string label)[]
                 {
                     (0, "1m"), (1, "2m"), (2, "3m"), (3, "4m"), (4, "5m"), (5, "6m"), (6, "7m"), (7, "8m"), (8, "9m"),
@@ -2259,13 +2762,13 @@ namespace MESInsight
                         byte r = (byte)(46 + ratio * (220 - 46));
                         byte g = (byte)(185 - ratio * (185 - 140));
                         byte b = (byte)(80 - ratio * (80 - 30));
-                        var color = Color.FromRgb(r, g, b);
-                        var tick = new System.Windows.Shapes.Rectangle
+                        Color color = Color.FromRgb(r, g, b);
+                        System.Windows.Shapes.Rectangle tick = new System.Windows.Shapes.Rectangle
                             { Width = 1.5, Height = 8, Fill = new SolidColorBrush(color), Opacity = 0.8 };
                         Canvas.SetLeft(tick, x - 0.75);
                         Canvas.SetTop(tick, 0);
                         tickPanel.Children.Add(tick);
-                        var lbl = new TextBlock
+                        TextBlock lbl = new TextBlock
                             { Text = label, FontSize = 9, Foreground = new SolidColorBrush(color), Opacity = 0.85 };
                         lbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                         Canvas.SetLeft(lbl, x - lbl.DesiredSize.Width / 2);
@@ -2278,13 +2781,13 @@ namespace MESInsight
 
             private static UIElement BuildHeader()
             {
-                var border = new Border
+                Border border = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
                     BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(24, 16, 24, 16)
                 };
-                var stack = new StackPanel();
+                StackPanel stack = new StackPanel();
                 stack.Children.Add(new TextBlock
                 {
                     Text = "⏳  Load Options", FontSize = 17, FontWeight = FontWeights.SemiBold,
@@ -2302,32 +2805,26 @@ namespace MESInsight
 
             private static UIElement BuildFooter(CheckBox cbDateFilter, Button btnLoad, Action onCancel)
             {
-                var border = new Border
+                Border border = new Border
                 {
                     Background = new SolidColorBrush(Color.FromRgb(5, 18, 9)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(22, 70, 36)),
                     BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(20, 12, 20, 12)
                 };
-                var row = new Grid();
-
+                Grid row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
                 cbDateFilter.VerticalAlignment = VerticalAlignment.Center;
                 cbDateFilter.Content = new TextBlock
                 {
                     Text = "Apply date range filter", FontSize = 12,
                     Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 165))
                 };
-
                 row.Children.Add(cbDateFilter);
-
-                var btnRow = new StackPanel
+                StackPanel btnRow = new StackPanel
                     { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-
                 Grid.SetColumn(btnRow, 1);
-
-                var btnCancel = new Button
+                Button btnCancel = new Button
                 {
                     Content = "Cancel", Padding = new Thickness(18, 8, 18, 8), Margin = new Thickness(0, 0, 10, 0),
                     FontSize = 12, Background = new SolidColorBrush(Color.FromRgb(18, 36, 22)),
