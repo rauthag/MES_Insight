@@ -105,7 +105,6 @@ namespace MESInsight
             new Dictionary<MessageType, (Border, StackPanel)>();
 
         private HashSet<MessageType> _tabsUserHasAlreadySeen = new HashSet<MessageType>();
-
         private List<StationInfo> _lazyLoadStations = new List<StationInfo>();
         private HashSet<string> _stationReadyGlow = new HashSet<string>();
         private bool _bgLoadingRunning = false;
@@ -143,6 +142,7 @@ namespace MESInsight
 
                 StartupWindow startup = new StartupWindow();
                 bool? result = startup.ShowDialog();
+
                 if (result == true && !string.IsNullOrEmpty(startup.SelectedPath))
                     Dispatcher.BeginInvoke(new Action(async () =>
                     {
@@ -166,21 +166,67 @@ namespace MESInsight
         #endregion
 
         #region Data Loading
-
-        private async void LoadStationData(string folderPath)
+        
+        private async Task LoadAllStationsFromPaths(List<string> paths)
         {
-            await LoadAllStationsFromRoot(folderPath);
+            List<StationInfo> allStations = await ScanStationsFromPaths(paths);
+            ClassifyStations(allStations);
+
+            HideLoadingOverlay();
+
+            (List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, List<StationInfo> connectors)
+                = SplitByCategory(allStations);
+
+            string commonRoot = paths.Count == 1 ? paths[0] : System.IO.Path.GetDirectoryName(paths[0]) ?? paths[0];
+
+            LoadOptionsDialog optDlg = await ShowLoadOptionsDialog(ghp, lcs, backflush, connectors, allStations, commonRoot: commonRoot);
+
+            if (optDlg == null) return;
+
+            ApplyDateFilter(optDlg);
+
+            List<StationInfo> stations   = FilterSelectedStations(allStations, optDlg);
+            _lazyLoadStations            = allStations.Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath)).ToList();
+
+            await RunLoadingLoop(stations, ghp, lcs, backflush, rootPath: commonRoot);
         }
 
-        private async Task LoadAllStationsFromPaths(List<string> paths)
+        private async Task LoadAllStationsFromRoot(string rootPath)
+        {
+            ShowLoadingOverlay("Scanning...", "Looking for stations...", 0, detail: rootPath);
+            await Task.Yield();
+
+            List<StationInfo> allStations = await Task.Run(() => DataLoader.FindStations(rootPath));
+
+            if (allStations.Count == 0)
+                allStations.Add(new StationInfo
+                    { FolderPath = rootPath, StationName = System.IO.Path.GetFileName(rootPath) });
+
+            ClassifyStations(allStations);
+            HideLoadingOverlay();
+
+            (List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, List<StationInfo> connectors)
+                = SplitByCategory(allStations);
+
+            LoadOptionsDialog optDlg = await ShowLoadOptionsDialog(
+                ghp, lcs, backflush, connectors, allStations, commonRoot: rootPath);
+
+            if (optDlg == null) return;
+
+            ApplyDateFilter(optDlg);
+
+            List<StationInfo> stations = FilterSelectedStations(allStations, optDlg);
+            _lazyLoadStations = allStations.Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath)).ToList();
+
+            await RunLoadingLoop(stations, ghp, lcs, backflush, rootPath:rootPath);
+        }
+
+        private async Task<List<StationInfo>> ScanStationsFromPaths(List<string> paths)
         {
             ShowLoadingOverlay("Scanning...", "Building station list from selection...", 0);
             await Task.Yield();
 
-            System.Text.RegularExpressions.RegexOptions rxOpts =
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-
-            List<StationInfo> allStations = await Task.Run(() =>
+            return await Task.Run(() =>
             {
                 List<StationInfo> result = new List<StationInfo>();
                 foreach (string path in paths)
@@ -197,62 +243,87 @@ namespace MESInsight
 
                 return result;
             });
+        }
 
-            foreach (StationInfo st in allStations)
+        private void ClassifyStations(List<StationInfo> stations)
+        {
+            System.Text.RegularExpressions.RegexOptions opts =
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+
+            foreach (StationInfo st in stations)
             {
                 if (st.Category != StationCategory.GHP) continue;
                 string n = st.StationName + " " + st.FolderPath;
-                if (System.Text.RegularExpressions.Regex.IsMatch(n, @"(?:^|[ _-])LCS[0-9]+", rxOpts))
+
+                if (System.Text.RegularExpressions.Regex.IsMatch(n, @"(?:^|[ _-])LCS[0-9]+", opts))
                     st.Category = StationCategory.LCS;
-                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"backflush", rxOpts))
+                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"backflush", opts))
                     st.Category = StationCategory.Backflush;
-                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"connector|comcell|ghpnetty", rxOpts))
+                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"connector|comcell|ghpnetty", opts))
                     st.Category = StationCategory.Connector;
             }
+        }
 
-            HideLoadingOverlay();
+        private (List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, List<StationInfo> connectors
+            )
+            SplitByCategory(List<StationInfo> all)
+        {
+            return (
+                all.Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList(),
+                all.Where(s => s.Category == StationCategory.LCS).ToList(),
+                all.Where(s => s.Category == StationCategory.Backflush).ToList(),
+                all.Where(s => s.Category == StationCategory.Connector).ToList()
+            );
+        }
 
-            List<StationInfo> ghpStations = allStations
-                .Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
-            List<StationInfo> lcsStations = allStations.Where(s => s.Category == StationCategory.LCS).ToList();
-            List<StationInfo> backflushList = allStations.Where(s => s.Category == StationCategory.Backflush).ToList();
-            List<StationInfo> connectorList = allStations.Where(s => s.Category == StationCategory.Connector).ToList();
-
-            Window scanSpinner = ShowScanningSpinner("Counting files...");
-            string commonRoot = paths.Count == 1
-                ? paths[0]
-                : System.IO.Path.GetDirectoryName(paths[0]) ?? paths[0];
+        private async Task<LoadOptionsDialog> ShowLoadOptionsDialog(
+            List<StationInfo> ghp, List<StationInfo> lcs,
+            List<StationInfo> backflush, List<StationInfo> connectors,
+            List<StationInfo> allStations, string commonRoot)
+        {
+            Window spinner = ShowScanningSpinner("Scanning stations...");
 
             Dictionary<int, MonthFileInfo> fileCounts = await Task.Run(() =>
-                DataLoader.CountFilesByMonthCutoffs(commonRoot,
-                    new[] { 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365 }));
-            scanSpinner?.Close();
+                DataLoader.CountFilesByMonthCutoffs(commonRoot, LoadOptionsDialog.GetDayOption()));
 
-            StartupWindow.LoadOptionsDialog optDlg =
-                new StartupWindow.LoadOptionsDialog(ghpStations, lcsStations, backflushList, connectorList, fileCounts)
-                    { Owner = this };
-            if (optDlg.ShowDialog() != true) return;
+            Dictionary<string, Dictionary<int, MonthFileInfo>> perStationCounts = await Task.Run(() =>
+                DataLoader.CountFilesByStationAndDays(allStations, LoadOptionsDialog.GetDayOption()));
 
+            spinner?.Close();
+
+            LoadOptionsDialog dlg = new LoadOptionsDialog(ghp, lcs, backflush, connectors, fileCounts, perStationCounts)
+                { Owner = this };
+
+            if (dlg.ShowDialog() != true) return null;
+            return dlg;
+        }
+
+        private void ApplyDateFilter(LoadOptionsDialog optDlg)
+        {
             _dataLoader.DateFilter = optDlg.FilterByDate
-                ? DateTime.Now.AddDays(-optDlg.MaxMonths)
+                ? DateTime.Now.AddDays(-optDlg.MaxDays)
                 : (DateTime?)null;
+        }
 
-            List<StationInfo> stations = allStations
-                .Where(s =>
+        private List<StationInfo> FilterSelectedStations(List<StationInfo> all, LoadOptionsDialog optDlg)
+        {
+            return all.Where(s =>
                     ((s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown) ||
                      (optDlg.IncludeLcs && s.Category == StationCategory.LCS) ||
                      (optDlg.IncludeBackflush && s.Category == StationCategory.Backflush) ||
                      (optDlg.IncludeConnectors && s.Category == StationCategory.Connector)) &&
+                    !optDlg.ExcludedFolderPaths.Contains(s.FolderPath) &&
                     !optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
                 .ToList();
+        }
 
-            _lazyLoadStations = allStations
-                .Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
-                .ToList();
-
+        private async Task RunLoadingLoop(
+            List<StationInfo> stations, List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, string rootPath = null)
+        {
             _pendingOptionalStations = new List<StationInfo>();
             _isBackgroundLoading = true;
             _isOverlayMinimized = false;
+
             ShowLoadingOverlay("Loading...", "Preparing...", 0);
             await Task.Yield();
 
@@ -261,6 +332,54 @@ namespace MESInsight
             _stationChartCache.Clear();
             _stationLogEntries.Clear();
 
+            BuildStationLogEntries(stations, ghp, lcs, backflush);
+
+            ShowLoadingOverlay(
+                "Found " + stations.Count + " station" + (stations.Count != 1 ? "s" : ""),
+                "Preparing to load...", 5, typeCount: stations.Count);
+
+            await Task.Delay(300);
+            RebuildStationBar();
+
+            int totalFiles = 0;
+
+            for (int i = 0; i < stations.Count; i++)
+                totalFiles = await LoadSingleStationInLoop(stations, i, totalFiles);
+
+            int totalRecords = stations.Sum(s =>
+                _stationDataCache.ContainsKey(s.FolderPath) && _stationDataCache[s.FolderPath].records != null
+                    ? _stationDataCache[s.FolderPath].records.Count
+                    : 0);
+
+            ShowLoadingOverlay("All stations ready",
+                stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
+                100, fileCount: totalFiles, recordCount: totalRecords, typeCount: stations.Count);
+
+            await Task.Delay(400);
+
+            if (stations.Count > 0)
+                await SwitchToStation(stations[0]);
+
+            if (_pendingOptionalStations.Count > 0)
+                RebuildStationBarWithOptionalButton();
+
+            _isBackgroundLoading = false;
+            HideLoadingOverlay();
+            RebuildStationBar();
+            
+            if (!string.IsNullOrEmpty(rootPath))
+                StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
+
+            if (_lazyLoadStations.Count > 0)
+                StartBackgroundLoading();
+            
+            StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
+        }
+
+        private void BuildStationLogEntries(
+            List<StationInfo> stations,
+            List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush)
+        {
             void AddSection(string header, List<StationInfo> list)
             {
                 if (list.Count == 0) return;
@@ -280,411 +399,138 @@ namespace MESInsight
                     });
             }
 
-            AddSection("GHP STATIONS", ghpStations.Where(s => stations.Contains(s)).ToList());
-            AddSection("LCS STATIONS", lcsStations.Where(s => stations.Contains(s)).ToList());
-            AddSection("BACKFLUSH STATIONS", backflushList.Where(s => stations.Contains(s)).ToList());
-
-            ShowLoadingOverlay(
-                "Found " + stations.Count + " station" + (stations.Count != 1 ? "s" : ""),
-                "Preparing to load...", 5, typeCount: stations.Count);
-            await Task.Delay(300);
-            RebuildStationBar();
-
-            int totalFiles = 0;
-
-            for (int i = 0; i < stations.Count; i++)
-            {
-                StationInfo st = stations[i];
-                int liveFileCount = 0;
-
-                if (i > 0 && !CheckRamBeforeLoading(100000))
-                {
-                    bool proceed = ShowRamWarningDialog();
-                    if (!proceed)
-                    {
-                        for (int j = i; j < stations.Count; j++)
-                            _lazyLoadStations.Add(stations[j]);
-                        break;
-                    }
-                }
-
-                UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
-
-                DataLoadResult loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
-                    (status, percent, extra) =>
-                    {
-                        if (status.StartsWith("Reading "))
-                            System.Threading.Interlocked.Increment(ref liveFileCount);
-
-                        int fc = liveFileCount;
-                        int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
-
-                        long nowMs = System.DateTime.UtcNow.Ticks / System.TimeSpan.TicksPerMillisecond;
-                        if (nowMs - _lastBeginInvokeMs >= 150)
-                        {
-                            _lastBeginInvokeMs = nowMs;
-                            Dispatcher.BeginInvoke(new Action(() =>
-                            {
-                                bool isReading = status.StartsWith("Reading ");
-                                string fileName = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
-                                string detail;
-                                if (isReading && fc > 0)
-                                {
-                                    detail = "File " + fc + (fileName != null ? "  —  " + fileName : "");
-                                    if (!string.IsNullOrEmpty(extra)) detail += Environment.NewLine + extra;
-                                }
-                                else if (status.StartsWith("Scanning")) detail = "Scanning for log files...";
-                                else detail = status;
-
-                                ShowLoadingOverlay(
-                                    "Station " + (i + 1) + " / " + stations.Count,
-                                    st.StationName, innerPct,
-                                    detail: detail, fileCount: fc, typeCount: stations.Count);
-                            }));
-                        }
-                    }));
-
-                string displayName = !string.IsNullOrEmpty(loadResult.StationName)
-                    ? loadResult.StationName
-                    : st.StationName;
-
-                st.StationName = displayName;
-                _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
-
-                if (i < _stationLogEntries.Count)
-                {
-                    _stationLogEntries[i].StatusIcon = loadResult.Records.Count > 0 ? "✓" : "✕";
-                    _stationLogEntries[i].IconColor = loadResult.Records.Count > 0 ? "#3FB950" : "#C03030";
-                    _stationLogEntries[i].Line1Color = loadResult.Records.Count > 0 ? "#C9D1D9" : "#C03030";
-                    _stationLogEntries[i].Line1 = displayName +
-                                                  (loadResult.Records.Count > 0
-                                                      ? "  —  " + loadResult.Records.Count.ToString("N0") + " records"
-                                                      : "  —  no records");
-                }
-
-                totalFiles += liveFileCount;
-
-                ShowLoadingOverlay(
-                    "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
-                    st.StationName, 5 + ((i * 88 + 44) / stations.Count),
-                    detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
-                    fileCount: totalFiles, recordCount: loadResult.Records.Count, typeCount: stations.Count);
-
-                await Task.Yield();
-
-                Dictionary<(MessageType, ChartType), ChartData> stationCharts =
-                    await BuildChartsForRecords(loadResult.Records, displayName);
-                _stationChartCache[st.FolderPath] = stationCharts;
-
-                DropRecordsFromCache(st.FolderPath);
-
-                UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
-                RebuildStationBarThrottled();
-
-                if (i == 0)
-                {
-                    bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
-                    await SwitchToStation(st);
-                    if (overlayWasVisible)
-                        ShowLoadingOverlay(
-                            "Loading " + (i + 2) + " / " + stations.Count + "...", "",
-                            5 + ((i + 1) * 88 / stations.Count), typeCount: stations.Count);
-                }
-            }
-
-            int totalRecords = stations.Sum(s =>
-                _stationDataCache.ContainsKey(s.FolderPath)
-                    ? _stationDataCache[s.FolderPath].records.Count
-                    : 0);
-
-            ShowLoadingOverlay(
-                "All stations ready",
-                stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
-                100, fileCount: totalFiles, recordCount: totalRecords, typeCount: stations.Count);
-
-            await Task.Delay(400);
-
-            if (stations.Count > 0)
-                await SwitchToStation(stations[0]);
-
-            _isBackgroundLoading = false;
-            HideLoadingOverlay();
-            RebuildStationBar();
-
-            if (_lazyLoadStations.Count > 0)
-                StartBackgroundLoading();
+            AddSection("GHP STATIONS", ghp.Where(s => stations.Contains(s)).ToList());
+            AddSection("LCS STATIONS", lcs.Where(s => stations.Contains(s)).ToList());
+            AddSection("BACKFLUSH STATIONS", backflush.Where(s => stations.Contains(s)).ToList());
         }
 
-        private async Task LoadAllStationsFromRoot(string rootPath)
+        private async Task<int> LoadSingleStationInLoop(List<StationInfo> stations, int i, int totalFiles)
         {
-            ShowLoadingOverlay("Scanning...", "Looking for stations...", 0, detail: rootPath);
+            StationInfo st = stations[i];
 
-            await Task.Yield();
-
-            var allStations = await Task.Run(() => DataLoader.FindStations(rootPath));
-
-            if (allStations.Count == 0)
-                allStations.Add(new StationInfo
-                    { FolderPath = rootPath, StationName = System.IO.Path.GetFileName(rootPath) });
-
-            var rxOpts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-            foreach (var st in allStations)
+            if (i > 0 && !CheckRamBeforeLoading(100000))
             {
-                if (st.Category != StationCategory.GHP) continue;
-                string n = st.StationName + " " + st.FolderPath;
-                if (System.Text.RegularExpressions.Regex.IsMatch(n, @"(?:^|[ _-])LCS[0-9]+", rxOpts))
-                    st.Category = StationCategory.LCS;
-                else if (System.Text.RegularExpressions.Regex.IsMatch(n, @"backflush", rxOpts))
-                    st.Category = StationCategory.Backflush;
-            }
-
-            HideLoadingOverlay();
-
-            // Detect connectors
-            var rxOpts2 = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-            foreach (var st in allStations)
-            {
-                if (st.Category != StationCategory.GHP) continue;
-                string n = st.StationName + " " + st.FolderPath;
-                if (System.Text.RegularExpressions.Regex.IsMatch(n, @"connector|comcell|ghpnetty", rxOpts2))
-                    st.Category = StationCategory.Connector;
-            }
-
-            var ghpStations = allStations
-                .Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
-            var lcsStationsList = allStations.Where(s => s.Category == StationCategory.LCS).ToList();
-            var backflushList = allStations.Where(s => s.Category == StationCategory.Backflush).ToList();
-            var connectorList = allStations.Where(s => s.Category == StationCategory.Connector).ToList();
-
-            var scanSpinner = ShowScanningSpinner("Scanning stations...");
-
-            var fileCounts = await Task.Run(() =>
-                DataLoader.CountFilesByMonthCutoffs(rootPath, new[] { 1, 2, 3, 6, 12, 24 }));
-
-            scanSpinner?.Close();
-
-            var optDlg = new StartupWindow.LoadOptionsDialog(ghpStations, lcsStationsList, backflushList, connectorList,
-                fileCounts);
-            optDlg.Owner = this;
-            if (optDlg.ShowDialog() != true) return;
-
-            DateTime? dateFilter = optDlg.FilterByDate
-                ? DateTime.Now.AddMonths(-optDlg.MaxMonths)
-                : (DateTime?)null;
-
-            _dataLoader.DateFilter = dateFilter;
-
-            List<StationInfo> stations = allStations
-                .Where(s =>
-                    ((s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown) ||
-                     (optDlg.IncludeLcs && s.Category == StationCategory.LCS) ||
-                     (optDlg.IncludeBackflush && s.Category == StationCategory.Backflush) ||
-                     (optDlg.IncludeConnectors && s.Category == StationCategory.Connector)) &&
-                    !optDlg.ExcludedFolderPaths.Contains(s.FolderPath) &&
-                    !optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
-                .ToList();
-
-            _lazyLoadStations = allStations
-                .Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath))
-                .ToList();
-
-            _pendingOptionalStations = new List<StationInfo>();
-
-            _isBackgroundLoading = true;
-            _isOverlayMinimized = false;
-            ShowLoadingOverlay("Loading...", "Preparing...", 0);
-            await Task.Yield();
-
-            _loadedStations = stations;
-            _stationDataCache.Clear();
-            _stationChartCache.Clear();
-            _stationLogEntries.Clear();
-
-            var ghpLogList = stations
-                .Where(s => s.Category == StationCategory.GHP || s.Category == StationCategory.Unknown).ToList();
-            var lcsLogList = stations.Where(s => s.Category == StationCategory.LCS).ToList();
-            var backflushLogList = stations.Where(s => s.Category == StationCategory.Backflush).ToList();
-
-            void AddSection(string header, List<StationInfo> list)
-            {
-                if (list.Count == 0) return;
-                _stationLogEntries.Add(new LoadingStationLogEntry
+                bool proceed = ShowRamWarningDialog();
+                if (!proceed)
                 {
-                    StatusIcon = "",
-                    IconColor = "#3FB950",
-                    Line1 = header,
-                    Line2 = "",
-                    Line1Color = "#3FB950",
-                    IsHeader = true
-                });
-                foreach (var st in list)
-                {
-                    _stationLogEntries.Add(new LoadingStationLogEntry
-                    {
-                        StatusIcon = "○",
-                        IconColor = "#4E5A4E",
-                        Line1 = st.StationName,
-                        Line2 = string.Join("  ·  ", new[] { st.LineName, st.ComputerName }
-                            .Where(x => !string.IsNullOrEmpty(x))),
-                        Line1Color = "#8B949E"
-                    });
+                    for (int j = i; j < stations.Count; j++)
+                        _lazyLoadStations.Add(stations[j]);
+                    return totalFiles;
                 }
             }
 
-            AddSection("GHP STATIONS", ghpLogList);
-            AddSection("LCS STATIONS", lcsLogList);
-            AddSection("BACKFLUSH STATIONS", backflushLogList);
+            UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
 
-            ShowLoadingOverlay(
-                "Found " + stations.Count + " station" + (stations.Count != 1 ? "s" : ""),
-                "Preparing to load...",
-                5,
-                typeCount: stations.Count);
+            int liveFileCount = 0;
 
-            await Task.Delay(300);
+            DataLoadResult loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
+                (status, percent, extra) =>
+                {
+                    if (status.StartsWith("Reading "))
+                        System.Threading.Interlocked.Increment(ref liveFileCount);
 
-            // Build station bar immediately with all stations showing as pending
-            RebuildStationBar();
+                    int fc = liveFileCount;
+                    int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
+                    long nowMs = System.DateTime.UtcNow.Ticks / System.TimeSpan.TicksPerMillisecond;
 
-            int totalFiles = 0;
-
-            for (int i = 0; i < stations.Count; i++)
-            {
-                var st = stations[i];
-
-                // Mark current station as loading in bar
-                UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
-
-                int liveFileCount = 0;
-
-                var loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
-                    (status, percent, extra) =>
+                    if (nowMs - _lastBeginInvokeMs >= 150)
                     {
-                        if (status.StartsWith("Reading "))
-                            System.Threading.Interlocked.Increment(ref liveFileCount);
-
-                        int fc = liveFileCount;
-                        int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
-
+                        _lastBeginInvokeMs = nowMs;
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
                             bool isReading = status.StartsWith("Reading ");
                             string fileName = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
-
                             string detail;
+
                             if (isReading && fc > 0)
                             {
                                 detail = "File " + fc + (fileName != null ? "  —  " + fileName : "");
-                                if (!string.IsNullOrEmpty(extra))
-                                    detail += Environment.NewLine + extra;
+                                if (!string.IsNullOrEmpty(extra)) detail += Environment.NewLine + extra;
                             }
-                            else if (status.StartsWith("Scanning"))
-                                detail = "Scanning for log files...";
-                            else
-                                detail = status;
+                            else if (status.StartsWith("Scanning")) detail = "Scanning for log files...";
+                            else detail = status;
 
                             ShowLoadingOverlay(
                                 "Station " + (i + 1) + " / " + stations.Count,
-                                st.StationName,
-                                innerPct,
-                                detail: detail,
-                                fileCount: fc,
-                                typeCount: stations.Count);
+                                st.StationName, innerPct,
+                                detail: detail, fileCount: fc, typeCount: stations.Count);
                         }));
-                    }));
+                    }
+                }));
 
+            string displayName = !string.IsNullOrEmpty(loadResult.StationName)
+                ? loadResult.StationName
+                : st.StationName;
 
-                // Priority: log content name > folder name already set by BuildStationInfo
-                string displayName = !string.IsNullOrEmpty(loadResult.StationName)
-                    ? loadResult.StationName
-                    : st.StationName;
+            st.StationName = displayName;
+            _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
 
-                st.StationName = displayName;
-                _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
+            if (i < _stationLogEntries.Count)
+            {
+                _stationLogEntries[i].StatusIcon = loadResult.Records.Count > 0 ? "✓" : "✕";
+                _stationLogEntries[i].IconColor = loadResult.Records.Count > 0 ? "#3FB950" : "#C03030";
+                _stationLogEntries[i].Line1Color = loadResult.Records.Count > 0 ? "#C9D1D9" : "#C03030";
+                _stationLogEntries[i].Line1 = displayName +
+                                              (loadResult.Records.Count > 0
+                                                  ? "  —  " + loadResult.Records.Count.ToString("N0") + " records"
+                                                  : "  —  no records");
+            }
 
-                if (i < _stationLogEntries.Count)
-                {
-                    _stationLogEntries[i].StatusIcon = "✓";
-                    _stationLogEntries[i].IconColor = "#3FB950";
-                    _stationLogEntries[i].Line1Color = "#C9D1D9";
-                    _stationLogEntries[i].Line1 = displayName +
-                                                  (loadResult.Records.Count > 0
-                                                      ? "  —  " + loadResult.Records.Count.ToString("N0") + " records"
-                                                      : "  —  no records");
-                }
+            totalFiles += liveFileCount;
 
-                totalFiles += liveFileCount;
+            ShowLoadingOverlay(
+                "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
+                st.StationName, 5 + ((i * 88 + 44) / stations.Count),
+                detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
+                fileCount: totalFiles, recordCount: loadResult.Records.Count, typeCount: stations.Count);
 
-                ShowLoadingOverlay(
-                    "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
-                    st.StationName,
-                    5 + ((i * 88 + 44) / stations.Count),
-                    detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
-                    fileCount: totalFiles,
-                    recordCount: loadResult.Records.Count,
-                    typeCount: stations.Count);
+            await Task.Yield();
 
-                await Task.Yield();
+            Dictionary<(MessageType, ChartType), ChartData> stationCharts =
+                await BuildChartsForRecords(loadResult.Records, displayName);
+            _stationChartCache[st.FolderPath] = stationCharts;
 
-                var stationCharts = await BuildChartsForRecords(loadResult.Records, displayName);
+            UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
+            RebuildStationBarThrottled();
 
-                _stationChartCache[st.FolderPath] = stationCharts;
-
-                DropRecordsFromCache(st.FolderPath);
-
-                UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
-
-                // First station ready — switch to it immediately
-                if (i == 0)
-                {
-                    bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
-                    await SwitchToStation(st);
-                    if (overlayWasVisible)
-                        ShowLoadingOverlay("Loading " + (i + 2) + " / " + stations.Count + "...", "",
-                            5 + ((i + 1) * 88 / stations.Count), typeCount: stations.Count);
-                }
-
+            if (i == 0)
+            {
+                bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
+                await SwitchToStation(st);
+                if (overlayWasVisible)
+                    ShowLoadingOverlay(
+                        "Loading " + (i + 2) + " / " + stations.Count + "...", "",
+                        5 + ((i + 1) * 88 / stations.Count), typeCount: stations.Count);
+            }
+            else
+            {
                 RebuildStationBar();
             }
 
-            int totalRecords = stations.Sum(s => _stationDataCache.ContainsKey(s.FolderPath)
-                ? _stationDataCache[s.FolderPath].records.Count
-                : 0);
-
-            ShowLoadingOverlay(
-                "All stations ready",
-                stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
-                100,
-                fileCount: totalFiles,
-                recordCount: totalRecords,
-                typeCount: stations.Count);
-
-            await Task.Delay(400);
-
-            if (stations.Count > 0)
-                await SwitchToStation(stations[0]);
-
-            if (_pendingOptionalStations.Count > 0)
-                RebuildStationBarWithOptionalButton();
-
-            _isBackgroundLoading = false;
-            HideLoadingOverlay();
-            RebuildStationBar();
-
-            if (_lazyLoadStations.Count > 0)
-                StartBackgroundLoading();
+            return totalFiles;
         }
 
         private void StartBackgroundLoading()
         {
             if (_bgLoadingRunning) return;
             _bgLoadingRunning = true;
+
+            _bgCts?.Dispose();
             _bgCts = new System.Threading.CancellationTokenSource();
+
             System.Threading.CancellationToken token = _bgCts.Token;
+
+            List<StationInfo> ordered = _lazyLoadStations
+                .OrderByDescending(s =>
+                {
+                    if (s.Category == StationCategory.GHP) return 1;
+                    return 0;
+                })
+                .ToList();
 
             Task.Run(async () =>
             {
-                foreach (StationInfo lazySt in _lazyLoadStations.ToList())
+                foreach (StationInfo lazySt in ordered)
                 {
                     if (token.IsCancellationRequested) break;
 
@@ -702,9 +548,9 @@ namespace MESInsight
 
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        lazySt.StationName = displayName;
-                        _stationDataCache[lazySt.FolderPath] = (result.Records, displayName);
-                        _stationChartCache[lazySt.FolderPath] = charts;
+                        lazySt.StationName                     = displayName;
+                        _stationDataCache[lazySt.FolderPath]   = (result.Records, displayName);
+                        _stationChartCache[lazySt.FolderPath]  = charts;
 
                         if (!_loadedStations.Any(s => s.FolderPath == lazySt.FolderPath))
                             _loadedStations.Add(lazySt);
@@ -718,6 +564,8 @@ namespace MESInsight
                 await Dispatcher.InvokeAsync(() =>
                 {
                     _bgLoadingRunning = false;
+                    _bgCts?.Dispose();
+                    _bgCts = null;
                     RebuildStationBar();
                 });
             });
@@ -735,7 +583,7 @@ namespace MESInsight
                 ? result.StationName
                 : station.StationName;
 
-            station.StationName = displayName;
+            station.StationName                   = displayName;
             _stationDataCache[station.FolderPath] = (result.Records, displayName);
 
             Dictionary<(MessageType, ChartType), ChartData> charts =
@@ -747,9 +595,9 @@ namespace MESInsight
 
             _lazyLoadStations.Remove(station);
             _stationLoadingState[station.FolderPath] = false;
-            DropRecordsFromCache(station.FolderPath);
+            _stationReadyGlow.Add(station.FolderPath);
+
             RebuildStationBar();
-            await SwitchToStation(station);
         }
 
         private async Task LoadOptionalStations()
@@ -833,7 +681,7 @@ namespace MESInsight
                 .Where(s => _stationDataCache.ContainsKey(s.FolderPath) &&
                             _stationDataCache[s.FolderPath].records.Count > 0)
                 .ToList();
-            
+
             DataLoader.DeduplicateNames(_loadedStations);
 
 
@@ -2166,7 +2014,8 @@ namespace MESInsight
             timer.Start();
         }
 
-        private void WireLazyChevronEvents(Canvas canvas, System.Windows.Shapes.Polygon poly, TextBlock nameBlock, StationInfo station, bool isLoadingNow, bool isReady)
+        private void WireLazyChevronEvents(Canvas canvas, System.Windows.Shapes.Polygon poly, TextBlock nameBlock,
+            StationInfo station, bool isLoadingNow, bool isReady)
         {
             Color fill = isReady ? Color.FromRgb(18, 90, 42) : Color.FromRgb(12, 52, 26);
             Color hoverFill = isReady ? Color.FromRgb(28, 120, 60) : Color.FromRgb(20, 80, 42);
@@ -2602,7 +2451,7 @@ namespace MESInsight
             btnOk.Click += (s, e) =>
             {
                 SelectedMonths = options[combo.SelectedIndex];
-                DialogResult = true;
+                WindowAnimations.FadeOutAndClose(this, true);
             };
 
             Button btnCancel = new Button
@@ -2624,6 +2473,35 @@ namespace MESInsight
 
             outer.Child = root;
             Content = outer;
+        }
+
+
+        private void CloseWithAnimation()
+        {
+            Border overlay = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+                IsHitTestVisible = false
+            };
+
+            if (Content is Grid root)
+                root.Children.Add(overlay);
+
+            System.Windows.Threading.DispatcherTimer timer = new System.Windows.Threading.DispatcherTimer
+                { Interval = TimeSpan.FromMilliseconds(16) };
+
+            byte alpha = 0;
+            timer.Tick += (s, e) =>
+            {
+                alpha = (byte)Math.Min(255, alpha + 18);
+                overlay.Background = new SolidColorBrush(Color.FromArgb(alpha, 5, 15, 8));
+                if (alpha >= 255)
+                {
+                    timer.Stop();
+                    WindowAnimations.FadeOutAndClose(this, true);
+                }
+            };
+            timer.Start();
         }
     }
 }
