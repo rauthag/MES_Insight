@@ -103,6 +103,8 @@ namespace MESInsight
 
         private Dictionary<MessageType, (Border container, StackPanel panel)> _timelineContainerByMessageType =
             new Dictionary<MessageType, (Border, StackPanel)>();
+        
+        private readonly Dictionary<string, bool> _stationGlowState = new Dictionary<string, bool>();
 
         private HashSet<MessageType> _tabsUserHasAlreadySeen = new HashSet<MessageType>();
         private List<StationInfo> _lazyLoadStations = new List<StationInfo>();
@@ -205,6 +207,7 @@ namespace MESInsight
             ClassifyStations(allStations);
             HideLoadingOverlay();
 
+            
             (List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, List<StationInfo> connectors)
                 = SplitByCategory(allStations);
 
@@ -1406,8 +1409,7 @@ namespace MESInsight
                     _recordsGroupedByDay[key].Add(r);
                 }
             });
-
-            // Filters changed → stats cache is stale
+            
             _statsCalculator.InvalidateCache();
         }
 
@@ -1731,8 +1733,7 @@ namespace MESInsight
             if (StationBarPanel == null) return;
 
             StationBarPanel.Children.Clear();
-
-            // ── Dropdown (fixed, outside scroll) ────────────────────────────
+            
             if (StationDropdownHost != null)
             {
                 var dropdown = new Button
@@ -1776,7 +1777,6 @@ namespace MESInsight
                 StationDropdownHost.Content = dropdown;
             }
 
-            // ── Scroll left (fixed) ──────────────────────────────────────────
             if (BtnScrollLeftHost != null)
             {
                 BtnScrollLeftHost.Content = BuildScrollButton("◀", () =>
@@ -1786,8 +1786,7 @@ namespace MESInsight
                     SmoothScrollTo(target);
                 });
             }
-
-            // ── Scroll right (fixed) ─────────────────────────────────────────
+            
             if (BtnScrollRightHost != null)
             {
                 BtnScrollRightHost.Content = BuildScrollButton("▶", () =>
@@ -1798,7 +1797,6 @@ namespace MESInsight
                 });
             }
 
-            // ── Chevrons (scrollable) ────────────────────────────────────────
             List<StationInfo> withRecords = _loadedStations.Where(s =>
                 _stationDataCache.ContainsKey(s.FolderPath) &&
                 _stationDataCache[s.FolderPath].records != null &&
@@ -1818,8 +1816,7 @@ namespace MESInsight
                     chevron.Opacity = 0.35;
                 StationBarPanel.Children.Add(chevron);
             }
-
-            // ── Lazy load chevrons ───────────────────────────────────────────
+            
             foreach (StationInfo lazySt in _lazyLoadStations)
             {
                 bool isLoadingNow = _stationLoadingState.ContainsKey(lazySt.FolderPath)
@@ -1897,7 +1894,7 @@ namespace MESInsight
             poly.Points.Add(new Point(tip, h / 2));
             return poly;
         }
-
+        
         private TextBlock BuildLazyChevronNameBlock(string stationName, bool isLoadingNow, bool isReady)
         {
             Color color = isLoadingNow ? Color.FromRgb(110, 200, 140)
@@ -2067,7 +2064,6 @@ namespace MESInsight
 
         private Canvas BuildChevron(StationInfo station, bool isFirst)
         {
-            // Use cached name (set after loading) if available, fallback to StationInfo name
             string stationDisplayName = _stationDataCache.ContainsKey(station.FolderPath)
                 ? _stationDataCache[station.FolderPath].stationName
                 : station.StationName;
@@ -2075,21 +2071,19 @@ namespace MESInsight
 
             const double h = 44;
             const double tip = 12;
-
-            // Active = orange (7-day avg line colour), inactive = light green
+            
             var fillColor = isActive ? Color.FromRgb(140, 80, 10) : Color.FromRgb(22, 110, 55);
             var hoverColor = isActive ? Color.FromRgb(170, 100, 15) : Color.FromRgb(30, 140, 70);
             var strokeColor = isActive ? Color.FromRgb(220, 140, 40) : Color.FromRgb(56, 190, 100);
             var nameColor = isActive ? Color.FromRgb(255, 220, 160) : Color.FromRgb(210, 245, 220);
             var subColor = isActive ? Color.FromRgb(220, 170, 100) : Color.FromRgb(130, 210, 155);
-
-            // Use LineName + ComputerName, fallback to ComputerName alone
+            
             string subText = string.Join("  ·  ", new[] { station.LineName, station.ComputerName }
                 .Where(x => !string.IsNullOrEmpty(x)));
 
             bool hasSub = !string.IsNullOrEmpty(subText);
 
-            // Measure text to size canvas
+
             var measureBlock = new TextBlock
             {
                 Text = stationDisplayName, FontSize = 11,
@@ -2309,13 +2303,11 @@ namespace MESInsight
 
             long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             bool isThrottled = (nowMs - _lastOverlayUpdateMs) < 200;
-
-            // Always update progress and title
+            
             LoadingTitle.Text = title;
             LoadingProgress.Value = progress;
             LoadingPercentage.Text = progress + "%";
-
-            // Throttle status/detail to avoid fast flickering
+            
             if (!isThrottled)
             {
                 _lastOverlayUpdateMs = nowMs;

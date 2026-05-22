@@ -48,8 +48,8 @@ namespace RTAnalyzer.Core
     public class MonthFileInfo
     {
         public int      FileCount { get; set; }
-        public long     SizeBytes { get; set; }  
-        public long     SizeMb    => SizeBytes / 1024 / 1024;  
+        public long     SizeBytes { get; set; }
+        public long     SizeMb    => SizeBytes / 1024 / 1024;
         public DateTime MinDate   { get; set; } = DateTime.MaxValue;
         public DateTime MaxDate   { get; set; } = DateTime.MinValue;
     }
@@ -292,11 +292,19 @@ namespace RTAnalyzer.Core
             string[] parts     = relative.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
             string[] rootParts = rootPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
             string[] allParts  = rootParts.Concat(parts).ToArray();
+            
+            string name = GetRealStationNameFromPath(stationPath);
 
-            string          name     = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
+            //string          name     = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
             string          line     = ExtractLineName(allParts);
             string          computer = ExtractComputerName(allParts);
             StationCategory category = DetermineCategory(stationPath, name);
+            
+            if (string.Equals(name, "GHP", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(computer))
+            {
+                name = computer;
+            }
+            //
 
             return new StationInfo
             {
@@ -306,6 +314,24 @@ namespace RTAnalyzer.Core
                 ComputerName = computer,
                 Category     = category
             };
+        }
+        
+        private static string GetRealStationNameFromPath(string stationPath)
+        {
+            string[] parts = stationPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] ignoredCategories = { "GHP", "LCS", "BACKFLUSH", "BFL", "CONNECTOR", "CONNECTORS" };
+            
+            for (int i = parts.Length - 1; i >= 0; i--)
+            {
+                string dirName = parts[i].ToUpperInvariant();
+                
+                if (!ignoredCategories.Contains(dirName))
+                {
+                    return ExtractStationNameFromFolderName(parts[i]);
+                }
+            }
+            
+            return ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
         }
 
         private static string ExtractLineName(string[] parts)
