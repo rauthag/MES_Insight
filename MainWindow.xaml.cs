@@ -103,14 +103,13 @@ namespace MESInsight
 
         private Dictionary<MessageType, (Border container, StackPanel panel)> _timelineContainerByMessageType =
             new Dictionary<MessageType, (Border, StackPanel)>();
-        
-        private readonly Dictionary<string, bool> _stationGlowState = new Dictionary<string, bool>();
 
         private HashSet<MessageType> _tabsUserHasAlreadySeen = new HashSet<MessageType>();
         private List<StationInfo> _lazyLoadStations = new List<StationInfo>();
         private HashSet<string> _stationReadyGlow = new HashSet<string>();
         private bool _bgLoadingRunning = false;
         private System.Threading.CancellationTokenSource _bgCts = null;
+        private Canvas _toastCanvas;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -139,6 +138,7 @@ namespace MESInsight
 
             Loaded += (s, e) =>
             {
+                InitToastCanvas();
                 if (LoadingStationLog != null)
                     LoadingStationLog.ItemsSource = _stationLogEntries;
 
@@ -168,7 +168,7 @@ namespace MESInsight
         #endregion
 
         #region Data Loading
-        
+
         private async Task LoadAllStationsFromPaths(List<string> paths)
         {
             List<StationInfo> allStations = await ScanStationsFromPaths(paths);
@@ -181,14 +181,15 @@ namespace MESInsight
 
             string commonRoot = paths.Count == 1 ? paths[0] : System.IO.Path.GetDirectoryName(paths[0]) ?? paths[0];
 
-            LoadOptionsDialog optDlg = await ShowLoadOptionsDialog(ghp, lcs, backflush, connectors, allStations, commonRoot: commonRoot);
+            LoadOptionsDialog optDlg =
+                await ShowLoadOptionsDialog(ghp, lcs, backflush, connectors, allStations, commonRoot: commonRoot);
 
             if (optDlg == null) return;
 
             ApplyDateFilter(optDlg);
 
-            List<StationInfo> stations   = FilterSelectedStations(allStations, optDlg);
-            _lazyLoadStations            = allStations.Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath)).ToList();
+            List<StationInfo> stations = FilterSelectedStations(allStations, optDlg);
+            _lazyLoadStations = allStations.Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath)).ToList();
 
             await RunLoadingLoop(stations, ghp, lcs, backflush, rootPath: commonRoot);
         }
@@ -207,7 +208,7 @@ namespace MESInsight
             ClassifyStations(allStations);
             HideLoadingOverlay();
 
-            
+
             (List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, List<StationInfo> connectors)
                 = SplitByCategory(allStations);
 
@@ -221,7 +222,19 @@ namespace MESInsight
             List<StationInfo> stations = FilterSelectedStations(allStations, optDlg);
             _lazyLoadStations = allStations.Where(s => optDlg.LazyLoadFolderPaths.Contains(s.FolderPath)).ToList();
 
-            await RunLoadingLoop(stations, ghp, lcs, backflush, rootPath:rootPath);
+            await RunLoadingLoop(stations, ghp, lcs, backflush, rootPath: rootPath);
+        }
+
+        private void InitToastCanvas()
+        {
+            _toastCanvas = new Canvas { IsHitTestVisible = false };
+            Panel.SetZIndex(_toastCanvas, 2000);
+
+            var rootGrid = this.Content as Grid;
+            if (rootGrid == null) return;
+
+            Grid.SetRowSpan(_toastCanvas, 3);
+            rootGrid.Children.Add(_toastCanvas);
         }
 
         private async Task<List<StationInfo>> ScanStationsFromPaths(List<string> paths)
@@ -308,6 +321,84 @@ namespace MESInsight
                 : (DateTime?)null;
         }
 
+        private void ApplyAdaptiveDateFilter()
+        {
+            if (_allRecords.Count == 0) return;
+
+            var uniqueDays = _allRecords
+                .Where(r => r.TimestampParsed != DateTime.MinValue)
+                .Select(r => r.TimestampParsed.Date)
+                .Distinct()
+                .Count();
+
+            int showDays = uniqueDays < 10 ? int.MaxValue
+                : uniqueDays < 20 ? 7
+                : uniqueDays < 30 ? 14
+                : 30;
+            if (showDays == int.MaxValue) return;
+
+            DateTime latest = _allRecords.Max(r => r.TimestampParsed).Date;
+            DateTime cutoff = latest.AddDays(-showDays);
+
+            if (DatePickerFrom.SelectedDate == null || DatePickerFrom.SelectedDate < cutoff)
+                DatePickerFrom.SelectedDate = cutoff;
+
+            UpdateDateRangeDropdown(showDays);
+        }
+
+        private void UpdateDateRangeDropdown(int activeDays)
+        {
+            if (CmbDateRange == null) return;
+            _dateRangeChanging = true;
+            try
+            {
+                CmbDateRange.SelectionChanged -= OnDateRangeChanged;
+
+                int idx = activeDays <= 90 ? 0
+                    : activeDays <= 120 ? 1
+                    : activeDays <= 180 ? 2
+                    : activeDays <= 270 ? 3
+                    : activeDays <= 365 ? 4
+                    : 5;
+                CmbDateRange.SelectedIndex = idx;
+                CmbDateRange.SelectionChanged += OnDateRangeChanged;
+            }
+            finally
+            {
+                _dateRangeChanging = false;
+            }
+        }
+
+        private bool _dateRangeChanging = false;
+
+        private async void OnDateRangeChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_dateRangeChanging || _allRecords.Count == 0) return;
+            _dateRangeChanging = true;
+            try
+            {
+                int[] days = { 90, 120, 180, 270, 365, int.MaxValue };
+                int idx = CmbDateRange?.SelectedIndex ?? 5;
+                int d = days[Math.Min(idx, days.Length - 1)];
+
+                DateTime latest = _allRecords.Where(r => r.TimestampParsed != DateTime.MinValue)
+                    .Max(r => r.TimestampParsed).Date;
+
+                DatePickerFrom.SelectedDate = d == int.MaxValue
+                    ? _allRecords.Where(r => r.TimestampParsed != DateTime.MinValue).Min(r => r.TimestampParsed).Date
+                    : latest.AddDays(-d);
+
+                DatePickerTo.SelectedDate = latest;
+
+                _chartCache.Clear();
+                await RefreshChartsAndStatsWithLoadingOverlay();
+            }
+            finally
+            {
+                _dateRangeChanging = false;
+            }
+        }
+
         private List<StationInfo> FilterSelectedStations(List<StationInfo> all, LoadOptionsDialog optDlg)
         {
             return all.Where(s =>
@@ -321,7 +412,8 @@ namespace MESInsight
         }
 
         private async Task RunLoadingLoop(
-            List<StationInfo> stations, List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, string rootPath = null)
+            List<StationInfo> stations, List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush,
+            string rootPath = null)
         {
             _pendingOptionalStations = new List<StationInfo>();
             _isBackgroundLoading = true;
@@ -341,8 +433,7 @@ namespace MESInsight
                 "Found " + stations.Count + " station" + (stations.Count != 1 ? "s" : ""),
                 "Preparing to load...", 5, typeCount: stations.Count);
 
-            await Task.Delay(300);
-            RebuildStationBar();
+            await Task.Delay(150);
 
             int totalFiles = 0;
 
@@ -358,10 +449,17 @@ namespace MESInsight
                 stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
                 100, fileCount: totalFiles, recordCount: totalRecords, typeCount: stations.Count);
 
-            await Task.Delay(400);
+            await Task.Delay(150);
 
-            if (stations.Count > 0)
-                await SwitchToStation(stations[0]);
+            var firstWithRecords = _loadedStations.FirstOrDefault(s =>
+                _stationDataCache.ContainsKey(s.FolderPath) &&
+                _stationDataCache[s.FolderPath].records != null &&
+                _stationDataCache[s.FolderPath].records.Count > 0);
+
+            if (firstWithRecords != null)
+                await SwitchToStation(firstWithRecords);
+            else if (_lazyLoadStations.Count > 0)
+                StartBackgroundLoading();
 
             if (_pendingOptionalStations.Count > 0)
                 RebuildStationBarWithOptionalButton();
@@ -369,13 +467,13 @@ namespace MESInsight
             _isBackgroundLoading = false;
             HideLoadingOverlay();
             RebuildStationBar();
-            
+
             if (!string.IsNullOrEmpty(rootPath))
                 StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
 
             if (_lazyLoadStations.Count > 0)
                 StartBackgroundLoading();
-            
+
             StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
         }
 
@@ -411,106 +509,155 @@ namespace MESInsight
         {
             StationInfo st = stations[i];
 
-            if (i > 0 && !CheckRamBeforeLoading(100000))
-            {
-                bool proceed = ShowRamWarningDialog();
-                if (!proceed)
-                {
-                    for (int j = i; j < stations.Count; j++)
-                        _lazyLoadStations.Add(stations[j]);
-                    return totalFiles;
-                }
-            }
+            if (!await CheckRamAndProceed(stations, i))
+                return totalFiles;
 
             UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
 
-            int liveFileCount = 0;
+            DataLoadResult loadResult = await LoadStationFiles(stations, i);
 
-            DataLoadResult loadResult = await Task.Run(() => _dataLoader.Load(st.FolderPath,
-                (status, percent, extra) =>
-                {
-                    if (status.StartsWith("Reading "))
-                        System.Threading.Interlocked.Increment(ref liveFileCount);
-
-                    int fc = liveFileCount;
-                    int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
-                    long nowMs = System.DateTime.UtcNow.Ticks / System.TimeSpan.TicksPerMillisecond;
-
-                    if (nowMs - _lastBeginInvokeMs >= 150)
-                    {
-                        _lastBeginInvokeMs = nowMs;
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            bool isReading = status.StartsWith("Reading ");
-                            string fileName = isReading ? status.Substring(8).TrimEnd('.', ' ') : null;
-                            string detail;
-
-                            if (isReading && fc > 0)
-                            {
-                                detail = "File " + fc + (fileName != null ? "  —  " + fileName : "");
-                                if (!string.IsNullOrEmpty(extra)) detail += Environment.NewLine + extra;
-                            }
-                            else if (status.StartsWith("Scanning")) detail = "Scanning for log files...";
-                            else detail = status;
-
-                            ShowLoadingOverlay(
-                                "Station " + (i + 1) + " / " + stations.Count,
-                                st.StationName, innerPct,
-                                detail: detail, fileCount: fc, typeCount: stations.Count);
-                        }));
-                    }
-                }));
-
-            string displayName = !string.IsNullOrEmpty(loadResult.StationName)
-                ? loadResult.StationName
-                : st.StationName;
-
+            string displayName = ResolveDisplayName(loadResult.StationName, st.StationName);
             st.StationName = displayName;
-            _stationDataCache[st.FolderPath] = (loadResult.Records, displayName);
 
-            if (i < _stationLogEntries.Count)
-            {
-                _stationLogEntries[i].StatusIcon = loadResult.Records.Count > 0 ? "✓" : "✕";
-                _stationLogEntries[i].IconColor = loadResult.Records.Count > 0 ? "#3FB950" : "#C03030";
-                _stationLogEntries[i].Line1Color = loadResult.Records.Count > 0 ? "#C9D1D9" : "#C03030";
-                _stationLogEntries[i].Line1 = displayName +
-                                              (loadResult.Records.Count > 0
-                                                  ? "  —  " + loadResult.Records.Count.ToString("N0") + " records"
-                                                  : "  —  no records");
-            }
+            totalFiles += StoreLoadResult(st, i, loadResult, displayName, totalFiles);
 
-            totalFiles += liveFileCount;
+            await BuildAndCacheCharts(st, loadResult, displayName, stations, i, totalFiles);
 
-            ShowLoadingOverlay(
-                "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
-                st.StationName, 5 + ((i * 88 + 44) / stations.Count),
-                detail: "Building charts for " + loadResult.Records.Count.ToString("N0") + " records...",
-                fileCount: totalFiles, recordCount: loadResult.Records.Count, typeCount: stations.Count);
-
-            await Task.Yield();
-
-            Dictionary<(MessageType, ChartType), ChartData> stationCharts =
-                await BuildChartsForRecords(loadResult.Records, displayName);
-            _stationChartCache[st.FolderPath] = stationCharts;
+            HandleEmptyStation(st, loadResult);
 
             UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
             RebuildStationBarThrottled();
 
-            if (i == 0)
-            {
-                bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
-                await SwitchToStation(st);
-                if (overlayWasVisible)
-                    ShowLoadingOverlay(
-                        "Loading " + (i + 2) + " / " + stations.Count + "...", "",
-                        5 + ((i + 1) * 88 / stations.Count), typeCount: stations.Count);
-            }
-            else
-            {
-                RebuildStationBar();
-            }
+            await SwitchToFirstStationOrRebuild(stations, i, loadResult);
 
             return totalFiles;
+        }
+
+        private async Task<bool> CheckRamAndProceed(List<StationInfo> stations, int i)
+        {
+            if (i == 0 || CheckRamBeforeLoading(100000))
+                return true;
+
+            bool proceed = ShowRamWarningDialog();
+            if (!proceed)
+            {
+                for (int j = i; j < stations.Count; j++)
+                    _lazyLoadStations.Add(stations[j]);
+            }
+
+            return proceed;
+        }
+
+        private async Task<DataLoadResult> LoadStationFiles(List<StationInfo> stations, int i)
+        {
+            StationInfo st = stations[i];
+            int liveFileCount = 0;
+
+            return await Task.Run(() => _dataLoader.Load(st.FolderPath, (status, percent, extra) =>
+            {
+                if (status.StartsWith("Reading "))
+                    System.Threading.Interlocked.Increment(ref liveFileCount);
+
+                int fc = liveFileCount;
+                int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
+                long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+
+                if (nowMs - _lastBeginInvokeMs < 150) return;
+                _lastBeginInvokeMs = nowMs;
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    string detail = BuildLoadingDetail(status, fc, extra);
+                    ShowLoadingOverlay(
+                        "Station " + (i + 1) + " / " + stations.Count,
+                        st.StationName, innerPct,
+                        detail: detail, fileCount: fc, typeCount: stations.Count);
+                }));
+            }));
+        }
+
+        private string BuildLoadingDetail(string status, int fileCount, string extra)
+        {
+            if (status.StartsWith("Reading "))
+            {
+                string fileName = status.Substring(8).TrimEnd('.', ' ');
+                string detail = "File " + fileCount + (fileName.Length > 0 ? "  —  " + fileName : "");
+                if (!string.IsNullOrEmpty(extra)) detail += Environment.NewLine + extra;
+                return detail;
+            }
+
+            if (status.StartsWith("Scanning"))
+                return "Scanning for log files...";
+
+            return status;
+        }
+
+        private string ResolveDisplayName(string fromResult, string fallback)
+        {
+            return !string.IsNullOrEmpty(fromResult) ? fromResult : fallback;
+        }
+
+        private int StoreLoadResult(StationInfo st, int logIndex, DataLoadResult result, string displayName,
+            int totalFiles)
+        {
+            _stationDataCache[st.FolderPath] = (result.Records, displayName);
+
+            if (logIndex < _stationLogEntries.Count)
+                UpdateStationLogEntry(logIndex, displayName, result.Records.Count);
+
+            return totalFiles;
+        }
+
+        private void UpdateStationLogEntry(int index, string displayName, int recordCount)
+        {
+            bool hasRecords = recordCount > 0;
+            _stationLogEntries[index].StatusIcon = hasRecords ? "✓" : "✕";
+            _stationLogEntries[index].IconColor = hasRecords ? "#3FB950" : "#C03030";
+            _stationLogEntries[index].Line1Color = hasRecords ? "#C9D1D9" : "#C03030";
+            _stationLogEntries[index].Line1 = displayName + (hasRecords
+                ? "  —  " + recordCount.ToString("N0") + " records"
+                : "  —  no records");
+        }
+
+        private async Task BuildAndCacheCharts(
+            StationInfo st, DataLoadResult result, string displayName,
+            List<StationInfo> stations, int i, int totalFiles)
+        {
+            ShowLoadingOverlay(
+                "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
+                st.StationName,
+                5 + ((i * 88 + 44) / stations.Count),
+                detail: "Building charts for " + result.Records.Count.ToString("N0") + " records...",
+                fileCount: totalFiles, recordCount: result.Records.Count, typeCount: stations.Count);
+
+            await Task.Yield();
+
+            var charts = await BuildChartsForRecords(result.Records, displayName);
+            _stationChartCache[st.FolderPath] = charts;
+        }
+
+        private void HandleEmptyStation(StationInfo st, DataLoadResult result)
+        {
+            if (result.Records.Count > 0) return;
+            _loadedStations.Remove(st);
+        }
+
+        private async Task SwitchToFirstStationOrRebuild(List<StationInfo> stations, int i, DataLoadResult result)
+        {
+            if (i != 0)
+            {
+                RebuildStationBar();
+                return;
+            }
+
+            bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
+            await SwitchToStation(stations[0]);
+
+            if (overlayWasVisible)
+                ShowLoadingOverlay(
+                    "Loading " + (i + 2) + " / " + stations.Count + "...", "",
+                    5 + ((i + 1) * 88 / stations.Count),
+                    typeCount: stations.Count);
         }
 
         private void StartBackgroundLoading()
@@ -551,9 +698,9 @@ namespace MESInsight
 
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        lazySt.StationName                     = displayName;
-                        _stationDataCache[lazySt.FolderPath]   = (result.Records, displayName);
-                        _stationChartCache[lazySt.FolderPath]  = charts;
+                        lazySt.StationName = displayName;
+                        _stationDataCache[lazySt.FolderPath] = (result.Records, displayName);
+                        _stationChartCache[lazySt.FolderPath] = charts;
 
                         if (!_loadedStations.Any(s => s.FolderPath == lazySt.FolderPath))
                             _loadedStations.Add(lazySt);
@@ -586,7 +733,7 @@ namespace MESInsight
                 ? result.StationName
                 : station.StationName;
 
-            station.StationName                   = displayName;
+            station.StationName = displayName;
             _stationDataCache[station.FolderPath] = (result.Records, displayName);
 
             Dictionary<(MessageType, ChartType), ChartData> charts =
@@ -1081,6 +1228,10 @@ namespace MESInsight
         private async Task SwitchToStation(StationInfo station)
         {
             _activeStation = station;
+
+            _stationReadyGlow.Remove(station.FolderPath);
+            StationChevron.StopGlow(station.FolderPath);
+
             if (!_isBackgroundLoading)
                 _isOverlayMinimized = false;
 
@@ -1123,19 +1274,20 @@ namespace MESInsight
 
             _trendChartRenderer = _chartFactory.GetRenderer(ChartType.Trend) as TrendChartRenderer;
 
-            // Restore pre-built charts from station cache if available
             _chartCache.Clear();
 
             if (_stationChartCache.TryGetValue(station.FolderPath, out var prebuiltCharts))
-            {
                 foreach (var kv in prebuiltCharts)
                     _chartCache[kv.Key] = kv.Value;
-            }
 
             SetDatePickersToFullDataRange();
 
-            await RefreshChartsAndStatsWithLoadingOverlay();
+            DateTime? beforeFilter = DatePickerFrom.SelectedDate;
+            ApplyAdaptiveDateFilter();
+            if (DatePickerFrom.SelectedDate != beforeFilter)
+                _chartCache.Clear();
 
+            await RefreshChartsAndStatsWithLoadingOverlay();
             SwitchToTabWithMostRecordsIfNeeded();
         }
 
@@ -1409,7 +1561,7 @@ namespace MESInsight
                     _recordsGroupedByDay[key].Add(r);
                 }
             });
-            
+
             _statsCalculator.InvalidateCache();
         }
 
@@ -1731,313 +1883,148 @@ namespace MESInsight
         private void RebuildStationBar()
         {
             if (StationBarPanel == null) return;
-
             StationBarPanel.Children.Clear();
-            
-            if (StationDropdownHost != null)
+            RebuildStationDropdown();
+            RebuildScrollButtons();
+            RebuildStationChevrons();
+            RebuildLazyChevrons();
+            RestartGlowOnAllReadyChevrons();
+        }
+
+        private void RestartGlowOnAllReadyChevrons()
+        {
+            foreach (string folderPath in _stationReadyGlow.ToList())
+                StartGlowOnReadyChevron(folderPath);
+        }
+
+        private void RebuildStationDropdown()
+        {
+            if (StationDropdownHost == null) return;
+
+            var contextMenu = new ContextMenu { Background = new SolidColorBrush(Color.FromRgb(13, 30, 18)) };
+
+            AddDropdownSection(contextMenu, "LOADED", _loadedStations.Where(s =>
+                    _stationDataCache.ContainsKey(s.FolderPath) &&
+                    _stationDataCache[s.FolderPath].records != null &&
+                    _stationDataCache[s.FolderPath].records.Count > 0).ToList(),
+                Color.FromRgb(46, 160, 67), Color.FromRgb(160, 240, 180));
+
+            AddDropdownSection(contextMenu, "LAZY LOAD", _lazyLoadStations,
+                Color.FromRgb(30, 95, 52), Color.FromRgb(100, 180, 120));
+
+            AddDropdownSection(contextMenu, "NO RECORDS", _loadedStations.Where(s =>
+                    !_stationDataCache.ContainsKey(s.FolderPath) ||
+                    _stationDataCache[s.FolderPath].records == null ||
+                    _stationDataCache[s.FolderPath].records.Count == 0).ToList(),
+                Color.FromRgb(100, 30, 30), Color.FromRgb(200, 100, 100));
+
+            var dropdown = new Button
             {
-                var dropdown = new Button
+                Content = "▾  Stations",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 190, 130)),
+                Background = new SolidColorBrush(Color.FromRgb(8, 32, 18)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(22, 80, 44)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 0, 12, 0),
+                Height = 44,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new Thickness(0, 0, 2, 0)
+            };
+
+            dropdown.Click += (s, e) =>
+            {
+                contextMenu.PlacementTarget = dropdown;
+                contextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+                contextMenu.IsOpen = true;
+            };
+            StationDropdownHost.Content = dropdown;
+        }
+
+        private void AddDropdownSection(ContextMenu menu, string header, List<StationInfo> stations, Color headerColor,
+            Color itemColor)
+        {
+            if (stations.Count == 0) return;
+
+            menu.Items.Add(new MenuItem
+            {
+                Header = "── " + header + " ──",
+                FontSize = 9,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(headerColor),
+                Background = new SolidColorBrush(Color.FromRgb(8, 20, 12)),
+                IsEnabled = false
+            });
+
+            foreach (var st in stations)
+            {
+                var captured = st;
+                var item = new MenuItem
                 {
-                    Content = "▾  Stations",
+                    Header = st.StationName + (!string.IsNullOrEmpty(st.LineName) ? "  ·  " + st.LineName : ""),
                     FontSize = 11,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(100, 190, 130)),
-                    Background = new SolidColorBrush(Color.FromRgb(8, 32, 18)),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(22, 80, 44)),
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(12, 0, 12, 0),
-                    Height = 44,
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                    Margin = new Thickness(0, 0, 2, 0)
+                    Foreground = new SolidColorBrush(itemColor),
+                    Background = new SolidColorBrush(Color.FromRgb(13, 30, 18))
                 };
-
-                var contextMenu = new ContextMenu { Background = new SolidColorBrush(Color.FromRgb(13, 30, 18)) };
-
-                foreach (var st in _loadedStations)
-                {
-                    var captured = st;
-                    var item = new MenuItem
-                    {
-                        Header = st.StationName + (!string.IsNullOrEmpty(st.LineName) ? "  ·  " + st.LineName : ""),
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromRgb(180, 230, 195)),
-                        Background = new SolidColorBrush(Color.FromRgb(13, 30, 18))
-                    };
-                    item.Click += async (s, e) => await SwitchToStation(captured);
-                    contextMenu.Items.Add(item);
-                }
-
-                dropdown.Click += (s, e) =>
-                {
-                    contextMenu.PlacementTarget = dropdown;
-                    contextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-                    contextMenu.IsOpen = true;
-                };
-
-                StationDropdownHost.Content = dropdown;
+                item.Click += async (s, e) => await EnqueueLazyLoad(captured);
+                menu.Items.Add(item);
             }
+        }
 
+        private void RebuildScrollButtons()
+        {
             if (BtnScrollLeftHost != null)
-            {
                 BtnScrollLeftHost.Content = BuildScrollButton("◀", () =>
                 {
                     double viewW = StationBarScrollViewer?.ActualWidth ?? 400;
                     double target = Math.Max(0, (StationBarScrollViewer?.HorizontalOffset ?? 0) - viewW * 0.75);
                     SmoothScrollTo(target);
                 });
-            }
-            
+
             if (BtnScrollRightHost != null)
-            {
                 BtnScrollRightHost.Content = BuildScrollButton("▶", () =>
                 {
                     double viewW = StationBarScrollViewer?.ActualWidth ?? 400;
                     double target = (StationBarScrollViewer?.HorizontalOffset ?? 0) + viewW * 0.75;
                     SmoothScrollTo(target);
                 });
-            }
+        }
 
-            List<StationInfo> withRecords = _loadedStations.Where(s =>
+        private void RebuildStationChevrons()
+        {
+            var withRecords = _loadedStations.Where(s =>
                 _stationDataCache.ContainsKey(s.FolderPath) &&
                 _stationDataCache[s.FolderPath].records != null &&
                 _stationDataCache[s.FolderPath].records.Count > 0).ToList();
 
-            List<StationInfo> withoutRecords = _loadedStations.Where(s =>
+            var withoutRecords = _loadedStations.Where(s =>
                 !_stationDataCache.ContainsKey(s.FolderPath) ||
                 _stationDataCache[s.FolderPath].records == null ||
                 _stationDataCache[s.FolderPath].records.Count == 0).ToList();
 
-            List<StationInfo> ordered = withRecords.Concat(withoutRecords).ToList();
-
-            for (int i = 0; i < ordered.Count; i++)
+            for (int i = 0; i < withRecords.Count; i++)
             {
-                Canvas chevron = BuildChevron(ordered[i], i == 0);
-                if (withoutRecords.Contains(ordered[i]))
-                    chevron.Opacity = 0.35;
+                Canvas chevron = BuildChevron(withRecords[i], i == 0, isEmpty: false);
                 StationBarPanel.Children.Add(chevron);
             }
-            
-            foreach (StationInfo lazySt in _lazyLoadStations)
+
+            foreach (var st in withoutRecords)
+            {
+                Canvas chevron = BuildChevron(st, isFirst: false, isEmpty: true);
+                StationBarPanel.Children.Add(chevron);
+            }
+        }
+
+        private void RebuildLazyChevrons()
+        {
+            foreach (var lazySt in _lazyLoadStations)
             {
                 bool isLoadingNow = _stationLoadingState.ContainsKey(lazySt.FolderPath)
                                     && _stationLoadingState[lazySt.FolderPath];
                 Canvas lazyChevron = BuildLazyStationChevron(lazySt, isLoadingNow);
                 StationBarPanel.Children.Add(lazyChevron);
             }
-        }
-
-        private Canvas BuildLazyStationChevron(StationInfo station, bool isLoadingNow)
-        {
-            const double h = 44;
-            const double tip = 12;
-            bool isReady = _stationReadyGlow.Contains(station.FolderPath);
-            double canvasW = MeasureLazyChevronWidth(station.StationName, tip);
-
-            Canvas canvas = BuildLazyChevronCanvas(canvasW, h, station.FolderPath);
-            System.Windows.Shapes.Polygon poly = BuildLazyChevronPolygon(canvasW, h, tip, isLoadingNow, isReady);
-            canvas.Children.Add(poly);
-
-            TextBlock nameBlock = BuildLazyChevronNameBlock(station.StationName, isLoadingNow, isReady);
-            Canvas.SetLeft(nameBlock, 22);
-            Canvas.SetTop(nameBlock, (h - 14) / 2.0);
-            canvas.Children.Add(nameBlock);
-
-            if (isLoadingNow)
-                StartShimmerAnimation(canvas, nameBlock, canvasW, h, station.FolderPath);
-            else if (isReady)
-                StartGlowAnimation(poly, nameBlock, station.FolderPath);
-
-            WireLazyChevronEvents(canvas, poly, nameBlock, station, isLoadingNow, isReady);
-            return canvas;
-        }
-
-        private double MeasureLazyChevronWidth(string stationName, double tip)
-        {
-            TextBlock measure = new TextBlock { Text = stationName + "  ⧖⧖", FontSize = 11 };
-            measure.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            return measure.DesiredSize.Width + 22 + tip + 14;
-        }
-
-        private Canvas BuildLazyChevronCanvas(double canvasW, double h, string folderPath)
-        {
-            return new Canvas
-            {
-                Width = canvasW,
-                Height = h,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Margin = new Thickness(-1, 0, 0, 0),
-                Tag = folderPath
-            };
-        }
-
-        private System.Windows.Shapes.Polygon BuildLazyChevronPolygon(
-            double canvasW, double h, double tip, bool isLoadingNow, bool isReady)
-        {
-            Color fill = isLoadingNow ? Color.FromRgb(16, 70, 36)
-                : isReady ? Color.FromRgb(18, 90, 42)
-                : Color.FromRgb(12, 52, 26);
-            Color stroke = isLoadingNow ? Color.FromRgb(50, 170, 90)
-                : isReady ? Color.FromRgb(80, 220, 120)
-                : Color.FromRgb(30, 95, 52);
-
-            System.Windows.Shapes.Polygon poly = new System.Windows.Shapes.Polygon
-            {
-                Fill = new SolidColorBrush(fill),
-                Stroke = new SolidColorBrush(stroke),
-                StrokeThickness = isReady ? 1.5 : 1.0
-            };
-            poly.Points.Add(new Point(0, 0));
-            poly.Points.Add(new Point(canvasW - tip, 0));
-            poly.Points.Add(new Point(canvasW, h / 2));
-            poly.Points.Add(new Point(canvasW - tip, h));
-            poly.Points.Add(new Point(0, h));
-            poly.Points.Add(new Point(tip, h / 2));
-            return poly;
-        }
-        
-        private TextBlock BuildLazyChevronNameBlock(string stationName, bool isLoadingNow, bool isReady)
-        {
-            Color color = isLoadingNow ? Color.FromRgb(110, 200, 140)
-                : isReady ? Color.FromRgb(160, 255, 190)
-                : Color.FromRgb(80, 145, 105);
-            string icon = isLoadingNow ? "  ⧖" : isReady ? "  ✓" : "  ⧖";
-
-            return new TextBlock
-            {
-                Text = stationName + icon,
-                FontSize = 11,
-                Foreground = new SolidColorBrush(color)
-            };
-        }
-
-        private void StartShimmerAnimation(
-            Canvas canvas, TextBlock nameBlock, double canvasW, double h, string folderPath)
-        {
-            System.Windows.Shapes.Rectangle shimmer = BuildShimmerRect(canvasW, h);
-            canvas.Children.Add(shimmer);
-
-            string[] frames = { "⧖", "⧗" };
-            int frame = 0;
-            double shimmerX = -canvasW * 0.35;
-            double speed = canvasW * 1.6 / 30.0;
-            int tick = 0;
-            string stationName = nameBlock.Text.Split(' ')[0];
-
-            System.Windows.Threading.DispatcherTimer timer =
-                new System.Windows.Threading.DispatcherTimer
-                    { Interval = TimeSpan.FromMilliseconds(30) };
-
-            timer.Tick += (s, e) =>
-            {
-                if (!_stationLoadingState.ContainsKey(folderPath) ||
-                    !_stationLoadingState[folderPath])
-                {
-                    timer.Stop();
-                    return;
-                }
-
-                shimmerX += speed;
-                if (shimmerX > canvasW) shimmerX = -canvasW * 0.35;
-                Canvas.SetLeft(shimmer, shimmerX);
-                shimmer.Opacity = 1.0;
-                tick++;
-                if (tick % 10 == 0)
-                {
-                    frame = (frame + 1) % frames.Length;
-                    nameBlock.Text = stationName + "  " + frames[frame];
-                }
-            };
-            timer.Start();
-            canvas.Unloaded += (s, e) => timer.Stop();
-        }
-
-        private System.Windows.Shapes.Rectangle BuildShimmerRect(double canvasW, double h)
-        {
-            System.Windows.Media.LinearGradientBrush brush =
-                new System.Windows.Media.LinearGradientBrush
-                {
-                    StartPoint = new System.Windows.Point(0, 0.5),
-                    EndPoint = new System.Windows.Point(1, 0.5)
-                };
-            brush.GradientStops.Add(new System.Windows.Media.GradientStop(
-                Color.FromArgb(0, 80, 220, 120), 0.0));
-            brush.GradientStops.Add(new System.Windows.Media.GradientStop(
-                Color.FromArgb(120, 140, 255, 170), 0.5));
-            brush.GradientStops.Add(new System.Windows.Media.GradientStop(
-                Color.FromArgb(0, 80, 220, 120), 1.0));
-
-            System.Windows.Shapes.Rectangle rect = new System.Windows.Shapes.Rectangle
-            {
-                Width = canvasW * 0.35,
-                Height = h,
-                Fill = brush,
-                Opacity = 0,
-                IsHitTestVisible = false
-            };
-            Canvas.SetTop(rect, 0);
-            Canvas.SetLeft(rect, -canvasW * 0.35);
-            return rect;
-        }
-
-        private void StartGlowAnimation(
-            System.Windows.Shapes.Polygon poly, TextBlock nameBlock, string folderPath)
-        {
-            double phase = 0;
-
-            System.Windows.Threading.DispatcherTimer timer =
-                new System.Windows.Threading.DispatcherTimer
-                    { Interval = TimeSpan.FromMilliseconds(60) };
-
-            timer.Tick += (s, e) =>
-            {
-                if (!_stationReadyGlow.Contains(folderPath))
-                {
-                    timer.Stop();
-                    return;
-                }
-
-                phase += 0.08;
-                double sin = (Math.Sin(phase) + 1.0) / 2.0;
-                byte r = (byte)(40 + sin * 60);
-                byte g = (byte)(160 + sin * 80);
-                byte b = (byte)(60 + sin * 40);
-                poly.Stroke = new SolidColorBrush(Color.FromRgb(r, g, b));
-                poly.StrokeThickness = 1.5 + sin * 1.5;
-                byte nr = (byte)(130 + sin * 80);
-                byte ng = (byte)(220 + sin * 35);
-                byte nb = (byte)(150 + sin * 60);
-                nameBlock.Foreground = new SolidColorBrush(Color.FromRgb(nr, ng, nb));
-            };
-            timer.Start();
-        }
-
-        private void WireLazyChevronEvents(Canvas canvas, System.Windows.Shapes.Polygon poly, TextBlock nameBlock,
-            StationInfo station, bool isLoadingNow, bool isReady)
-        {
-            Color fill = isReady ? Color.FromRgb(18, 90, 42) : Color.FromRgb(12, 52, 26);
-            Color hoverFill = isReady ? Color.FromRgb(28, 120, 60) : Color.FromRgb(20, 80, 42);
-
-            canvas.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverFill);
-            canvas.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fill);
-            poly.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverFill);
-            poly.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fill);
-
-            StationInfo captured = station;
-            canvas.MouseLeftButtonUp += async (s, e) =>
-            {
-                if (isLoadingNow) return;
-
-                if (_stationReadyGlow.Contains(captured.FolderPath))
-                {
-                    _stationReadyGlow.Remove(captured.FolderPath);
-                    RebuildStationBar();
-                    await SwitchToStation(captured);
-                }
-                else
-                {
-                    await LoadLazyStationOnDemand(captured);
-                }
-            };
         }
 
         private Button BuildScrollButton(string label, Action onClick)
@@ -2062,154 +2049,187 @@ namespace MESInsight
             return btn;
         }
 
-        private Canvas BuildChevron(StationInfo station, bool isFirst)
+
+        private Canvas BuildChevron(StationInfo station, bool isFirst, bool isEmpty = false)
         {
-            string stationDisplayName = _stationDataCache.ContainsKey(station.FolderPath)
-                ? _stationDataCache[station.FolderPath].stationName
-                : station.StationName;
-            bool isActive = _activeStation?.FolderPath == station.FolderPath;
-
-            const double h = 44;
-            const double tip = 12;
-            
-            var fillColor = isActive ? Color.FromRgb(140, 80, 10) : Color.FromRgb(22, 110, 55);
-            var hoverColor = isActive ? Color.FromRgb(170, 100, 15) : Color.FromRgb(30, 140, 70);
-            var strokeColor = isActive ? Color.FromRgb(220, 140, 40) : Color.FromRgb(56, 190, 100);
-            var nameColor = isActive ? Color.FromRgb(255, 220, 160) : Color.FromRgb(210, 245, 220);
-            var subColor = isActive ? Color.FromRgb(220, 170, 100) : Color.FromRgb(130, 210, 155);
-            
-            string subText = string.Join("  ·  ", new[] { station.LineName, station.ComputerName }
-                .Where(x => !string.IsNullOrEmpty(x)));
-
-            bool hasSub = !string.IsNullOrEmpty(subText);
-
-
-            var measureBlock = new TextBlock
+            return StationChevron.Build(station, isFirst, isEmpty, new ChevronCallbacks
             {
-                Text = stationDisplayName, FontSize = 11,
-                FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal
-            };
-            measureBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double nameW = measureBlock.DesiredSize.Width;
+                OnClick = st => OnChevronClick(st),
+                OnClose = fp => OnChevronClose(fp),
+                IsActive = fp => _activeStation?.FolderPath == fp,
+                IsLoading = fp => _stationLoadingState.ContainsKey(fp) && _stationLoadingState[fp],
+                GetCacheName = fp => _stationDataCache.ContainsKey(fp) ? _stationDataCache[fp].stationName : null
+            });
+        }
 
-            if (hasSub)
+        private async Task OnChevronClick(StationInfo station)
+        {
+            bool hasRecords = _stationDataCache.ContainsKey(station.FolderPath)
+                              && _stationDataCache[station.FolderPath].records != null
+                              && _stationDataCache[station.FolderPath].records.Count > 0;
+
+            if (!hasRecords)
             {
-                var subMeasure = new TextBlock { Text = subText, FontSize = 9 };
-                subMeasure.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                nameW = Math.Max(nameW, subMeasure.DesiredSize.Width);
+                await EnqueueLazyLoad(station);
+                return;
             }
 
-            double leftPad = isFirst ? 14 : 22;
-            double canvasW = nameW + leftPad + tip + 14;
+            await SwitchToStation(station);
+        }
 
-            var canvas = new Canvas
-            {
-                Width = canvasW,
-                Height = h,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Margin = new Thickness(isFirst ? 0 : -1, 0, 0, 0),
-                Tag = station.FolderPath
-            };
+        private void OnChevronClose(string folderPath)
+        {
+            string name = ResolveStationName(folderPath);
 
-            var poly = new System.Windows.Shapes.Polygon
-            {
-                Fill = new SolidColorBrush(fillColor),
-                Stroke = new SolidColorBrush(strokeColor),
-                StrokeThickness = 1
-            };
+            DropRecordsFromCache(folderPath);
+            _stationChartCache.Remove(folderPath);
+            _stationReadyGlow.Remove(folderPath);
+            _statsCalculator.InvalidateCache();
 
-            if (isFirst)
+            var station = _loadedStations.FirstOrDefault(s => s.FolderPath == folderPath);
+            if (station != null)
             {
-                poly.Points.Add(new Point(0, 0));
-                poly.Points.Add(new Point(canvasW - tip, 0));
-                poly.Points.Add(new Point(canvasW, h / 2));
-                poly.Points.Add(new Point(canvasW - tip, h));
-                poly.Points.Add(new Point(0, h));
+                _loadedStations.Remove(station);
+                if (!_lazyLoadStations.Any(s => s.FolderPath == folderPath))
+                    _lazyLoadStations.Add(station);
             }
+
+            SwitchAwayFromClosedStation(folderPath);
+
+            GC.Collect(2, GCCollectionMode.Forced, blocking: false, compacting: true);
+            RebuildStationBar();
+            ToastNotification.Show(_toastCanvas, ToastKind.StationUnloaded, name);
+        }
+
+        private string ResolveStationName(string folderPath)
+        {
+            if (_stationDataCache.ContainsKey(folderPath))
+                return _stationDataCache[folderPath].stationName;
+
+            return _loadedStations
+                .FirstOrDefault(s => s.FolderPath == folderPath)?.StationName ?? folderPath;
+        }
+
+        private void SwitchAwayFromClosedStation(string folderPath)
+        {
+            if (_activeStation?.FolderPath != folderPath) return;
+
+            var next = _loadedStations.FirstOrDefault(s =>
+                s.FolderPath != folderPath &&
+                _stationDataCache.ContainsKey(s.FolderPath) &&
+                _stationDataCache[s.FolderPath].records != null);
+
+            if (next != null)
+                _ = SwitchToStation(next);
             else
             {
-                poly.Points.Add(new Point(0, 0));
-                poly.Points.Add(new Point(canvasW - tip, 0));
-                poly.Points.Add(new Point(canvasW, h / 2));
-                poly.Points.Add(new Point(canvasW - tip, h));
-                poly.Points.Add(new Point(0, h));
-                poly.Points.Add(new Point(tip, h / 2));
+                _activeStation = null;
+                TxtStationName.Text = "";
+            }
+        }
+
+        private Canvas BuildLazyStationChevron(StationInfo station, bool isLoadingNow)
+        {
+            return StationChevron.BuildLazy(station, new LazyChevronCallbacks
+            {
+                OnClick = async st => await EnqueueLazyLoad(st),
+                IsReady = fp => _stationReadyGlow.Contains(fp),
+                IsLoading = fp => _stationLoadingState.ContainsKey(fp) && _stationLoadingState[fp]
+            });
+        }
+
+        private readonly System.Collections.Generic.Queue<StationInfo> _lazyLoadQueue =
+            new System.Collections.Generic.Queue<StationInfo>();
+
+        private bool _lazyLoadQueueRunning = false;
+
+
+        private async Task EnqueueLazyLoad(StationInfo station)
+        {
+            if (_stationReadyGlow.Contains(station.FolderPath))
+            {
+                _stationReadyGlow.Remove(station.FolderPath);
+                StationChevron.StopGlow(station.FolderPath);
+                RebuildStationBar();
+                await SwitchToStation(station);
+                return;
             }
 
-            canvas.Children.Add(poly);
+            if (_stationLoadingState.ContainsKey(station.FolderPath)
+                && _stationLoadingState[station.FolderPath])
+                return;
 
-            double topPad = hasSub ? (h - 24) / 2.0 : (h - 14) / 2.0;
+            if (_lazyLoadQueue.Contains(station))
+                return;
 
-            bool isCurrentlyLoading = _stationLoadingState.ContainsKey(station.FolderPath) &&
-                                      _stationLoadingState[station.FolderPath];
+            _lazyLoadQueue.Enqueue(station);
+            RebuildStationBar();
 
-            var nameBlock = new TextBlock
+            if (!_lazyLoadQueueRunning)
+                await DrainLazyLoadQueue();
+        }
+
+        private async Task DrainLazyLoadQueue()
+        {
+            _lazyLoadQueueRunning = true;
+
+            while (_lazyLoadQueue.Count > 0)
             {
-                Text = stationDisplayName,
-                FontSize = 11,
-                FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = new SolidColorBrush(isCurrentlyLoading
-                    ? Color.FromRgb(180, 140, 60)
-                    : nameColor)
-            };
-            Canvas.SetLeft(nameBlock, leftPad);
-            Canvas.SetTop(nameBlock, topPad);
-            canvas.Children.Add(nameBlock);
+                StationInfo station = _lazyLoadQueue.Dequeue();
 
-            if (isCurrentlyLoading)
-            {
-                var loadingTimer = new System.Windows.Threading.DispatcherTimer
+                _stationLoadingState[station.FolderPath] = true;
+                RebuildStationBar();
+
+                DataLoader loader = new DataLoader { DateFilter = _dataLoader.DateFilter };
+                DataLoadResult result = await Task.Run(() => loader.Load(station.FolderPath, null));
+
+                string displayName = !string.IsNullOrEmpty(result.StationName)
+                    ? result.StationName
+                    : station.StationName;
+
+                station.StationName = displayName;
+                _stationDataCache[station.FolderPath] = (result.Records, displayName);
+
+                Dictionary<(MessageType, ChartType), ChartData> charts =
+                    await BuildChartsForRecords(result.Records, displayName);
+                _stationChartCache[station.FolderPath] = charts;
+
+                if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
+                    _loadedStations.Add(station);
+
+                _lazyLoadStations.Remove(station);
+                _stationLoadingState[station.FolderPath] = false;
+
+                if (result.Records.Count == 0)
                 {
-                    Interval = TimeSpan.FromMilliseconds(150)
-                };
-                string[] frames = { "  ↻", "  ↺" };
-                int frame = 0;
-                loadingTimer.Tick += (s, e) =>
+                    if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
+                        _loadedStations.Add(station);
+                }
+                else
                 {
-                    frame = (frame + 1) % frames.Length;
-                    nameBlock.Text = stationDisplayName + frames[frame];
-                    if (!_stationLoadingState.ContainsKey(station.FolderPath) ||
-                        !_stationLoadingState[station.FolderPath])
-                    {
-                        nameBlock.Text = stationDisplayName;
-                        nameBlock.Foreground = new SolidColorBrush(nameColor);
-                        loadingTimer.Stop();
-                    }
-                };
-                loadingTimer.Start();
-            }
+                    if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
+                        _loadedStations.Add(station);
+                    _stationReadyGlow.Add(station.FolderPath);
+                }
 
-            if (hasSub)
-            {
-                var subBlock = new TextBlock
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    Text = subText,
-                    FontSize = 9,
-                    Foreground = new SolidColorBrush(subColor)
-                };
-                Canvas.SetLeft(subBlock, leftPad);
-                Canvas.SetTop(subBlock, topPad + 15);
-                canvas.Children.Add(subBlock);
+                    RebuildStationBar();
+                    ToastNotification.Show(_toastCanvas, ToastKind.StationLoaded, displayName);
+                });
             }
 
-            poly.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverColor);
-            poly.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fillColor);
-            canvas.MouseEnter += (s, e) => poly.Fill = new SolidColorBrush(hoverColor);
-            canvas.MouseLeave += (s, e) => poly.Fill = new SolidColorBrush(fillColor);
+            _lazyLoadQueueRunning = false;
+        }
 
-            var captured = station;
-
-            async void ClickHandler(object s, System.Windows.Input.MouseButtonEventArgs e)
+        private void StartGlowOnReadyChevron(string folderPath)
+        {
+            foreach (UIElement child in StationBarPanel.Children)
             {
-                if (_activeStation?.FolderPath == captured.FolderPath) return;
-                await SwitchToStation(captured);
+                if (!(child is Canvas canvas) || canvas.Tag?.ToString() != folderPath) continue;
+                StationChevron.StartGlowOnReadyChevron(canvas, folderPath, fp => _stationReadyGlow.Contains(fp));
+                return;
             }
-
-            canvas.MouseLeftButtonUp += ClickHandler;
-            poly.MouseLeftButtonUp += ClickHandler;
-            nameBlock.MouseLeftButtonUp += ClickHandler;
-
-            return canvas;
         }
 
         private void UpdateActiveStationButton()
@@ -2303,11 +2323,11 @@ namespace MESInsight
 
             long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             bool isThrottled = (nowMs - _lastOverlayUpdateMs) < 200;
-            
+
             LoadingTitle.Text = title;
             LoadingProgress.Value = progress;
             LoadingPercentage.Text = progress + "%";
-            
+
             if (!isThrottled)
             {
                 _lastOverlayUpdateMs = nowMs;

@@ -5,7 +5,6 @@ using LiveCharts;
 
 namespace MESInsight.Core
 {
-    
     public class ResponseRecord
     {
         public string Timestamp { get; set; }
@@ -42,6 +41,7 @@ namespace MESInsight.Core
         public ChartSeries TrendChart { get; set; }
         public List<TimelineEvent> TimelineEvents { get; set; }
         public List<ResponseRecord> FilteredRecords { get; set; }
+        public int MaxResponseTime { get; set; }
     }
 
     public class ChartBucket
@@ -51,10 +51,10 @@ namespace MESInsight.Core
         public double Count { get; set; }
         public double DisplayCount { get; set; }
         public bool IsScaled { get; set; }
-        public string Label    { get; set; }
+        public string Label { get; set; }
         public string BarLabel { get; set; }
         public int RangeStart { get; set; }
-        public int RangeEnd   { get; set; }
+        public int RangeEnd { get; set; }
         public SolidColorBrush BarColor { get; set; }
     }
 
@@ -71,17 +71,23 @@ namespace MESInsight.Core
 
     public class TimelineEvent
     {
-        public DateTime          Start          { get; set; }
-        public DateTime?         End            { get; set; }
-        public TimelineEventType EventType      { get; set; }
-        public string            Label          { get; set; }
-        public string            Uid            { get; set; }
-        public string            Detail         { get; set; }
-        public string            ErrorCode      { get; set; }
-        public int               ResponseTimeMs { get; set; }
+        public DateTime Start { get; set; }
+        public DateTime? End { get; set; }
+        public TimelineEventType EventType { get; set; }
+
+        public MessageType MessageKind { get; set; }
+        public ResponseRecord SourceRecord { get; set; }
+        public string Label { get; set; }
+        public string Uid { get; set; }
+        public string Detail { get; set; }
+        public string ErrorCode { get; set; }
+        public int ResponseTimeMs { get; set; }
+        public List<ResponseRecord> GroupedRecords { get; set; }
+        public bool IsGroup => GroupedRecords != null && GroupedRecords.Count > 1;
+        public int GroupWidth => IsGroup ? GroupedRecords.Count : 1;
     }
 
-        public enum ChartType
+    public enum ChartType
     {
         Trend,
         Histogram,

@@ -126,13 +126,18 @@ namespace MESInsight.Charts.Renderers
             if (timelineData?.TimelineEvents == null) return;
 
             var renderer = new TimelineChartRenderer();
-            panel.Children.Add(renderer.Render(timelineData, new RenderContext { MessageType = messageType }));
+            
+            var element = renderer.Render(timelineData, new RenderContext { MessageType = messageType });
+            if (element != null)
+                panel.Children.Add(element);
         }
 
         public void InitializeTimelineWithFirstAvailableDay(MessageType messageType)
         {
             if (_recordsGroupedByDay.Count == 0) return;
+            
             if (!_timelineContainerByMessageType.ContainsKey(messageType)) return;
+            
             UpdateTimelineForDay(messageType, _recordsGroupedByDay.Keys.OrderBy(d => d).First());
         }
 
@@ -327,9 +332,14 @@ namespace MESInsight.Charts.Renderers
                 MessageType.ALL);
             if (timelineData?.TimelineEvents != null)
             {
-                var timelineElement = TimelineChartRenderer.BuildTimelineCanvas(timelineData.TimelineEvents, day, 0);
-                var timelineWrapper = new Border { Margin = new Thickness(12, 4, 12, 8), Child = timelineElement };
-                outerPanel.Children.Add(timelineWrapper);
+                var timelineRenderer = _chartFactory.GetRenderer(ChartType.Timeline) as TimelineChartRenderer;
+                var context = new RenderContext { MessageType = MessageType.ALL, AvailableHeightPixels = 200 };
+                var timelineElement = timelineRenderer?.Render(timelineData, context);
+                if (timelineElement != null)
+                {
+                    var timelineWrapper = new Border { Margin = new Thickness(12, 4, 12, 8), Child = timelineElement };
+                    outerPanel.Children.Add(timelineWrapper);
+                }
             }
 
             var recordsScroll = new ScrollViewer
@@ -1151,7 +1161,7 @@ namespace MESInsight.Charts.Renderers
 
             double range = xAxis.MaxValue - xAxis.MinValue;
             double shift = range * Math.Abs(fraction) * Math.Sign(fraction);
-            
+
             xAxis.MinValue += shift;
             xAxis.MaxValue += shift;
 

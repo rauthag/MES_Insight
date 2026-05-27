@@ -92,7 +92,9 @@
         <Compile Include="DialogWireContext.cs" />
         <Compile Include="LoadOptionsDialog.cs" />
         <Compile Include="StartupWindow.cs" />
+        <Compile Include="StationChevron.cs" />
         <Compile Include="StationLoadEntry.cs" />
+        <Compile Include="ToastNotification.cs" />
         <Compile Include="UI\DayRecordsPanelBuilder.cs"/>
         <Compile Include="WindowAnimations.cs" />
     </ItemGroup>

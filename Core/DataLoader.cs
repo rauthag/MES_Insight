@@ -22,9 +22,9 @@ namespace RTAnalyzer.Core
 
     public class StationInfo
     {
-        public string FolderPath   { get; set; }
-        public string StationName  { get; set; } = "";
-        public string LineName     { get; set; } = "";
+        public string FolderPath { get; set; }
+        public string StationName { get; set; } = "";
+        public string LineName { get; set; } = "";
         public string ComputerName { get; set; } = "";
         public StationCategory Category { get; set; } = StationCategory.GHP;
 
@@ -39,19 +39,19 @@ namespace RTAnalyzer.Core
 
     public class DataLoadResult
     {
-        public List<ResponseRecord> Records     { get; set; } = new List<ResponseRecord>();
-        public string               StationName { get; set; } = "";
-        public string               LineName    { get; set; } = "";
-        public string               ComputerName { get; set; } = "";
+        public List<ResponseRecord> Records { get; set; } = new List<ResponseRecord>();
+        public string StationName { get; set; } = "";
+        public string LineName { get; set; } = "";
+        public string ComputerName { get; set; } = "";
     }
 
     public class MonthFileInfo
     {
-        public int      FileCount { get; set; }
-        public long     SizeBytes { get; set; }
-        public long     SizeMb    => SizeBytes / 1024 / 1024;
-        public DateTime MinDate   { get; set; } = DateTime.MaxValue;
-        public DateTime MaxDate   { get; set; } = DateTime.MinValue;
+        public int FileCount { get; set; }
+        public long SizeBytes { get; set; }
+        public long SizeMb => SizeBytes / 1024 / 1024;
+        public DateTime MinDate { get; set; } = DateTime.MaxValue;
+        public DateTime MaxDate { get; set; } = DateTime.MinValue;
     }
 
 
@@ -61,24 +61,55 @@ namespace RTAnalyzer.Core
 
         #region Compiled Regex
 
-        private static readonly Regex RxYyyyMmDd   = new Regex(@"(\d{4})(\d{2})(\d{2})",                           RegexOptions.Compiled);
-        private static readonly Regex RxMmYyyy      = new Regex(@"^(\d{2})[_.](\d{4})",                             RegexOptions.Compiled);
-        private static readonly Regex RxZipMonthYear = new Regex(@"^(\d{2})\.(\d{4})\.zip$",                        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxTracerFile  = new Regex(@"^\d{8}_\d+_tracer",                               RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxMsgFile     = new Regex(@"^\d{8}_\d+_messages",                             RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxLineCode    = new Regex(@"^L\d{3}[^0-9]",                                   RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxLineCodeSmt = new Regex(@"^(?:SMT|THT|AOI|ICT|SMD|FCT|TRT|SPI)\d+",        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxComputerCode = new Regex(@"^[A-Z]{2,4}\d{3,}[A-Z0-9]*$",                   RegexOptions.Compiled);
-        private static readonly Regex RxMonCode     = new Regex(@"^MON\d+",                                         RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxLcsCode     = new Regex(@"^LCS\d+",                                         RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxMonFolder   = new Regex(@"(?:^|[_\s])MON\d+",                               RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxOvnFolder   = new Regex(@"(?:^|[_\s])OVN\d+",                               RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxOrFolder    = new Regex(@"^OR_[A-Z]{2,4}\d+",                               RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxRoutePrefix = new Regex(@"^(?:OR_|OP\d+_OR_)",                              RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxPlaceholder = new Regex(@"^[A-Z]+XXX",                                      RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxGenericLine = new Regex(@"^L\d{3}[A-Z0-9]*$",                               RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxLcsPath     = new Regex(@"[\\/]lcs",                                        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly Regex RxLcsName     = new Regex(@"(?:^|[ _-])LCS[0-9]+",                            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex RxYyyyMmDd = new Regex(@"(\d{4})(\d{2})(\d{2})", RegexOptions.Compiled);
+        private static readonly Regex RxMmYyyy = new Regex(@"^(\d{2})[_.](\d{4})", RegexOptions.Compiled);
+
+        private static readonly Regex RxZipMonthYear =
+            new Regex(@"^(\d{2})\.(\d{4})\.zip$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxTracerFile =
+            new Regex(@"^\d{8}_\d+_tracer", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxMsgFile =
+            new Regex(@"^\d{8}_\d+_messages", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLineCode =
+            new Regex(@"^L\d{3}[^0-9]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLineCodeSmt = new Regex(@"^(?:SMT|THT|AOI|ICT|SMD|FCT|TRT|SPI)\d+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxComputerCode = new Regex(@"^[A-Z]{2,4}\d{3,}[A-Z0-9]*$", RegexOptions.Compiled);
+
+        private static readonly Regex
+            RxMonCode = new Regex(@"^MON\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex
+            RxLcsCode = new Regex(@"^LCS\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxMonFolder =
+            new Regex(@"(?:^|[_\s])MON\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxOvnFolder =
+            new Regex(@"(?:^|[_\s])OVN\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxOrFolder =
+            new Regex(@"^OR_[A-Z]{2,4}\d+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxRoutePrefix =
+            new Regex(@"^(?:OR_|OP\d+_OR_)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxPlaceholder =
+            new Regex(@"^[A-Z]+XXX", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxGenericLine =
+            new Regex(@"^L\d{3}[A-Z0-9]*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLcsPath =
+            new Regex(@"[\\/]lcs", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RxLcsName =
+            new Regex(@"(?:^|[ _-])LCS[0-9]+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         #endregion
 
@@ -117,7 +148,9 @@ namespace RTAnalyzer.Core
 
                 foreach (string file in files) AccumulateFileIntoMonthBuckets(file, days, result);
             }
-            catch { }
+            catch
+            {
+            }
 
             return result;
         }
@@ -139,7 +172,8 @@ namespace RTAnalyzer.Core
 
         public static void DeduplicateNames(List<StationInfo> stations)
         {
-            foreach (IGrouping<string, StationInfo> group in stations.GroupBy(s => s.StationName).Where(g => g.Count() > 1))
+            foreach (IGrouping<string, StationInfo> group in stations.GroupBy(s => s.StationName)
+                         .Where(g => g.Count() > 1))
             {
                 int idx = 1;
                 foreach (StationInfo st in group)
@@ -161,24 +195,25 @@ namespace RTAnalyzer.Core
             if (!Directory.Exists(path)) return result;
 
             StationInfo info = BuildStationInfo(path, path);
-            result.LineName     = info.LineName;
+            result.LineName = info.LineName;
             result.ComputerName = info.ComputerName;
 
             progressCallback?.Invoke("Scanning files...", 0, null);
 
-            string[] files       = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+            string[] files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
             ConcurrentBag<ResponseRecord> bag = new ConcurrentBag<ResponseRecord>();
-            string[] nameHolder  = new string[1];
-            long[]   lastUiTick  = new long[1];
-            int      processed   = 0;
+            string[] nameHolder = new string[1];
+            long[] lastUiTick = new long[1];
+            int processed = 0;
 
-            ParallelOptions opts = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+            ParallelOptions opts = new ParallelOptions
+                { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
 
             Parallel.ForEach(files, opts, file =>
             {
-                int    pct      = (Interlocked.Increment(ref processed) * 95) / Math.Max(1, files.Length);
+                int pct = (Interlocked.Increment(ref processed) * 95) / Math.Max(1, files.Length);
                 string fileName = Path.GetFileName(file);
-                string ext      = Path.GetExtension(file).ToLower();
+                string ext = Path.GetExtension(file).ToLower();
 
                 DataLoadResult local = LoadSingleFile(file, fileName, ext, pct, lastUiTick, progressCallback);
 
@@ -191,7 +226,7 @@ namespace RTAnalyzer.Core
                 ReportFileProgress(file, path, fileName, pct, lastUiTick, progressCallback);
             });
 
-            result.Records     = bag.OrderBy(r => r.TimestampParsed).ToList();
+            result.Records = bag.OrderBy(r => r.TimestampParsed).ToList();
             result.StationName = nameHolder[0] ?? "";
 
             progressCallback?.Invoke("Processing message types...", 100, result.StationName);
@@ -224,10 +259,11 @@ namespace RTAnalyzer.Core
                 .ToList();
         }
 
-        private static void AccumulateFileIntoMonthBuckets(string file, int[] days, Dictionary<int, MonthFileInfo> result)
+        private static void AccumulateFileIntoMonthBuckets(string file, int[] days,
+            Dictionary<int, MonthFileInfo> result)
         {
-            DateTime fileDate  = EstimateFileDate(file);
-            long     fileBytes = new FileInfo(file).Length;
+            DateTime fileDate = EstimateFileDate(file);
+            long fileBytes = new FileInfo(file).Length;
 
             foreach (int d in days)
             {
@@ -259,9 +295,9 @@ namespace RTAnalyzer.Core
         private static bool IsStationFolder(string name, string dirPath)
         {
             return RxMonFolder.IsMatch(name)
-                || RxOvnFolder.IsMatch(name)
-                || RxOrFolder.IsMatch(name)
-                || HasDirectLogFiles(dirPath);
+                   || RxOvnFolder.IsMatch(name)
+                   || RxOrFolder.IsMatch(name)
+                   || HasDirectLogFiles(dirPath);
         }
 
         private static bool HasDirectLogFiles(string dirPath)
@@ -271,13 +307,15 @@ namespace RTAnalyzer.Core
                 foreach (string f in Directory.GetFiles(dirPath))
                 {
                     string fname = Path.GetFileName(f);
-                    string ext   = Path.GetExtension(fname).ToLowerInvariant();
+                    string ext = Path.GetExtension(fname).ToLowerInvariant();
 
                     if ((ext == ".txt" || ext == ".log" || ext == "" || ext == ".zip") && ShouldProcessFile(fname))
                         return true;
                 }
             }
-            catch { }
+            catch
+            {
+            }
 
             return false;
         }
@@ -288,18 +326,18 @@ namespace RTAnalyzer.Core
 
         private static StationInfo BuildStationInfo(string rootPath, string stationPath)
         {
-            string   relative  = stationPath.Replace(rootPath, "").TrimStart('\\', '/');
-            string[] parts     = relative.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string relative = stationPath.Replace(rootPath, "").TrimStart('\\', '/');
+            string[] parts = relative.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
             string[] rootParts = rootPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-            string[] allParts  = rootParts.Concat(parts).ToArray();
-            
+            string[] allParts = rootParts.Concat(parts).ToArray();
+
             string name = GetRealStationNameFromPath(stationPath);
 
             //string          name     = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
-            string          line     = ExtractLineName(allParts);
-            string          computer = ExtractComputerName(allParts);
+            string line = ExtractLineName(allParts);
+            string computer = ExtractComputerName(allParts);
             StationCategory category = DetermineCategory(stationPath, name);
-            
+
             if (string.Equals(name, "GHP", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(computer))
             {
                 name = computer;
@@ -308,29 +346,29 @@ namespace RTAnalyzer.Core
 
             return new StationInfo
             {
-                FolderPath   = stationPath,
-                StationName  = name,
-                LineName     = line,
+                FolderPath = stationPath,
+                StationName = name,
+                LineName = line,
                 ComputerName = computer,
-                Category     = category
+                Category = category
             };
         }
-        
+
         private static string GetRealStationNameFromPath(string stationPath)
         {
             string[] parts = stationPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
             string[] ignoredCategories = { "GHP", "LCS", "BACKFLUSH", "BFL", "CONNECTOR", "CONNECTORS" };
-            
+
             for (int i = parts.Length - 1; i >= 0; i--)
             {
                 string dirName = parts[i].ToUpperInvariant();
-                
+
                 if (!ignoredCategories.Contains(dirName))
                 {
                     return ExtractStationNameFromFolderName(parts[i]);
                 }
             }
-            
+
             return ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
         }
 
@@ -369,7 +407,7 @@ namespace RTAnalyzer.Core
         {
             return RxRoutePrefix.Replace(folderName, "").Replace("_", " ").Trim();
         }
-        
+
         public static Dictionary<string, Dictionary<int, MonthFileInfo>> CountFilesByStationAndDays(
             List<StationInfo> stations, int[] days)
         {
@@ -386,7 +424,9 @@ namespace RTAnalyzer.Core
 
                     foreach (string file in files) AccumulateFileIntoMonthBuckets(file, days, stationResult);
                 }
-                catch { }
+                catch
+                {
+                }
 
                 result[station.FolderPath] = stationResult;
             }
@@ -403,8 +443,7 @@ namespace RTAnalyzer.Core
             {
                 current = Volatile.Read(ref holder[0]);
                 if (!string.IsNullOrEmpty(current) && !IsGenericPlaceholderName(current)) return;
-            }
-            while (Interlocked.CompareExchange(ref holder[0], candidate, current) != current);
+            } while (Interlocked.CompareExchange(ref holder[0], candidate, current) != current);
         }
 
         #endregion
@@ -413,11 +452,12 @@ namespace RTAnalyzer.Core
 
         private static bool ShouldProcessFile(string fileName)
         {
-            string ext   = Path.GetExtension(fileName).ToLowerInvariant();
+            string ext = Path.GetExtension(fileName).ToLowerInvariant();
             string lower = fileName.ToLowerInvariant();
 
             foreach (string b in BlockedExtensions)
-                if (ext == b) return false;
+                if (ext == b)
+                    return false;
 
             if (IsBlockedFileName(fileName)) return false;
 
@@ -458,7 +498,7 @@ namespace RTAnalyzer.Core
         private static bool IsGhpLogFile(string fileName)
         {
             return fileName.StartsWith("GHP", StringComparison.OrdinalIgnoreCase)
-                || fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase);
+                   || fileName.StartsWith("VitescoAppMonitoringService", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool NeedsProbe(string fileName)
@@ -497,7 +537,9 @@ namespace RTAnalyzer.Core
                     if (len > 2400 && ProbeAt(fs, len - 800, 800)) return true;
                 }
             }
-            catch { }
+            catch
+            {
+            }
 
             return false;
         }
@@ -513,8 +555,8 @@ namespace RTAnalyzer.Core
         private static bool ContainsMesSignature(string text)
         {
             return (text.Contains("[S") && text.Contains("->C]"))
-                || text.Contains("VitescoComcell")
-                || text.Contains("<STX>");
+                   || text.Contains("VitescoComcell")
+                   || text.Contains("<STX>");
         }
 
         private static bool ProbeZipEntryForMesData(ZipArchiveEntry entry)
@@ -524,7 +566,7 @@ namespace RTAnalyzer.Core
                 using (Stream stream = entry.Open())
                 {
                     byte[] buf = new byte[800];
-                    int    n   = stream.Read(buf, 0, buf.Length);
+                    int n = stream.Read(buf, 0, buf.Length);
                     return ContainsMesSignature(System.Text.Encoding.UTF8.GetString(buf, 0, n));
                 }
             }
@@ -597,7 +639,7 @@ namespace RTAnalyzer.Core
         {
             return (lineNum, recCount, filePct) =>
             {
-                long t  = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                long t = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
                 long pt = Interlocked.Read(ref lastUiTick[0]);
 
                 if (t - pt >= 120 && Interlocked.CompareExchange(ref lastUiTick[0], t, pt) == pt)
@@ -611,7 +653,7 @@ namespace RTAnalyzer.Core
         {
             return (ln, rc, fp) =>
             {
-                long t  = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                long t = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
                 long pt = Interlocked.Read(ref lastUiTick[0]);
 
                 if (t - pt >= 120 && Interlocked.CompareExchange(ref lastUiTick[0], t, pt) == pt)
@@ -623,7 +665,7 @@ namespace RTAnalyzer.Core
         private static void ReportFileProgress(string file, string path, string fileName, int pct,
             long[] lastUiTick, Action<string, int, string> progressCallback)
         {
-            long now  = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            long now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             long prev = Interlocked.Read(ref lastUiTick[0]);
 
             if (now - prev >= 80 && Interlocked.CompareExchange(ref lastUiTick[0], now, prev) == prev)
@@ -641,15 +683,17 @@ namespace RTAnalyzer.Core
                     foreach (ZipArchiveEntry entry in zip.Entries)
                         TryLoadZipEntry(entry, Path.GetFileName(zipFile), result, cutoff);
             }
-            catch { }
+            catch
+            {
+            }
         }
 
         private static void TryLoadZipEntry(ZipArchiveEntry entry, string zipName, DataLoadResult result,
             DateTime? cutoff = null)
         {
-            string entryName  = entry.Name;
+            string entryName = entry.Name;
             string sourceName = zipName + " > " + entryName;
-            string ext        = Path.GetExtension(entryName).ToLowerInvariant();
+            string ext = Path.GetExtension(entryName).ToLowerInvariant();
 
             if (!ShouldProcessFile(entryName)) return;
 
@@ -693,11 +737,11 @@ namespace RTAnalyzer.Core
         private static void ReadOldFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
             DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
         {
-            long   totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
-            long   readBytes  = 0;
-            int    lineNum    = 0;
-            int    recCount   = 0;
-            string plcLine    = null;
+            long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
+            long readBytes = 0;
+            int lineNum = 0;
+            int recCount = 0;
+            string plcLine = null;
 
             using (StreamReader reader = new StreamReader(dataStream))
             {
@@ -751,12 +795,22 @@ namespace RTAnalyzer.Core
 
             TryParseTimestampFlexible(cols[0], out DateTime ts);
             if (cutoff.HasValue && ts != DateTime.MinValue && ts < cutoff.Value) return;
+            
+            bool isError = mes.Contains(",ERROR,") || mes.Contains("ERROR,<Error");
+            string errorText = null;
+            if (isError)
+            {
+                int textStart = mes.IndexOf("text=\"", StringComparison.Ordinal);
+                int textEnd   = textStart >= 0 ? mes.IndexOf("\"", textStart + 6) : -1;
+                if (textStart >= 0 && textEnd > textStart)
+                    errorText = mes.Substring(textStart + 6, textEnd - textStart - 6);
+            }
 
-            result.Records.Add(BuildOldRecord(cols[0], ts, rt, sourceName, mes, plc));
+            result.Records.Add(BuildOldRecord(cols[0], ts, rt, sourceName, mes, plc, isError, errorText));
         }
 
         private static ResponseRecord BuildOldRecord(string rawTs, DateTime ts, int rt,
-            string source, string mes, string plc)
+            string source, string mes, string plc, bool isError = false, string errorText = null)
         {
             return new ResponseRecord
             {
@@ -765,14 +819,16 @@ namespace RTAnalyzer.Core
                 ResponseTime    = rt,
                 FileName        = source,
                 Type            = ParseMessageType(mes),
-                Uid             = Attr(mes, "uid=")             ?? Attr(plc, "uid="),
-                UidIn           = Attr(mes, "uid_in=")          ?? Attr(plc, "uid_in="),
-                UidOut          = Attr(mes, "uid_out=")         ?? Attr(plc, "uid_out="),
-                UidType         = Attr(mes, "uid_type=")        ?? Attr(plc, "uid_type="),
-                Result          = Attr(mes, "result=")          ?? Attr(plc, "result="),
-                CarrierId       = Attr(mes, "Carrier_ID_val=")  ?? Attr(plc, "Carrier_ID_val="),
-                Material        = Attr(mes, "material=")        ?? Attr(plc, "material="),
-                Setup           = Attr(mes, "setup=")           ?? Attr(plc, "setup=")
+                Uid             = Attr(mes, "uid=")            ?? Attr(plc, "uid="),
+                UidIn           = Attr(mes, "uid_in=")         ?? Attr(plc, "uid_in="),
+                UidOut          = Attr(mes, "uid_out=")        ?? Attr(plc, "uid_out="),
+                UidType         = Attr(mes, "uid_type=")       ?? Attr(plc, "uid_type="),
+                Result          = isError
+                    ? (errorText ?? "ERROR")
+                    : Attr(mes, "result=") ?? Attr(plc, "result="),
+                CarrierId       = Attr(mes, "Carrier_ID_val=") ?? Attr(plc, "Carrier_ID_val="),
+                Material        = Attr(mes, "material=")       ?? Attr(plc, "material="),
+                Setup           = Attr(mes, "setup=")          ?? Attr(plc, "setup=")
             };
         }
 
@@ -785,9 +841,9 @@ namespace RTAnalyzer.Core
         {
             Dictionary<string, string> pendingRequests = new Dictionary<string, string>();
             long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
-            long readBytes  = 0;
-            int  lineNum    = 0;
-            int  recCount   = 0;
+            long readBytes = 0;
+            int lineNum = 0;
+            int recCount = 0;
 
             using (StreamReader reader = new StreamReader(dataStream))
             {
@@ -805,7 +861,7 @@ namespace RTAnalyzer.Core
                             result.StationName = line.Substring(ps, pe - ps).Replace("_", " ");
                     }
 
-                    bool isRequest  = line.Contains("=>[VitescoComcell]");
+                    bool isRequest = line.Contains("=>[VitescoComcell]");
                     bool isResponse = line.Contains("<=[VitescoComcell]");
 
                     if (!isRequest && !isResponse) continue;
@@ -815,7 +871,7 @@ namespace RTAnalyzer.Core
 
                     if (stxPos < 0 || etxPos <= stxPos) continue;
 
-                    string body    = line.Substring(stxPos + 1, etxPos - stxPos - 1);
+                    string body = line.Substring(stxPos + 1, etxPos - stxPos - 1);
                     string pairKey = ExtractGhpPairKey(body);
 
                     if (pairKey == null) continue;
@@ -827,9 +883,31 @@ namespace RTAnalyzer.Core
                     }
 
                     string afterEtx = line.Substring(etxPos + 1).TrimStart(',').Trim();
-                    if (!int.TryParse(afterEtx, out int responseTime)) continue;
 
-                    string timestampRaw        = line.Length >= 23 ? line.Substring(0, 23) : "";
+                    bool isError = afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase)
+                                   || body.Contains(",ERROR,");
+
+                    int responseTime = 0;
+                    if (isError && afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rtPart = afterEtx.Substring(afterEtx.LastIndexOf(',') + 1).Trim();
+                        int.TryParse(rtPart, out responseTime);
+                    }
+                    else if (!int.TryParse(afterEtx, out responseTime))
+                        continue;
+
+                    string errorText = null;
+                    if (isError)
+                    {
+                        string searchIn = body.Contains("text=\"") ? body : afterEtx;
+                        int textStart   = searchIn.IndexOf("text=\"", StringComparison.Ordinal);
+                        int textEnd     = textStart >= 0 ? searchIn.IndexOf("\"", textStart + 6) : -1;
+                        if (textStart >= 0 && textEnd > textStart)
+                            errorText = searchIn.Substring(textStart + 6, textEnd - textStart - 6);
+                    }
+                    
+
+                    string timestampRaw = line.Length >= 23 ? line.Substring(0, 23) : "";
                     string timestampNormalized = timestampRaw.Replace(',', '.');
                     DateTimeHelper.TryParseTimestamp(timestampNormalized, out DateTime parsedTimestamp);
 
@@ -841,19 +919,19 @@ namespace RTAnalyzer.Core
 
                     result.Records.Add(new ResponseRecord
                     {
-                        Timestamp       = timestampRaw,
+                        Timestamp = timestampRaw,
                         TimestampParsed = parsedTimestamp,
-                        ResponseTime    = responseTime,
-                        FileName        = sourceName,
-                        Type            = ParseGhpMessageType(body),
-                        Uid             = ExtractAttribute(mergedBody, "uid="),
-                        UidIn           = ExtractAttribute(mergedBody, "uid_in="),
-                        UidOut          = ExtractAttribute(mergedBody, "uid_out="),
-                        UidType         = ExtractAttribute(mergedBody, "uid_type="),
-                        Result          = ExtractAttribute(mergedBody, "result="),
-                        CarrierId       = ExtractAttribute(mergedBody, "Carrier_ID_val="),
-                        Material        = ExtractAttribute(mergedBody, "material="),
-                        Setup           = ExtractAttribute(mergedBody, "setup=")
+                        ResponseTime = responseTime,
+                        FileName = sourceName,
+                        Type = ParseGhpMessageType(body),
+                        Uid = ExtractAttribute(mergedBody, "uid="),
+                        UidIn = ExtractAttribute(mergedBody, "uid_in="),
+                        UidOut = ExtractAttribute(mergedBody, "uid_out="),
+                        UidType = ExtractAttribute(mergedBody, "uid_type="),
+                        Result = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result="),
+                        CarrierId = ExtractAttribute(mergedBody, "Carrier_ID_val="),
+                        Material = ExtractAttribute(mergedBody, "material="),
+                        Setup = ExtractAttribute(mergedBody, "setup=")
                     });
 
                     pendingRequests.Remove(pairKey);
@@ -903,16 +981,16 @@ namespace RTAnalyzer.Core
         {
             switch (name)
             {
-                case "REQ_UNIT_INFO":       return MessageType.UNIT_INFO;
-                case "REQ_NEXT_OPERATION":  return MessageType.NEXT_OPERATION;
-                case "UNIT_CHECKIN":        return MessageType.UNIT_CHECKIN;
-                case "UNIT_RESULT":         return MessageType.UNIT_RESULT;
+                case "REQ_UNIT_INFO": return MessageType.UNIT_INFO;
+                case "REQ_NEXT_OPERATION": return MessageType.NEXT_OPERATION;
+                case "UNIT_CHECKIN": return MessageType.UNIT_CHECKIN;
+                case "UNIT_RESULT": return MessageType.UNIT_RESULT;
                 case "REQ_LOADED_MATERIAL": return MessageType.REQ_LOADED_MATERIAL;
                 case "REQ_UNLOAD_MATERIAL": return MessageType.REQ_UNLOAD_MATERIAL;
-                case "LOAD_MATERIAL":       return MessageType.LOAD_MATERIAL;
-                case "REQ_MATERIAL_INFO":   return MessageType.REQ_MATERIAL_INFO;
-                case "REQ_SETUP_CHANGE2":   return MessageType.REQ_SETUP_CHANGE2;
-                default:                    return MessageType.OTHER;
+                case "LOAD_MATERIAL": return MessageType.LOAD_MATERIAL;
+                case "REQ_MATERIAL_INFO": return MessageType.REQ_MATERIAL_INFO;
+                case "REQ_SETUP_CHANGE2": return MessageType.REQ_SETUP_CHANGE2;
+                default: return MessageType.OTHER;
             }
         }
 
@@ -942,16 +1020,16 @@ namespace RTAnalyzer.Core
 
             Match nm = RxYyyyMmDd.Match(fileName);
             if (nm.Success &&
-                int.TryParse(nm.Groups[1].Value, out int y)  &&
+                int.TryParse(nm.Groups[1].Value, out int y) &&
                 int.TryParse(nm.Groups[2].Value, out int mo) &&
-                int.TryParse(nm.Groups[3].Value, out int d)  &&
+                int.TryParse(nm.Groups[3].Value, out int d) &&
                 mo >= 1 && mo <= 12 && d >= 1 && d <= 31)
                 return new DateTime(y, mo, d);
 
             Match mm = RxMmYyyy.Match(fileName);
             if (mm.Success &&
                 int.TryParse(mm.Groups[1].Value, out int mo2) &&
-                int.TryParse(mm.Groups[2].Value, out int y2)  &&
+                int.TryParse(mm.Groups[2].Value, out int y2) &&
                 mo2 >= 1 && mo2 <= 12)
                 return new DateTime(y2, mo2, 1);
 
@@ -967,7 +1045,9 @@ namespace RTAnalyzer.Core
                         return parsed;
                 }
             }
-            catch { }
+            catch
+            {
+            }
 
             return File.GetLastWriteTime(filePath);
         }

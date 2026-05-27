@@ -8,131 +8,61 @@ namespace MESInsight.Charts.Builders
 {
     public class TimelineChart : IChartDataBuilder
     {
-        private static readonly int MinGapMinutesForIdleBlock = 5;
-
         public ChartType GetChartType() => ChartType.Timeline;
-
         public bool CanBuild(List<ResponseRecord> records) => records.Count > 0;
 
         public ChartData Build(ChartInputData input)
         {
-            var filteredRecords = input.Records
+            var records = input.Records
+                .Where(r => r.TimestampParsed != DateTime.MinValue && r.Type != MessageType.OTHER)
                 .OrderBy(r => r.TimestampParsed)
                 .ToList();
 
             var events = new List<TimelineEvent>();
 
-            var checkinRecords  = filteredRecords.Where(r => r.Type == MessageType.UNIT_CHECKIN).ToList();
-            var resultRecords   = filteredRecords.Where(r => r.Type == MessageType.UNIT_RESULT).ToList();
-            var materialRecords = filteredRecords.Where(r => r.Type == MessageType.LOAD_MATERIAL).ToList();
-            var setupRecords    = filteredRecords.Where(r => r.Type == MessageType.REQ_SETUP_CHANGE2).ToList();
+            foreach (var r in records)
+            {
+                bool isError = r.Result != null &&
+                               (r.Result.StartsWith("[ERR") || r.Result == "ERROR");
 
-            AddProductionCycleEvents(events, checkinRecords, resultRecords);
-            AddMaterialChangeEvents(events, materialRecords);
-            AddSetupChangeEvents(events, setupRecords);
-            AddIdleGapEvents(events, filteredRecords);
+                events.Add(new TimelineEvent
+                {
+                    Start          = r.TimestampParsed,
+                    End            = null,
+                    EventType      = isError ? TimelineEventType.Error : TimelineEventType.Production,
+                    Label          = r.Type.ToString().Replace("_", " "),
+                    Uid            = r.Uid ?? r.UidIn,
+                    Detail         = BuildDetail(r),
+                    ErrorCode      = isError ? r.Result : null,
+                    ResponseTimeMs = r.ResponseTime,
+                    SourceRecord   = r,
+                    MessageKind    = r.Type
+                });
+            }
+
+            int maxRt = records.Count > 0 ? records.Max(r => r.ResponseTime) : 1;
 
             return new ChartData
             {
-                TimelineEvents  = events.OrderBy(e => e.Start).ToList(),
-                FilteredRecords = filteredRecords
+                TimelineEvents  = events,
+                FilteredRecords = records,
+                MaxResponseTime = maxRt
             };
         }
 
-        private static void AddProductionCycleEvents(
-            List<TimelineEvent> events,
-            List<ResponseRecord> checkins,
-            List<ResponseRecord> results)
-        {
-            foreach (var checkin in checkins)
-            {
-                var matchingResult = results.FirstOrDefault(r =>
-                    r.Uid == checkin.Uid &&
-                    r.TimestampParsed >= checkin.TimestampParsed);
-
-                bool isError = checkin.Result != null &&
-                               (checkin.Result.StartsWith("ERR") || checkin.Result == "F");
-                bool isFail  = matchingResult?.Result == "F";
-
-                var eventType = isError ? TimelineEventType.Error :
-                                isFail  ? TimelineEventType.ProductionFail :
-                                          TimelineEventType.Production;
-
-                events.Add(new TimelineEvent
-                {
-                    Start          = checkin.TimestampParsed,
-                    End            = matchingResult?.TimestampParsed,
-                    EventType      = eventType,
-                    Label          = isFail ? "FAIL" : isError ? (checkin.Result ?? "ERR") : "OK",
-                    Uid            = checkin.Uid ?? checkin.UidIn,
-                    Detail         = BuildProductionDetail(checkin, matchingResult),
-                    ErrorCode      = isError ? checkin.Result : null,
-                    ResponseTimeMs = checkin.ResponseTime
-                });
-            }
-        }
-
-        private static string BuildProductionDetail(ResponseRecord checkin, ResponseRecord result)
+        private static string BuildDetail(ResponseRecord r)
         {
             var parts = new List<string>();
-            if (!string.IsNullOrEmpty(checkin.Uid ?? checkin.UidIn))
-                parts.Add("UID: " + (checkin.Uid ?? checkin.UidIn));
-            if (!string.IsNullOrEmpty(checkin.CarrierId))
-                parts.Add("Carrier: " + checkin.CarrierId);
-            if (!string.IsNullOrEmpty(checkin.Material))
-                parts.Add("Material: " + checkin.Material);
-            if (result != null)
-                parts.Add("Result: " + (result.Result ?? "?"));
-            if (result != null && result.ResponseTime > 0)
-                parts.Add("Cycle: " + result.ResponseTime + "ms");
+            parts.Add(r.Type.ToString().Replace("_", " "));
+            if (!string.IsNullOrEmpty(r.Uid ?? r.UidIn))
+                parts.Add("UID: " + (r.Uid ?? r.UidIn));
+            if (r.ResponseTime > 0)
+                parts.Add("RT: " + r.ResponseTime + " ms");
+            if (!string.IsNullOrEmpty(r.Result))
+                parts.Add("Result: " + r.Result);
+            if (!string.IsNullOrEmpty(r.Material))
+                parts.Add("Material: " + r.Material);
             return string.Join("\n", parts);
-        }
-
-        private static void AddMaterialChangeEvents(List<TimelineEvent> events, List<ResponseRecord> materialRecords)
-        {
-            foreach (var record in materialRecords)
-                events.Add(new TimelineEvent
-                {
-                    Start     = record.TimestampParsed,
-                    EventType = TimelineEventType.MaterialChange,
-                    Label     = "MAT",
-                    Detail    = "Material load" + (string.IsNullOrEmpty(record.Material) ? "" : ": " + record.Material)
-                });
-        }
-
-        private static void AddSetupChangeEvents(List<TimelineEvent> events, List<ResponseRecord> setupRecords)
-        {
-            foreach (var record in setupRecords)
-                events.Add(new TimelineEvent
-                {
-                    Start     = record.TimestampParsed,
-                    EventType = TimelineEventType.SetupChange,
-                    Label     = "SETUP",
-                    Detail    = "Setup change" + (string.IsNullOrEmpty(record.Setup) ? "" : ": " + record.Setup)
-                });
-        }
-
-        private static void AddIdleGapEvents(List<TimelineEvent> events, List<ResponseRecord> allRecords)
-        {
-            if (allRecords.Count < 2) return;
-            DateTime? lastActivityTime = null;
-            foreach (var record in allRecords)
-            {
-                if (lastActivityTime.HasValue)
-                {
-                    double gapMinutes = (record.TimestampParsed - lastActivityTime.Value).TotalMinutes;
-                    if (gapMinutes >= MinGapMinutesForIdleBlock)
-                        events.Add(new TimelineEvent
-                        {
-                            Start     = lastActivityTime.Value,
-                            End       = record.TimestampParsed,
-                            EventType = TimelineEventType.Idle,
-                            Label     = "IDLE",
-                            Detail    = $"No activity for {(int)gapMinutes} min"
-                        });
-                }
-                lastActivityTime = record.TimestampParsed;
-            }
         }
     }
 }
