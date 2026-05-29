@@ -30,7 +30,7 @@
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
         <PlatformTarget>x64</PlatformTarget>
         <DebugType>pdbonly</DebugType>
-        <Optimize>true</Optimize>
+        <Optimize>false</Optimize>
         <OutputPath>bin\Release\</OutputPath>
         <DefineConstants>TRACE</DefineConstants>
         <ErrorReport>prompt</ErrorReport>
@@ -73,6 +73,7 @@
             <DependentUpon>App.xaml</DependentUpon>
             <SubType>Code</SubType>
         </Compile>
+        <Compile Include="BetaBanner.cs" />
         <Compile Include="Charts\Builders\ChartCalculator.cs"/>
         <Compile Include="Charts\Builders\HistogramChart.cs"/>
         <Compile Include="Charts\Builders\TimelineChart.cs"/>

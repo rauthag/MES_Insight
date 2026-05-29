@@ -382,18 +382,6 @@
                     <StackPanel>
                         <TextBlock Text="FILTERS" FontSize="10" FontWeight="SemiBold"
                                    Foreground="#388E3C" Margin="0,0,0,10" />
-
-                        <TextBlock Text="Date Range" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <ComboBox x:Name="CmbDateRange" FontSize="11" Margin="0,0,0,10"
-                                  SelectionChanged="OnDateRangeChanged">
-                            <ComboBoxItem Content="Last 90 days" />
-                            <ComboBoxItem Content="Last 120 days" />
-                            <ComboBoxItem Content="Last 180 days" />
-                            <ComboBoxItem Content="Last 270 days" />
-                            <ComboBoxItem Content="Last year" />
-                            <ComboBoxItem Content="All data" IsSelected="True" />
-                        </ComboBox>
-
                         <TextBlock Text="Date From" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
@@ -526,6 +514,11 @@
                 <TabItem Header="REQUEST SETUP CHANGE" Tag="REQ_SETUP_CHANGE2">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelReqSetupChange2" />
+                    </ScrollViewer>
+                </TabItem>
+                <TabItem Header="SEMI VALIDATION 2" Tag="SEMI_VALIDATION2">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
+                        <StackPanel x:Name="PanelSemiValidation2" />
                     </ScrollViewer>
                 </TabItem>
             </TabControl>

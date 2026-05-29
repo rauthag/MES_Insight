@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Media;
 using LiveCharts;
 
@@ -14,13 +15,15 @@ namespace MESInsight.Core
         public MessageType Type { get; set; }
         public string Uid { get; set; }
         public string UidIn { get; set; }
-
         public string UidOut { get; set; }
         public string UidType { get; set; }
         public string Result { get; set; }
         public string CarrierId { get; set; }
         public string Material { get; set; }
         public string Setup { get; set; }
+        public string UidAssy { get; set; }
+        public string UidAssyType { get; set; }
+        public string ProcDirAssy { get; set; }
     }
 
     public class ChartSeries
@@ -33,6 +36,8 @@ namespace MESInsight.Core
         public List<string> GapLabels { get; set; }
         public List<long> GapCenterAxisValues { get; set; }
         public Dictionary<long, DateTime> CompressedAxisValueToCalendarDate { get; set; }
+        public bool IsWeeklyView { get; set; }
+        public ChartSeries DailyVersion { get; set; }
     }
 
     public class ChartData
@@ -42,6 +47,7 @@ namespace MESInsight.Core
         public List<TimelineEvent> TimelineEvents { get; set; }
         public List<ResponseRecord> FilteredRecords { get; set; }
         public int MaxResponseTime { get; set; }
+        public ChartSeries TrendChartDaily { get; set; }
     }
 
     public class ChartBucket
@@ -74,7 +80,6 @@ namespace MESInsight.Core
         public DateTime Start { get; set; }
         public DateTime? End { get; set; }
         public TimelineEventType EventType { get; set; }
-
         public MessageType MessageKind { get; set; }
         public ResponseRecord SourceRecord { get; set; }
         public string Label { get; set; }
@@ -105,7 +110,63 @@ namespace MESInsight.Core
         LOAD_MATERIAL,
         REQ_MATERIAL_INFO,
         REQ_SETUP_CHANGE2,
+        SEMI_VALIDATION2,
         OTHER,
         ALL
+    }
+
+    public class UidIndex
+    {
+        private readonly Dictionary<string, List<int>> _index = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public void Build(List<ResponseRecord> records)
+        {
+            _index.Clear();
+            _aliases.Clear();
+
+            for (int i = 0; i < records.Count; i++)
+            {
+                var r = records[i];
+                AddToIndex(r.Uid, i);
+                AddToIndex(r.UidIn, i);
+                AddToIndex(r.UidOut, i);
+                AddToIndex(r.UidAssy, i);
+
+                if (!string.IsNullOrEmpty(r.UidIn) && !string.IsNullOrEmpty(r.UidOut))
+                    _aliases[r.UidOut] = r.UidIn;
+            }
+        }
+
+        private void AddToIndex(string uid, int idx)
+        {
+            if (string.IsNullOrEmpty(uid)) return;
+            if (!_index.TryGetValue(uid, out var list))
+                _index[uid] = list = new List<int>();
+            list.Add(idx);
+        }
+
+        public List<int> Find(string uid)
+        {
+            if (string.IsNullOrEmpty(uid)) return new List<int>();
+            var result = new HashSet<int>();
+            CollectAll(uid, result, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            return result.OrderBy(i => i).ToList();
+        }
+
+        private void CollectAll(string uid, HashSet<int> result, HashSet<string> visited)
+        {
+            if (string.IsNullOrEmpty(uid) || !visited.Add(uid)) return;
+            if (_index.TryGetValue(uid, out var list))
+                foreach (var i in list) result.Add(i);
+            if (_aliases.TryGetValue(uid, out var prev))
+                CollectAll(prev, result, visited);
+        }
+
+        public string GetAlias(string uid) =>
+            _aliases.TryGetValue(uid, out var a) ? a : null;
+
+        public bool HasUid(string uid) =>
+            !string.IsNullOrEmpty(uid) && _index.ContainsKey(uid);
     }
 }

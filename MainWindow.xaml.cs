@@ -110,6 +110,8 @@ namespace MESInsight
         private bool _bgLoadingRunning = false;
         private System.Threading.CancellationTokenSource _bgCts = null;
         private Canvas _toastCanvas;
+        
+        private readonly UidIndex _uidIndex = new UidIndex();
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -320,85 +322,7 @@ namespace MESInsight
                 ? DateTime.Now.AddDays(-optDlg.MaxDays)
                 : (DateTime?)null;
         }
-
-        private void ApplyAdaptiveDateFilter()
-        {
-            if (_allRecords.Count == 0) return;
-
-            var uniqueDays = _allRecords
-                .Where(r => r.TimestampParsed != DateTime.MinValue)
-                .Select(r => r.TimestampParsed.Date)
-                .Distinct()
-                .Count();
-
-            int showDays = uniqueDays < 10 ? int.MaxValue
-                : uniqueDays < 20 ? 7
-                : uniqueDays < 30 ? 14
-                : 30;
-            if (showDays == int.MaxValue) return;
-
-            DateTime latest = _allRecords.Max(r => r.TimestampParsed).Date;
-            DateTime cutoff = latest.AddDays(-showDays);
-
-            if (DatePickerFrom.SelectedDate == null || DatePickerFrom.SelectedDate < cutoff)
-                DatePickerFrom.SelectedDate = cutoff;
-
-            UpdateDateRangeDropdown(showDays);
-        }
-
-        private void UpdateDateRangeDropdown(int activeDays)
-        {
-            if (CmbDateRange == null) return;
-            _dateRangeChanging = true;
-            try
-            {
-                CmbDateRange.SelectionChanged -= OnDateRangeChanged;
-
-                int idx = activeDays <= 90 ? 0
-                    : activeDays <= 120 ? 1
-                    : activeDays <= 180 ? 2
-                    : activeDays <= 270 ? 3
-                    : activeDays <= 365 ? 4
-                    : 5;
-                CmbDateRange.SelectedIndex = idx;
-                CmbDateRange.SelectionChanged += OnDateRangeChanged;
-            }
-            finally
-            {
-                _dateRangeChanging = false;
-            }
-        }
-
-        private bool _dateRangeChanging = false;
-
-        private async void OnDateRangeChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_dateRangeChanging || _allRecords.Count == 0) return;
-            _dateRangeChanging = true;
-            try
-            {
-                int[] days = { 90, 120, 180, 270, 365, int.MaxValue };
-                int idx = CmbDateRange?.SelectedIndex ?? 5;
-                int d = days[Math.Min(idx, days.Length - 1)];
-
-                DateTime latest = _allRecords.Where(r => r.TimestampParsed != DateTime.MinValue)
-                    .Max(r => r.TimestampParsed).Date;
-
-                DatePickerFrom.SelectedDate = d == int.MaxValue
-                    ? _allRecords.Where(r => r.TimestampParsed != DateTime.MinValue).Min(r => r.TimestampParsed).Date
-                    : latest.AddDays(-d);
-
-                DatePickerTo.SelectedDate = latest;
-
-                _chartCache.Clear();
-                await RefreshChartsAndStatsWithLoadingOverlay();
-            }
-            finally
-            {
-                _dateRangeChanging = false;
-            }
-        }
-
+        
         private List<StationInfo> FilterSelectedStations(List<StationInfo> all, LoadOptionsDialog optDlg)
         {
             return all.Where(s =>
@@ -1170,7 +1094,7 @@ namespace MESInsight
                 result = true;
                 dialog.Close();
             };
-
+            
             Button btnCancel = new Button
             {
                 Content = "Cancel — do not load",
@@ -1248,7 +1172,7 @@ namespace MESInsight
                 cached = await ReloadRecordsFromDisk(station, cached.stationName);
 
             _allRecords = cached.records;
-
+            
             string displayName = !string.IsNullOrEmpty(station.LineName)
                 ? station.LineName + "  ·  " + cached.stationName
                 : cached.stationName;
@@ -1281,12 +1205,6 @@ namespace MESInsight
                     _chartCache[kv.Key] = kv.Value;
 
             SetDatePickersToFullDataRange();
-
-            DateTime? beforeFilter = DatePickerFrom.SelectedDate;
-            ApplyAdaptiveDateFilter();
-            if (DatePickerFrom.SelectedDate != beforeFilter)
-                _chartCache.Clear();
-
             await RefreshChartsAndStatsWithLoadingOverlay();
             SwitchToTabWithMostRecordsIfNeeded();
         }
@@ -1506,10 +1424,10 @@ namespace MESInsight
             UpdateSidebarStats();
             UpdateTabHighlightsForActiveFilter();
 
-            ShowLoadingOverlay(station, "Preloading charts for all tabs...", 100,
-                detail: "Cycling through " + GetAllSupportedMessageTypes().Length + " message type tabs");
-
-            await CycleThroughAllTabsToTriggerWpfLayoutRendering();
+            // ShowLoadingOverlay(station, "Preloading charts for all tabs...", 100,
+            //     detail: "Cycling through " + GetAllSupportedMessageTypes().Length + " message type tabs");
+            //
+            // await CycleThroughAllTabsToTriggerWpfLayoutRendering();
 
             HideLoadingOverlay();
         }
@@ -1573,6 +1491,12 @@ namespace MESInsight
 
             string station = TxtStationName.Text;
             bool hasPrebuilt = _chartCache.Count > 0;
+
+            if (hasPrebuilt && _filteredRecords.Count == 0)
+            {
+                _chartCache.Clear();
+                hasPrebuilt = false;
+            }
 
             ShowLoadingOverlay(station,
                 hasPrebuilt ? "Using pre-built charts from cache..." : "Clearing chart cache...",
@@ -1653,17 +1577,16 @@ namespace MESInsight
 
             ShowLoadingOverlay(station, "Rendering charts to UI...", 82,
                 detail: "Writing " + _chartCache.Count + " charts into " + types.Length + " tabs");
-            await Task.Delay(40);
 
             for (int i = 0; i < types.Length; i++)
             {
                 var mt = types[i];
                 ShowLoadingOverlay(station,
                     "Rendering  " + mt.ToString().Replace("_", " "),
-                    82 + (i * 5 / types.Length),
+                    82 + (i * 5 / types.Length), 
                     detail: "Tab " + (i + 1) + " / " + types.Length + "  —  " + mt.ToString().Replace("_", " "));
                 RenderCachedChartForMessageType(mt);
-                await Task.Delay(8);
+                await Task.Delay(1);
             }
 
             ShowLoadingOverlay(station, "Initializing timelines...", 87,
@@ -1688,7 +1611,7 @@ namespace MESInsight
                         break;
                     }
 
-                await Task.Delay(80);
+                await Task.Delay(20);
             }
 
             _tabsUserHasAlreadySeen.Clear();

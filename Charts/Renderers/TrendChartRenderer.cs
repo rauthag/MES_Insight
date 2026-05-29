@@ -126,7 +126,7 @@ namespace MESInsight.Charts.Renderers
             if (timelineData?.TimelineEvents == null) return;
 
             var renderer = new TimelineChartRenderer();
-            
+
             var element = renderer.Render(timelineData, new RenderContext { MessageType = messageType });
             if (element != null)
                 panel.Children.Add(element);
@@ -135,13 +135,11 @@ namespace MESInsight.Charts.Renderers
         public void InitializeTimelineWithFirstAvailableDay(MessageType messageType)
         {
             if (_recordsGroupedByDay.Count == 0) return;
-            
+
             if (!_timelineContainerByMessageType.ContainsKey(messageType)) return;
-            
+
             UpdateTimelineForDay(messageType, _recordsGroupedByDay.Keys.OrderBy(d => d).First());
         }
-
-        // ── Layout ──────────────────────────────────────────────────────────
 
         private Grid ArrangeChartWithOverlaysAndMonthBar(CartesianChart trendChart, ChartSeries trendChartSeries)
         {
@@ -216,8 +214,6 @@ namespace MESInsight.Charts.Renderers
             _timelineContainerByMessageType[messageType] = (sectionBorder, contentPanel);
             return sectionBorder;
         }
-
-        // ── Data Click & Highlight ───────────────────────────────────────────
 
         private void WireDataPointClickHandler(
             CartesianChart trendChart,
@@ -504,8 +500,6 @@ namespace MESInsight.Charts.Renderers
             }
         }
 
-        // ── Chart Configuration ─────────────────────────────────────────────
-
         private CartesianChart CreateConfiguredTrendChart(ChartSeries trendChartSeries)
         {
             var chart = new CartesianChart
@@ -517,7 +511,8 @@ namespace MESInsight.Charts.Renderers
                 Zoom = ZoomingOptions.X,
                 Pan = PanningOptions.None,
                 AnimationsSpeed = TimeSpan.FromMilliseconds(1),
-                DataTooltip = BuildDarkStyledTooltip()
+                DataTooltip = BuildDarkStyledTooltip(),
+                Hoverable = false
             };
 
             var dateAxis = CreateDateAxis(
@@ -684,15 +679,20 @@ namespace MESInsight.Charts.Renderers
         {
             var enUS = new System.Globalization.CultureInfo("en-US");
             var formats = new[] { "MMM yyyy", "dd.MM" };
+            System.Windows.Threading.DispatcherTimer debounce = null;
 
             chart.UpdaterTick += _ =>
-                chart.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                debounce?.Stop();
+                debounce = new System.Windows.Threading.DispatcherTimer
+                    { Interval = TimeSpan.FromMilliseconds(150) };
+                debounce.Tick += (s, e) =>
                 {
+                    debounce.Stop();
                     foreach (var tb in FindVisualChildren<TextBlock>(chart))
                     {
                         if (string.IsNullOrWhiteSpace(tb.Text)) continue;
                         foreach (var fmt in formats)
-                        {
                             if (DateTime.TryParseExact(tb.Text.Trim(), fmt, enUS,
                                     System.Globalization.DateTimeStyles.None, out DateTime d))
                             {
@@ -700,9 +700,10 @@ namespace MESInsight.Charts.Renderers
                                 tb.FontSize = 15;
                                 break;
                             }
-                        }
                     }
-                }), System.Windows.Threading.DispatcherPriority.Render);
+                };
+                debounce.Start();
+            };
         }
 
         private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
@@ -719,12 +720,22 @@ namespace MESInsight.Charts.Renderers
 
         private void AttachDynamicPointSizeUpdater(CartesianChart chart, Axis dateAxis)
         {
+            System.Windows.Threading.DispatcherTimer debounce = null;
+
             chart.UpdaterTick += delegate
             {
-                chart.Dispatcher.BeginInvoke(
-                    new Action<CartesianChart, Axis>(UpdatePointSizes),
-                    System.Windows.Threading.DispatcherPriority.Background,
-                    chart, dateAxis);
+                debounce?.Stop();
+                debounce = new System.Windows.Threading.DispatcherTimer
+                    { Interval = TimeSpan.FromMilliseconds(100) };
+                debounce.Tick += (s, e) =>
+                {
+                    debounce.Stop();
+                    chart.Dispatcher.BeginInvoke(
+                        new Action<CartesianChart, Axis>(UpdatePointSizes),
+                        System.Windows.Threading.DispatcherPriority.Background,
+                        chart, dateAxis);
+                };
+                debounce.Start();
             };
         }
 
@@ -769,8 +780,6 @@ namespace MESInsight.Charts.Renderers
                 }
             }
         }
-
-        // ── Gap Overlay ──────────────────────────────────────────────────────
 
         private Canvas BuildGapHatchOverlay(CartesianChart chart, ChartSeries trendChartSeries)
         {
@@ -877,8 +886,6 @@ namespace MESInsight.Charts.Renderers
             }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
-        // ── Month Color Bar ──────────────────────────────────────────────────
-
         private UIElement BuildMonthColorBar(ChartSeries trendChartSeries)
         {
             var container = new Grid { Margin = new Thickness(60, 0, 20, 0) };
@@ -951,8 +958,6 @@ namespace MESInsight.Charts.Renderers
             container.Children.Add(canvas);
             return container;
         }
-
-        // ── Title Bar ────────────────────────────────────────────────────────
 
         private Panel BuildTrendChartTitleBar(string chartTitle, MessageType messageType)
         {
@@ -1042,8 +1047,6 @@ namespace MESInsight.Charts.Renderers
                 ToolTip = isLeft ? "Pan left" : "Pan right", VerticalAlignment = VerticalAlignment.Center, Tag = tag
             };
         }
-
-        // ── Zoom & Pan ────────────────────────────────────────────────────────
 
         private void AttachZoomAndPanControls(CartesianChart chart, Panel titleBar)
         {
@@ -1200,8 +1203,6 @@ namespace MESInsight.Charts.Renderers
             }
         }
 
-        // ── Reveal Animation ─────────────────────────────────────────────────
-
         private static void AttachRevealAnimationOnFirstLoad(CartesianChart chart)
         {
             var clipRect = new System.Windows.Media.RectangleGeometry();
@@ -1226,8 +1227,6 @@ namespace MESInsight.Charts.Renderers
             anim.Completed += (_, __) => chart.Clip = null;
             clipRect.BeginAnimation(System.Windows.Media.RectangleGeometry.RectProperty, anim);
         }
-
-        // ── Shared Color Utility ─────────────────────────────────────────────
 
         public static Color GetMonthAccentColor(int monthNumber)
         {

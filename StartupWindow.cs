@@ -29,6 +29,12 @@ namespace MESInsight
         private static readonly Color TextSub = Color.FromRgb(255, 210, 160);
 
         private static readonly string DefaultRemotePath = @"\\vt1.vitesco.com\fs\didv0952\06_MES_App_Logs";
+
+        private static string AppDir =>
+            System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
+
+        private static string RecentPathFile => IOPath.Combine(AppDir, "recent.txt");
+        private static string StationCacheFile => IOPath.Combine(AppDir, "station_cache.txt");
         private static readonly string SampleDataPath = FindSampleDataPath();
 
         private Canvas _canvas;
@@ -537,12 +543,15 @@ namespace MESInsight
                 .Distinct().ToList();
 
             string text = entry.Stations.Count + " station" + (entry.Stations.Count != 1 ? "s" : "");
-            if (lines.Count > 0)     text += "  ·  " + string.Join(", ", lines);
+            if (lines.Count > 0) text += "  ·  " + string.Join(", ", lines);
             if (computers.Count > 0) text += "  ·  " + string.Join(", ", computers);
 
-            return new TextBlock { Text = text, FontSize = 10,
+            return new TextBlock
+            {
+                Text = text, FontSize = 10,
                 Foreground = new SolidColorBrush(Color.FromRgb(100, 160, 120)),
-                Margin = new Thickness(0, 3, 0, 0) };
+                Margin = new Thickness(0, 3, 0, 0)
+            };
         }
 
         private void WireRecentEntryClick(Border row, RecentEntry entry)
@@ -723,16 +732,16 @@ namespace MESInsight
             var bottomGrid = new Grid();
             bottomGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             bottomGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            
+
             Grid.SetRow(searchAndStatus, 0);
-            
+
             var treeSection = BuildRemoteTreeSection(treeStack, rawText);
-            
+
             Grid.SetRow(treeSection, 1);
-            
+
             bottomGrid.Children.Add(treeSection);
             bottomGrid.Children.Add(searchAndStatus);
-            
+
             Grid.SetRow(bottomGrid, 3);
             root.Children.Add(bottomGrid);
 
@@ -944,28 +953,28 @@ namespace MESInsight
 
             var treeScroll = new ScrollViewer
             {
-                VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Background      = new SolidColorBrush(Color.FromRgb(8, 20, 12)),
-                BorderBrush     = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
+                Background = new SolidColorBrush(Color.FromRgb(8, 20, 12)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
                 BorderThickness = new Thickness(1),
-                Content         = treeStack,
-                VerticalAlignment = VerticalAlignment.Stretch   // ← pridaj
+                Content = treeStack,
+                VerticalAlignment = VerticalAlignment.Stretch
             };
 
             var rawScroll = new ScrollViewer
             {
-                VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Background      = new SolidColorBrush(Color.FromRgb(5, 14, 8)),
-                BorderBrush     = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
+                Background = new SolidColorBrush(Color.FromRgb(5, 14, 8)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
                 BorderThickness = new Thickness(0, 1, 1, 1),
-                Content         = rawText,
-                VerticalAlignment = VerticalAlignment.Stretch   // ← pridaj
+                Content = rawText,
+                VerticalAlignment = VerticalAlignment.Stretch
             };
 
             Grid.SetColumn(treeScroll, 0);
-            Grid.SetColumn(rawScroll,  1);
+            Grid.SetColumn(rawScroll, 1);
             section.Children.Add(treeScroll);
             section.Children.Add(rawScroll);
             return section;
@@ -1405,14 +1414,6 @@ namespace MESInsight
             }
         }
 
-
-        private static string RecentPathFile => IOPath.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MESInsight", "recent.txt");
-
-        private static string StationCacheFile => IOPath.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MESInsight",
-            "station_cache.txt");
-
         public static void SaveRecentPath(string path, List<StationInfo> stations = null)
         {
             try
@@ -1436,7 +1437,8 @@ namespace MESInsight
                 var entry = new List<string> { "P:" + path };
                 if (stations != null)
                     foreach (var st in stations)
-                        entry.Add("  S:" + st.StationName + "|" + st.FolderPath + "|" + st.LineName + "|" + st.ComputerName);
+                        entry.Add("  S:" + st.StationName + "|" + st.FolderPath + "|" + st.LineName + "|" +
+                                  st.ComputerName);
                 lines.InsertRange(0, entry);
                 int pCount = 0, cutAt = lines.Count;
                 for (int j = 0; j < lines.Count; j++)
@@ -1473,13 +1475,14 @@ namespace MESInsight
                     else if (line.StartsWith("  S:") && current != null)
                     {
                         var p = line.Substring(4).Split(new[] { '|' }, 4);
-                        
-                        if (p.Length >= 2) current.Stations.Add((
-                            p[0],
-                            p[1],
-                            p.Length > 2 ? p[2] : "",
-                            p.Length > 3 ? p[3] : ""
-                        ));
+
+                        if (p.Length >= 2)
+                            current.Stations.Add((
+                                p[0],
+                                p[1],
+                                p.Length > 2 ? p[2] : "",
+                                p.Length > 3 ? p[3] : ""
+                            ));
                     }
                 }
             }
@@ -1580,7 +1583,9 @@ namespace MESInsight
         private class RecentEntry
         {
             public string Path { get; set; }
-            public List<(string Name, string FolderPath, string LineName, string ComputerName)> Stations { get; set; } = new List<(string, string, string, string)>();
+
+            public List<(string Name, string FolderPath, string LineName, string ComputerName)> Stations { get; set; } =
+                new List<(string, string, string, string)>();
         }
 
         public enum StartupMode
