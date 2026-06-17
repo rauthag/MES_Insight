@@ -84,7 +84,7 @@ namespace MESInsight
             TextBlock   totalSizeLabel, totalWarningLabel;
             Button      btnLoad      = BuildLoadButton();
             CheckBox    cbDateFilter = new CheckBox { IsChecked = true };
-
+            
             Grid root = BuildRootGrid(content, cbDateFilter, btnLoad,
                 out loadBar, out totalSizeLabel, out totalWarningLabel);
 
@@ -327,7 +327,7 @@ namespace MESInsight
 
                 int newDays = DayOptions[(int)Math.Round(ctx.GlobalSlider.Value)];
                 UpdateStationSizeLabels(ctx.AllEntries, ctx.FileCounts, newDays, ctx.TotalCount, ctx.PerStation);
-
+                
                 recalculate();
             };
 
@@ -342,7 +342,7 @@ namespace MESInsight
 
             int initDays = DayOptions[(int)Math.Round(ctx.GlobalSlider.Value)];
             UpdateStationSizeLabels(ctx.AllEntries, ctx.FileCounts, initDays, ctx.TotalCount, ctx.PerStation);
-
+            
             recalculate();
 
             _ramTimer       = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -464,7 +464,7 @@ namespace MESInsight
             totalWarningLabel.Text = "";
             btnLoad.IsEnabled      = true;
             btnLoad.ToolTip        = null;
-        }
+        } 
 
         private static long EstimateMbPerStation(Dictionary<int, MonthFileInfo> fileCounts, int currentDays, int totalStations)
         {
@@ -1046,17 +1046,21 @@ namespace MESInsight
             ramLabels.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             ramLabels.Children.Add(new TextBlock { Text = "Current RAM:", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(70, 110, 82)) });
             _ramValueLabel = new TextBlock { FontSize = 13, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
+           
             Grid.SetColumn(_ramValueLabel, 1);
             ramLabels.Children.Add(_ramValueLabel);
+            
             string totalRamText = totalRamMb >= 1024 ? (totalRamMb / 1024.0).ToString("0.#") + " GB total" : totalRamMb + " MB total";
             TextBlock totalRamLabel = new TextBlock { Text = totalRamText, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(60, 90, 70)) };
             Grid.SetColumn(totalRamLabel, 2);
+            
             ramLabels.Children.Add(totalRamLabel);
             stack.Children.Add(ramLabels);
 
             Grid ramBarOuter = new Grid { Height = 20, Margin = new Thickness(0, 0, 0, 4) };
             LinearGradientBrush ramBgBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
             LinearGradientBrush ramFgBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+            
             foreach (var (stop, r, g, b) in spectrumStops)
             {
                 ramBgBrush.GradientStops.Add(new GradientStop(Color.FromArgb(35, r, g, b), stop));

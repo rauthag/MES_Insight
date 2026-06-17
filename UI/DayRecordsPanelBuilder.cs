@@ -95,15 +95,15 @@ namespace MESInsight.UI
         }
 
         public void PopulateWithDayRecords(Border dayRecordsPanel, DateTime selectedDate,
-            List<ResponseRecord> recordsToDisplay, bool showingAllRecords)
+            List<ResponseRecord> recordsToDisplay, bool showingAllRecords, bool showType = false)
         {
             var layoutGrid = dayRecordsPanel.Child as Grid;
             if (layoutGrid == null) return;
 
             UpdateHeaderDateLabel(layoutGrid, selectedDate, showingAllRecords);
             RebuildSummaryStats(layoutGrid, recordsToDisplay);
-            WireSearchBox(layoutGrid, recordsToDisplay);
-            RebuildRecordCardList(layoutGrid, recordsToDisplay, "");
+            WireSearchBox(layoutGrid, recordsToDisplay, showType);
+            RebuildRecordCardList(layoutGrid, recordsToDisplay, "", showType);
         }
 
         public void AnimateSlideOpen(Border dayRecordsPanel, ColumnDefinition reservedPanelColumn)
@@ -353,7 +353,7 @@ namespace MESInsight.UI
             }
         }
 
-        private static void WireSearchBox(Grid layoutGrid, List<ResponseRecord> allRecords)
+        private static void WireSearchBox(Grid layoutGrid, List<ResponseRecord> allRecords, bool showType = false)
         {
             foreach (UIElement row in layoutGrid.Children)
             {
@@ -365,10 +365,8 @@ namespace MESInsight.UI
                 foreach (UIElement child in grid.Children)
                 {
                     if (!(child is TextBox tb)) continue;
-
                     tb.TextChanged += (s, e) =>
-                        RebuildRecordCardList(layoutGrid, allRecords, tb.Text.Trim());
-
+                        RebuildRecordCardList(layoutGrid, allRecords, tb.Text.Trim(), showType);
                     return;
                 }
             }
@@ -391,14 +389,15 @@ namespace MESInsight.UI
                 var p95Index = (int)Math.Ceiling(records.Count * 0.95) - 1;
                 var p95      = records.OrderBy(r => r.ResponseTime).ElementAt(p95Index).ResponseTime;
 
-                chipsContainer.Children.Add(BuildStatChip("Records", records.Count.ToString(), Color.FromRgb(56, 139, 253)));
-                chipsContainer.Children.Add(BuildStatChip("AVG", avg.ToString("F0") + "ms", Color.FromRgb(46, 160, 67)));
-                chipsContainer.Children.Add(BuildStatChip("P95", p95 + "ms", Color.FromRgb(188, 140, 255)));
+                chipsContainer.Children.Add(BuildStatChip("Records", records.Count.ToString(),          Color.FromRgb(56, 139, 253)));
+                chipsContainer.Children.Add(BuildStatChip("AVG",     avg.ToString("F0") + "ms",         Color.FromRgb(46, 160, 67)));
+                chipsContainer.Children.Add(BuildStatChip("P95",     p95 + "ms",                        Color.FromRgb(188, 140, 255)));
                 return;
             }
         }
 
-        private static void RebuildRecordCardList(Grid layoutGrid, List<ResponseRecord> allRecords, string searchText)
+        private static void RebuildRecordCardList(Grid layoutGrid, List<ResponseRecord> allRecords,
+            string searchText, bool showType = false)
         {
             var recordsList = FindRecordsList(layoutGrid);
             if (recordsList == null) return;
@@ -407,19 +406,21 @@ namespace MESInsight.UI
                 ? allRecords.OrderBy(r => r.TimestampParsed).ToList()
                 : allRecords
                     .Where(r =>
-                        (r.Uid         != null && r.Uid.IndexOf(searchText,         StringComparison.OrdinalIgnoreCase) >= 0) ||
-                        (r.UidIn       != null && r.UidIn.IndexOf(searchText,       StringComparison.OrdinalIgnoreCase) >= 0) ||
-                        (r.Material    != null && r.Material.IndexOf(searchText,    StringComparison.OrdinalIgnoreCase) >= 0) ||
-                        (r.Result      != null && r.Result.IndexOf(searchText,      StringComparison.OrdinalIgnoreCase) >= 0) ||
-                        (r.CarrierId   != null && r.CarrierId.IndexOf(searchText,   StringComparison.OrdinalIgnoreCase) >= 0))
+                        (r.Uid       != null && r.Uid.IndexOf(searchText,       StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (r.UidIn     != null && r.UidIn.IndexOf(searchText,     StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (r.Material  != null && r.Material.IndexOf(searchText,  StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (r.Result    != null && r.Result.IndexOf(searchText,    StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (r.CarrierId != null && r.CarrierId.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (showType    && r.Type.ToString().IndexOf(searchText,   StringComparison.OrdinalIgnoreCase) >= 0))
                     .OrderBy(r => r.TimestampParsed)
                     .ToList();
 
             recordsList.Children.Clear();
-            RenderRecordPage(recordsList, filtered, 0);
+            RenderRecordPage(recordsList, filtered, 0, showType);
         }
 
-        private static void RenderRecordPage(StackPanel recordsList, List<ResponseRecord> records, int offset)
+        private static void RenderRecordPage(StackPanel recordsList, List<ResponseRecord> records,
+            int offset, bool showType = false)
         {
             int total = records.Count;
             int end   = Math.Min(offset + PageSize, total);
@@ -455,7 +456,7 @@ namespace MESInsight.UI
                 });
 
             for (int i = offset; i < end; i++)
-                recordsList.Children.Add(BuildRecordCard(records[i]));
+                recordsList.Children.Add(BuildRecordCard(records[i], showType));
 
             if (end < total)
             {
@@ -482,7 +483,7 @@ namespace MESInsight.UI
                 loadMoreBtn.MouseLeftButtonUp += (s, e) =>
                 {
                     recordsList.Children.Remove(loadMoreBtn);
-                    RenderRecordPage(recordsList, records, capturedOffset);
+                    RenderRecordPage(recordsList, records, capturedOffset, showType);
                 };
 
                 recordsList.Children.Add(loadMoreBtn);
@@ -512,16 +513,29 @@ namespace MESInsight.UI
                 Margin          = new Thickness(0, 0, 6, 4)
             };
             var contentRow = new StackPanel { Orientation = Orientation.Horizontal };
-            contentRow.Children.Add(new TextBlock { Text = labelText + " ", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158)) });
-            contentRow.Children.Add(new TextBlock { Text = valueText, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromArgb(220, accentColor.R, accentColor.G, accentColor.B)) });
+            contentRow.Children.Add(new TextBlock
+            {
+                Text       = labelText + " ",
+                FontSize   = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158))
+            });
+            contentRow.Children.Add(new TextBlock
+            {
+                Text       = valueText,
+                FontSize   = 11,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromArgb(220, accentColor.R, accentColor.G, accentColor.B))
+            });
             chipBorder.Child = contentRow;
             return chipBorder;
         }
 
-        private static Border BuildRecordCard(ResponseRecord record)
+        private static Border BuildRecordCard(ResponseRecord record, bool showType = false)
         {
             var responseTimeIsSlow = record.ResponseTime > 100;
-            var accentColor        = responseTimeIsSlow ? Color.FromRgb(248, 81, 73) : Color.FromRgb(56, 139, 253);
+            var accentColor = responseTimeIsSlow
+                ? Color.FromRgb(248, 81, 73)
+                : Color.FromRgb(56, 139, 253);
 
             var cardBorder = new Border
             {
@@ -538,25 +552,66 @@ namespace MESInsight.UI
             twoColumnLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var leftColumn   = new StackPanel();
-            var timestampRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
-            timestampRow.Children.Add(new TextBlock { Text = record.TimestampParsed.ToString("HH:mm:ss.fff"), FontSize = 11, FontFamily = new FontFamily("Consolas"), Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158)) });
+            var timestampRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin      = new Thickness(0, 0, 0, 4)
+            };
+            timestampRow.Children.Add(new TextBlock
+            {
+                Text       = record.TimestampParsed.ToString("HH:mm:ss.fff"),
+                FontSize   = 11,
+                FontFamily = new FontFamily("Consolas"),
+                Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158))
+            });
+
+            if (showType)
+            {
+                var typeColor = GetMessageTypeColor(record.Type);
+                timestampRow.Children.Add(new Border
+                {
+                    Background      = new SolidColorBrush(Color.FromArgb(30, typeColor.R, typeColor.G, typeColor.B)),
+                    BorderBrush     = new SolidColorBrush(Color.FromArgb(120, typeColor.R, typeColor.G, typeColor.B)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius    = new CornerRadius(3),
+                    Padding         = new Thickness(5, 1, 5, 1),
+                    Margin          = new Thickness(8, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Child           = new TextBlock
+                    {
+                        Text       = record.Type.ToString().Replace("_", " "),
+                        FontSize   = 9,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromArgb(200, typeColor.R, typeColor.G, typeColor.B))
+                    }
+                });
+            }
+
             leftColumn.Children.Add(timestampRow);
 
-            if (!string.IsNullOrEmpty(record.Uid))      leftColumn.Children.Add(BuildRecordFieldRow("UID",      record.Uid));
-            if (!string.IsNullOrEmpty(record.Material)) leftColumn.Children.Add(BuildRecordFieldRow("Material", record.Material));
-            if (!string.IsNullOrEmpty(record.CarrierId))leftColumn.Children.Add(BuildRecordFieldRow("Carrier",  record.CarrierId));
-            if (!string.IsNullOrEmpty(record.Result))   leftColumn.Children.Add(BuildRecordFieldRow("Result",   record.Result));
+            if (!string.IsNullOrEmpty(record.Uid))       leftColumn.Children.Add(BuildRecordFieldRow("UID",      record.Uid));
+            if (!string.IsNullOrEmpty(record.UidIn))     leftColumn.Children.Add(BuildRecordFieldRow("UID In",   record.UidIn));
+            if (!string.IsNullOrEmpty(record.Material))  leftColumn.Children.Add(BuildRecordFieldRow("Material", record.Material));
+            if (!string.IsNullOrEmpty(record.CarrierId)) leftColumn.Children.Add(BuildRecordFieldRow("Carrier",  record.CarrierId));
+            if (!string.IsNullOrEmpty(record.Result))    leftColumn.Children.Add(BuildRecordFieldRow("Result",   record.Result));
 
             var responseTimeBadge = new Border
             {
-                Background      = new SolidColorBrush(Color.FromArgb(40, accentColor.R, accentColor.G, accentColor.B)),
-                BorderBrush     = new SolidColorBrush(Color.FromArgb(100, accentColor.R, accentColor.G, accentColor.B)),
-                BorderThickness = new Thickness(1),
-                CornerRadius    = new CornerRadius(6),
-                Padding         = new Thickness(8, 4, 8, 4),
+                Background        = new SolidColorBrush(Color.FromArgb(40, accentColor.R, accentColor.G, accentColor.B)),
+                BorderBrush       = new SolidColorBrush(Color.FromArgb(100, accentColor.R, accentColor.G, accentColor.B)),
+                BorderThickness   = new Thickness(1),
+                CornerRadius      = new CornerRadius(6),
+                Padding           = new Thickness(8, 4, 8, 4),
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin          = new Thickness(8, 0, 0, 0),
-                Child           = new TextBlock { Text = record.ResponseTime + "ms", FontSize = 13, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromArgb(220, accentColor.R, accentColor.G, accentColor.B)), HorizontalAlignment = HorizontalAlignment.Center }
+                Margin            = new Thickness(8, 0, 0, 0),
+                Child             = new TextBlock
+                {
+                    Text                = record.ResponseTime + "ms",
+                    FontSize            = 13,
+                    FontWeight          = FontWeights.Bold,
+                    Foreground          = new SolidColorBrush(Color.FromArgb(220, accentColor.R, accentColor.G, accentColor.B)),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                }
             };
 
             Grid.SetColumn(leftColumn,        0);
@@ -567,11 +622,43 @@ namespace MESInsight.UI
             return cardBorder;
         }
 
+        private static Color GetMessageTypeColor(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_INFO:         return Color.FromRgb(56,  139, 253);
+                case MessageType.NEXT_OPERATION:    return Color.FromRgb(63,  185,  80);
+                case MessageType.UNIT_CHECKIN:      return Color.FromRgb(88,  166, 255);
+                case MessageType.UNIT_RESULT:       return Color.FromRgb(46,  160,  67);
+                case MessageType.LOAD_MATERIAL:     return Color.FromRgb(210, 153,  34);
+                case MessageType.REQ_MATERIAL_INFO: return Color.FromRgb(188, 140, 255);
+                case MessageType.REQ_SETUP_CHANGE2: return Color.FromRgb(255, 123,  89);
+                case MessageType.SEMI_VALIDATION2:  return Color.FromRgb(240, 196,  48);
+                default:                            return Color.FromRgb(139, 148, 158);
+            }
+        }
+
         private static StackPanel BuildRecordFieldRow(string fieldLabel, string fieldValue)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
-            row.Children.Add(new TextBlock { Text = fieldLabel + ": ", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129)), MinWidth = 50 });
-            row.Children.Add(new TextBlock { Text = fieldValue, FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217)), TextWrapping = TextWrapping.NoWrap });
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin      = new Thickness(0, 2, 0, 0)
+            };
+            row.Children.Add(new TextBlock
+            {
+                Text       = fieldLabel + ": ",
+                FontSize   = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129)),
+                MinWidth   = 55
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text        = fieldValue,
+                FontSize    = 11,
+                Foreground  = new SolidColorBrush(Color.FromRgb(201, 209, 217)),
+                TextWrapping = TextWrapping.NoWrap
+            });
             return row;
         }
     }

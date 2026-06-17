@@ -14,6 +14,7 @@ using System.Windows.Media;
 using LiveCharts.Wpf;
 using MESInsight.Charts;
 using RTAnalyzer.Core;
+using ScottPlot.WPF;
 
 namespace MESInsight
 {
@@ -72,7 +73,7 @@ namespace MESInsight
         private readonly StatsCalculator _statsCalculator = new StatsCalculator();
         private readonly DayRecordsPanelBuilder _dayRecordsPanelBuilder = new DayRecordsPanelBuilder();
         private ChartFactory _chartFactory;
-        private TrendChartRenderer _trendChartRenderer;
+        private ScottPlotTrendChartRenderer _scottPlotRenderer;
 
         private List<ResponseRecord> _allRecords = new List<ResponseRecord>();
         private List<ResponseRecord> _filteredRecords = new List<ResponseRecord>();
@@ -95,11 +96,8 @@ namespace MESInsight
         private Dictionary<MessageType, (Border panel, ColumnDefinition col, bool open)> _dayRecordsPanelByMessageType =
             new Dictionary<MessageType, (Border, ColumnDefinition, bool)>();
 
-        private Dictionary<MessageType, CartesianChart> _trendChartByMessageType =
-            new Dictionary<MessageType, CartesianChart>();
-
-        private Dictionary<MessageType, LiveCharts.Wpf.AxisSection> _selectedDayHighlightByMessageType =
-            new Dictionary<MessageType, LiveCharts.Wpf.AxisSection>();
+        private Dictionary<MessageType, WpfPlot> _scottPlotByMessageType =
+            new Dictionary<MessageType, WpfPlot>();
 
         private Dictionary<MessageType, (Border container, StackPanel panel)> _timelineContainerByMessageType =
             new Dictionary<MessageType, (Border, StackPanel)>();
@@ -110,9 +108,18 @@ namespace MESInsight
         private bool _bgLoadingRunning = false;
         private System.Threading.CancellationTokenSource _bgCts = null;
         private Canvas _toastCanvas;
-        
-        private readonly UidIndex _uidIndex = new UidIndex();
 
+        private Dictionary<MessageType, CartesianChart> _trendChartByMessageType =
+            new Dictionary<MessageType, CartesianChart>();
+
+        private Dictionary<MessageType, LiveCharts.Wpf.AxisSection> _selectedDayHighlightByMessageType =
+            new Dictionary<MessageType, LiveCharts.Wpf.AxisSection>();
+
+        private Dictionary<MessageType, UIElement> _renderedChartCache = new Dictionary<MessageType, UIElement>();
+
+        private readonly UidIndex _uidIndex = new UidIndex();
+        private bool _isCyclingTabs = false;
+        
         public event PropertyChangedEventHandler PropertyChanged;
 
         #endregion
@@ -131,12 +138,12 @@ namespace MESInsight
                 _dayRecordsPanelByMessageType,
                 _trendChartByMessageType,
                 _selectedDayHighlightByMessageType,
+                _scottPlotByMessageType,
                 _timelineContainerByMessageType,
                 _recordsGroupedByDay,
                 _filteredRecords,
                 OnShowAllRecordsRequested);
-
-            _trendChartRenderer = _chartFactory.GetRenderer(ChartType.Trend) as TrendChartRenderer;
+            _scottPlotRenderer = _chartFactory.GetRenderer(ChartType.Trend) as ScottPlotTrendChartRenderer;
 
             Loaded += (s, e) =>
             {
@@ -209,7 +216,6 @@ namespace MESInsight
 
             ClassifyStations(allStations);
             HideLoadingOverlay();
-
 
             (List<StationInfo> ghp, List<StationInfo> lcs, List<StationInfo> backflush, List<StationInfo> connectors)
                 = SplitByCategory(allStations);
@@ -322,7 +328,7 @@ namespace MESInsight
                 ? DateTime.Now.AddDays(-optDlg.MaxDays)
                 : (DateTime?)null;
         }
-        
+
         private List<StationInfo> FilterSelectedStations(List<StationInfo> all, LoadOptionsDialog optDlg)
         {
             return all.Where(s =>
@@ -750,14 +756,12 @@ namespace MESInsight
                 DropRecordsFromCache(st.FolderPath);
             }
 
-            // Remove stations with no records
             _loadedStations = _loadedStations
                 .Where(s => _stationDataCache.ContainsKey(s.FolderPath) &&
                             _stationDataCache[s.FolderPath].records.Count > 0)
                 .ToList();
 
             DataLoader.DeduplicateNames(_loadedStations);
-
 
             _isBackgroundLoading = false;
             HideLoadingOverlay();
@@ -838,13 +842,6 @@ namespace MESInsight
             return win;
         }
 
-        // WIP: Skip station — not functional yet
-        // private void BtnSkipStation_Click(object sender, RoutedEventArgs e)
-        // {
-        //     _isOverlayMinimized = true;
-        //     LoadingOverlay.Visibility = Visibility.Collapsed;
-        // }
-
         private void BtnMinimizeLoadingOverlay_Click(object sender, RoutedEventArgs e)
         {
             _isOverlayMinimized = true;
@@ -905,6 +902,7 @@ namespace MESInsight
                     new Dictionary<MessageType, (Border, ColumnDefinition, bool)>(),
                     new Dictionary<MessageType, CartesianChart>(),
                     new Dictionary<MessageType, LiveCharts.Wpf.AxisSection>(),
+                    new Dictionary<MessageType, WpfPlot>(),
                     new Dictionary<MessageType, (Border, StackPanel)>(),
                     new Dictionary<DateTime, List<ResponseRecord>>(),
                     new List<ResponseRecord>(),
@@ -926,7 +924,45 @@ namespace MESInsight
                         result[(messageType, chartType)] = data;
                 }
 
-                await Task.Yield();
+                await Task.Delay(1);
+
+                var scottData = _chartFactory.BuildSingleScottPlot(input);
+                if (scottData != null)
+                {
+                    if (result.ContainsKey((messageType, ChartType.Trend)))
+                        result[(messageType, ChartType.Trend)].ScottPlotTrend = scottData.ScottPlotTrend;
+                    else
+                        result[(messageType, ChartType.Trend)] = scottData;
+                }
+            }
+
+            if (records.Count >= 2)
+            {
+                double avg = records.Average(r => (double)r.ResponseTime);
+                double stdDev = Math.Sqrt(records.Average(r => Math.Pow(r.ResponseTime - avg, 2)));
+                var sorted = records.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
+                var byDay = records
+                    .Where(r => r.TimestampParsed != DateTime.MinValue)
+                    .GroupBy(r => r.TimestampParsed.Date)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+                var allInput = new MESInsight.Charts.ChartInputData
+                {
+                    Records = records,
+                    MessageType = MessageType.ALL,
+                    Average = avg,
+                    StdDev = stdDev,
+                    P95 = sorted[(int)(sorted.Count * 0.95)],
+                    P99 = sorted[(int)(sorted.Count * 0.99)],
+                    GroupedByDay = byDay
+                };
+                var allScott = _chartFactory.BuildSingleScottPlot(allInput);
+                if (allScott?.ScottPlotTrend != null)
+                {
+                    if (result.ContainsKey((MessageType.ALL, ChartType.Trend)))
+                        result[(MessageType.ALL, ChartType.Trend)].ScottPlotTrend = allScott.ScottPlotTrend;
+                    else
+                        result[(MessageType.ALL, ChartType.Trend)] = allScott;
+                }
             }
 
             return result;
@@ -1094,7 +1130,7 @@ namespace MESInsight
                 result = true;
                 dialog.Close();
             };
-            
+
             Button btnCancel = new Button
             {
                 Content = "Cancel — do not load",
@@ -1172,7 +1208,9 @@ namespace MESInsight
                 cached = await ReloadRecordsFromDisk(station, cached.stationName);
 
             _allRecords = cached.records;
-            
+
+            await Task.Run(() => _uidIndex.Build(_allRecords));
+
             string displayName = !string.IsNullOrEmpty(station.LineName)
                 ? station.LineName + "  ·  " + cached.stationName
                 : cached.stationName;
@@ -1181,8 +1219,7 @@ namespace MESInsight
 
             _tabsUserHasAlreadySeen.Clear();
             _dayRecordsPanelByMessageType.Clear();
-            _trendChartByMessageType.Clear();
-            _selectedDayHighlightByMessageType.Clear();
+            _scottPlotByMessageType.Clear();
             _timelineContainerByMessageType.Clear();
             _recordsGroupedByDay.Clear();
 
@@ -1191,12 +1228,13 @@ namespace MESInsight
                 _dayRecordsPanelByMessageType,
                 _trendChartByMessageType,
                 _selectedDayHighlightByMessageType,
+                _scottPlotByMessageType,
                 _timelineContainerByMessageType,
                 _recordsGroupedByDay,
                 _filteredRecords,
                 OnShowAllRecordsRequested);
 
-            _trendChartRenderer = _chartFactory.GetRenderer(ChartType.Trend) as TrendChartRenderer;
+            _scottPlotRenderer = _chartFactory.GetRenderer(ChartType.Trend) as ScottPlotTrendChartRenderer;
 
             _chartCache.Clear();
 
@@ -1206,7 +1244,23 @@ namespace MESInsight
 
             SetDatePickersToFullDataRange();
             await RefreshChartsAndStatsWithLoadingOverlay();
+
+            // ShowLoadingOverlay(TxtStationName.Text, "Prerendering charts...", 95);
+            // await PreRenderAllTabs();
+
             SwitchToTabWithMostRecordsIfNeeded();
+        }
+
+        private async Task PreRenderAllTabs()
+        {
+            foreach (var mt in GetAllSupportedMessageTypes())
+            {
+                if (!_renderedChartCache.ContainsKey(mt))
+                {
+                    PreRenderChartForMessageType(mt);
+                    await Task.Delay(10);
+                }
+            }
         }
 
         private void SwitchToTabWithMostRecordsIfNeeded()
@@ -1296,20 +1350,17 @@ namespace MESInsight
         private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateSidebarStats();
-            PlayChartRevealAnimationFirstTimeUserVisitsTab();
-        }
 
-        private void PlayChartRevealAnimationFirstTimeUserVisitsTab()
-        {
-            if (!(MainTabControl.SelectedItem is TabItem tab) || tab.Tag == null) return;
-            MessageType? type = TryParseMessageType(tab.Tag.ToString());
-            if (type == null || !_trendChartByMessageType.ContainsKey(type.Value)) return;
-            if (_tabsUserHasAlreadySeen.Contains(type.Value)) return;
+            if (!(MainTabControl.SelectedItem is TabItem tab)) return;
+            var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
+            if (!type.HasValue) return;
 
-            _tabsUserHasAlreadySeen.Add(type.Value);
-            var chart = _trendChartByMessageType[type.Value];
-            var clipRect = new System.Windows.Media.RectangleGeometry();
-            TrendChartRenderer.PlayRevealAnimation(chart, clipRect, 2000);
+            var panel = GetChartPanelForMessageType(type.Value);
+            if (panel != null && panel.Children.Count == 0)
+                RenderCachedChartForMessageType(type.Value);
+
+            if (!_isCyclingTabs)
+                _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(type.Value);
         }
 
         private void CmbFilterMessageType_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1333,7 +1384,9 @@ namespace MESInsight
             if (!_dayRecordsPanelByMessageType.ContainsKey(messageType)) return;
             var state = _dayRecordsPanelByMessageType[messageType];
 
-            var records = _filteredRecords.Where(r => r.Type == messageType).ToList();
+            var records = messageType == MessageType.ALL
+                ? _filteredRecords.ToList()
+                : _filteredRecords.Where(r => r.Type == messageType).ToList();
             if (records.Count == 0)
             {
                 MessageBox.Show("No records to display", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1351,7 +1404,7 @@ namespace MESInsight
             }
 
             _dayRecordsPanelBuilder.PopulateWithDayRecords(state.panel, DateTime.Today, records,
-                showingAllRecords: true);
+                showingAllRecords: true, showType: messageType == MessageType.ALL);
         }
 
         #endregion
@@ -1416,6 +1469,9 @@ namespace MESInsight
 
             await RenderAllCachedChartsToUI();
 
+            // await CycleThroughAllTabsToTriggerWpfLayoutRendering();
+
+
             ShowLoadingOverlay(station, "Updating records table and statistics...", 95);
 
             await Task.Yield();
@@ -1423,11 +1479,6 @@ namespace MESInsight
             GridRecords.ItemsSource = _filteredRecords;
             UpdateSidebarStats();
             UpdateTabHighlightsForActiveFilter();
-
-            // ShowLoadingOverlay(station, "Preloading charts for all tabs...", 100,
-            //     detail: "Cycling through " + GetAllSupportedMessageTypes().Length + " message type tabs");
-            //
-            // await CycleThroughAllTabsToTriggerWpfLayoutRendering();
 
             HideLoadingOverlay();
         }
@@ -1466,6 +1517,12 @@ namespace MESInsight
                     if (!string.IsNullOrEmpty(filterCarrierId) &&
                         (r.CarrierId == null || !r.CarrierId.Contains(filterCarrierId))) continue;
                     if (!string.IsNullOrEmpty(filterResult) && r.Result != filterResult) continue;
+                    if (!string.IsNullOrEmpty(filterUid) &&
+                        (r.Uid == null || !r.Uid.Contains(filterUid)) &&
+                        !(r.Type == MessageType.SEMI_VALIDATION2 && r.UidAssy != null &&
+                          r.UidAssy.Contains(filterUid)) &&
+                        !(r.Type == MessageType.SEMI_VALIDATION2 && r.UidIn != null && r.UidIn.Contains(filterUid)))
+                        continue;
                     _filteredRecords.Add(r);
                 }
 
@@ -1542,6 +1599,7 @@ namespace MESInsight
                 if (!preparedInputs.TryGetValue(messageType, out var input)) continue;
                 if (input.Records.Count == 0) continue;
 
+
                 string typeName = messageType.ToString().Replace("_", " ");
 
                 foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
@@ -1568,6 +1626,46 @@ namespace MESInsight
                 "Chart cache built  —  " + doneCount + " charts ready",
                 80,
                 detail: "Cached:  " + _chartCache.Count + " charts  ·  " + nonEmpty + " message types");
+
+            if (_filteredRecords.Count >= 2)
+            {
+                var allScott = await Task.Run(() =>
+                {
+                    double avg = _filteredRecords.Average(r => (double)r.ResponseTime);
+                    double stdDev = Math.Sqrt(_filteredRecords.Average(r => Math.Pow(r.ResponseTime - avg, 2)));
+                    var sorted = _filteredRecords.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
+                    int p95 = sorted[(int)(sorted.Count * 0.95)];
+                    int p99 = sorted[(int)(sorted.Count * 0.99)];
+                    var allInput = new MESInsight.Charts.ChartInputData
+                    {
+                        Records = _filteredRecords,
+                        MessageType = MessageType.ALL,
+                        Average = avg,
+                        StdDev = stdDev,
+                        P95 = p95,
+                        P99 = p99,
+                        GroupedByDay = _recordsGroupedByDay
+                    };
+                    return _chartFactory.BuildSingleScottPlot(allInput);
+                });
+                if (allScott?.ScottPlotTrend != null)
+                {
+                    if (_chartCache.ContainsKey((MessageType.ALL, ChartType.Trend)))
+                        _chartCache[(MessageType.ALL, ChartType.Trend)].ScottPlotTrend = allScott.ScottPlotTrend;
+                    else
+                        _chartCache[(MessageType.ALL, ChartType.Trend)] = allScott;
+                }
+
+                var allTimelineInput = new MESInsight.Charts.ChartInputData
+                {
+                    Records = _filteredRecords,
+                    MessageType = MessageType.ALL,
+                    GroupedByDay = _recordsGroupedByDay
+                };
+                var allTimeline = _chartFactory.BuildSingle(ChartType.Timeline, allTimelineInput);
+                if (allTimeline != null)
+                    _chartCache[(MessageType.ALL, ChartType.Timeline)] = allTimeline;
+            }
         }
 
         private async Task RenderAllCachedChartsToUI()
@@ -1575,54 +1673,70 @@ namespace MESInsight
             string station = TxtStationName.Text;
             var types = GetAllSupportedMessageTypes();
 
+            _renderedChartCache.Clear();
+
+            foreach (var mt in types)
+            {
+                var panel = GetChartPanelForMessageType(mt);
+                panel?.Children.Clear();
+            }
+
             ShowLoadingOverlay(station, "Rendering charts to UI...", 82,
                 detail: "Writing " + _chartCache.Count + " charts into " + types.Length + " tabs");
 
-            for (int i = 0; i < types.Length; i++)
-            {
-                var mt = types[i];
-                ShowLoadingOverlay(station,
-                    "Rendering  " + mt.ToString().Replace("_", " "),
-                    82 + (i * 5 / types.Length), 
-                    detail: "Tab " + (i + 1) + " / " + types.Length + "  —  " + mt.ToString().Replace("_", " "));
-                RenderCachedChartForMessageType(mt);
-                await Task.Delay(1);
-            }
-
-            ShowLoadingOverlay(station, "Initializing timelines...", 87,
-                detail: "Setting first available day for each tab");
-            foreach (var mt in types)
-                _trendChartRenderer.InitializeTimelineWithFirstAvailableDay(mt);
+            var activeType = GetActiveMessageType();
+            if (activeType.HasValue)
+                RenderCachedChartForMessageType(activeType.Value);
 
             Dispatcher.BeginInvoke(new Action(UpdateTabEmptyState),
                 System.Windows.Threading.DispatcherPriority.Background);
+
+            await Task.Delay(1);
         }
 
-        private async Task CycleThroughAllTabsToTriggerWpfLayoutRendering()
+        private void PreRenderChartForMessageType(MessageType messageType)
         {
-            var originalTab = MainTabControl.SelectedItem;
-
-            foreach (var messageType in GetAllSupportedMessageTypes())
+            if (messageType == MessageType.ALL) return;
+            try
             {
-                foreach (TabItem tab in MainTabControl.Items)
-                    if (tab.Tag?.ToString() == messageType.ToString())
-                    {
-                        MainTabControl.SelectedItem = tab;
-                        break;
-                    }
+                double availableHeight = ActualHeight - 160;
+                var context = new RenderContext
+                    { AvailableHeightPixels = (int)availableHeight, MessageType = messageType };
 
-                await Task.Delay(20);
+                _chartCache.TryGetValue((messageType, ChartType.Trend), out ChartData trendData);
+                _chartCache.TryGetValue((messageType, ChartType.Histogram), out ChartData histogramData);
+
+                if (trendData?.ScottPlotTrend == null &&
+                    (histogramData?.Charts == null || histogramData.Charts.Count == 0))
+                    return;
+
+                var wrapper = new StackPanel();
+
+                if (trendData?.ScottPlotTrend != null)
+                    wrapper.Children.Add(_chartFactory.RenderScottPlot(trendData, context));
+
+                if (histogramData?.Charts != null && histogramData.Charts.Count > 0)
+                    wrapper.Children.Add(_chartFactory.Render(ChartType.Histogram, histogramData, context));
+
+                _renderedChartCache[messageType] = wrapper;
             }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("PreRender error for " + messageType + ": " + ex.Message);
+            }
+        }
 
-            _tabsUserHasAlreadySeen.Clear();
-            MainTabControl.SelectedItem = originalTab;
+        private MessageType? GetActiveMessageType()
+        {
+            if (!(MainTabControl.SelectedItem is TabItem tab)) return null;
+            return TryParseMessageType(tab.Tag?.ToString() ?? "");
         }
 
         private MessageType[] GetAllSupportedMessageTypes() => new[]
         {
             MessageType.UNIT_INFO, MessageType.NEXT_OPERATION, MessageType.UNIT_CHECKIN,
             MessageType.UNIT_RESULT, MessageType.LOAD_MATERIAL,
-            MessageType.REQ_MATERIAL_INFO, MessageType.REQ_SETUP_CHANGE2
+            MessageType.REQ_MATERIAL_INFO, MessageType.REQ_SETUP_CHANGE2, MessageType.SEMI_VALIDATION2
         };
 
         #endregion
@@ -1635,6 +1749,15 @@ namespace MESInsight
             {
                 var targetPanel = GetChartPanelForMessageType(messageType);
                 if (targetPanel == null) return;
+
+                if (_renderedChartCache.ContainsKey(messageType))
+                {
+                    if (targetPanel.Children.Count == 0)
+                        targetPanel.Children.Add(_renderedChartCache[messageType]);
+                    _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(messageType);
+                    return;
+                }
+
                 targetPanel.Children.Clear();
 
                 double availableHeight = ActualHeight - 160;
@@ -1644,17 +1767,56 @@ namespace MESInsight
                 _chartCache.TryGetValue((messageType, ChartType.Trend), out ChartData trendData);
                 _chartCache.TryGetValue((messageType, ChartType.Histogram), out ChartData histogramData);
 
-                if (trendData?.TrendChart != null)
-                    targetPanel.Children.Add(_chartFactory.Render(ChartType.Trend, trendData, context));
+                var wrapper = new StackPanel();
+
+                if (trendData?.ScottPlotTrend != null)
+                    wrapper.Children.Add(_chartFactory.RenderScottPlot(trendData, context));
 
                 if (histogramData?.Charts != null && histogramData.Charts.Count > 0)
-                    targetPanel.Children.Add(_chartFactory.Render(ChartType.Histogram, histogramData, context));
+                    wrapper.Children.Add(_chartFactory.Render(ChartType.Histogram, histogramData, context));
+
+                _renderedChartCache[messageType] = wrapper;
+                targetPanel.Children.Add(wrapper);
+
+                var scrollViewer = FindParentScrollViewer(targetPanel);
+                if (scrollViewer != null)
+                {
+                    scrollViewer.PreviewMouseWheel += (s, e) =>
+                    {
+                        if (IsMouseOverWpfPlot(targetPanel))
+                            e.Handled = true;
+                    };
+                }
+
+                _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(messageType);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error displaying chart for {messageType}:\n\n{ex.Message}",
+                MessageBox.Show("Error displaying chart for " + messageType + ":\n\n" + ex.Message,
                     "Chart Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
+        }
+
+        private static ScrollViewer FindParentScrollViewer(DependencyObject child)
+        {
+            var parent = System.Windows.Media.VisualTreeHelper.GetParent(child);
+            if (parent == null) return null;
+            if (parent is ScrollViewer sv) return sv;
+            return FindParentScrollViewer(parent);
+        }
+
+        private bool IsMouseOverWpfPlot(StackPanel panel)
+        {
+            foreach (UIElement child in panel.Children)
+            {
+                if (child is StackPanel sp)
+                    foreach (UIElement c in sp.Children)
+                        if (c is WpfPlot w && w.IsMouseOver)
+                            return true;
+                if (child is WpfPlot wp && wp.IsMouseOver) return true;
+            }
+
+            return false;
         }
 
         private StackPanel GetChartPanelForMessageType(MessageType type)
@@ -1668,6 +1830,8 @@ namespace MESInsight
                 case MessageType.LOAD_MATERIAL: return PanelLoadMaterial;
                 case MessageType.REQ_MATERIAL_INFO: return PanelReqMaterialInfo;
                 case MessageType.REQ_SETUP_CHANGE2: return PanelReqSetupChange2;
+                case MessageType.SEMI_VALIDATION2: return PanelSemiValidation2;
+                case MessageType.ALL: return PanelAll;
                 default: return null;
             }
         }
@@ -1696,6 +1860,62 @@ namespace MESInsight
             TxtTabMax.Text = "Max Time: " + stats.Max + " ms";
             TxtTabStability.Text = stats.StabilityLabel + " (" + Math.Round(stats.CV, 1) + "%)";
             TxtTabStability.Foreground = new SolidColorBrush(stats.StabilityColor);
+
+            UpdatePassFailChart(type);
+        }
+
+        private void UpdatePassFailChart(MessageType type)
+        {
+            if (PassFailSection == null) return;
+
+            string GetResultField(ResponseRecord r)
+            {
+                if (type == MessageType.SEMI_VALIDATION2 || type == MessageType.SEMI_VALIDATION)
+                    return r.ProcDirAssy;
+                return r.Result;
+            }
+
+            var records = (type == MessageType.ALL)
+                ? _filteredRecords.ToList()
+                : _filteredRecords.Where(r => r.Type == type).ToList();
+            var withResult = records.Where(r => !string.IsNullOrEmpty(GetResultField(r))).ToList();
+
+            if (withResult.Count == 0)
+            {
+                PassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var passValues = new[] { "Y", "P", "G", "R" };
+            int pass = withResult.Count(r => passValues.Contains(GetResultField(r)?.ToUpper()));
+            int fail = withResult.Count - pass;
+
+            double passRate = pass * 100.0 / withResult.Count;
+            double failRate = fail * 100.0 / withResult.Count;
+
+            PassFailPieChart.Series = new LiveCharts.SeriesCollection
+            {
+                new LiveCharts.Wpf.PieSeries
+                {
+                    Title = "Pass",
+                    Values = new LiveCharts.ChartValues<double> { pass },
+                    Fill = new SolidColorBrush(Color.FromRgb(46, 160, 67)),
+                    DataLabels = false,
+                    LabelPoint = p => pass + " (" + passRate.ToString("F1") + "%)"
+                },
+                new LiveCharts.Wpf.PieSeries
+                {
+                    Title = "Fail",
+                    Values = new LiveCharts.ChartValues<double> { fail },
+                    Fill = new SolidColorBrush(Color.FromRgb(248, 81, 73)),
+                    DataLabels = false,
+                    LabelPoint = p => fail + " (" + failRate.ToString("F1") + "%)"
+                }
+            };
+
+            TxtPassRate.Text = "Pass: " + pass.ToString("N0") + "  (" + passRate.ToString("F1") + "%)";
+            TxtFailRate.Text = "Fail: " + fail.ToString("N0") + "  (" + failRate.ToString("F1") + "%)";
+            PassFailSection.Visibility = Visibility.Visible;
         }
 
         private void ClearSidebarStats()
@@ -1718,6 +1938,7 @@ namespace MESInsight
                 if (tab.Tag == null) continue;
                 var type = TryParseMessageType(tab.Tag.ToString());
                 if (type == null) continue;
+                if (tab.Tag.ToString() == "ALL") continue;
                 bool highlight = anyActive && _filteredRecords.Any(r => r.Type == type.Value);
                 tab.FontWeight = highlight ? FontWeights.Bold : FontWeights.Normal;
                 tab.FontSize = highlight ? 13 : 11;
@@ -1729,7 +1950,8 @@ namespace MESInsight
         private void UpdateTabEmptyState()
         {
             var tabs = MainTabControl.Items.OfType<TabItem>()
-                .Where(t => t.Tag != null && TryParseMessageType(t.Tag.ToString()) != null)
+                .Where(t => t.Tag != null && TryParseMessageType(t.Tag.ToString()) != null
+                                          && t.Tag.ToString() != "ALL")
                 .ToList();
 
             var withData = tabs.Where(t => HasRecordsForTab(t)).ToList();
@@ -1751,7 +1973,6 @@ namespace MESInsight
                 tab.FontSize = 10;
             }
 
-            // Move empty tabs to end
             int targetIndex = withData.Count;
             foreach (var tab in withoutData)
             {
@@ -1766,15 +1987,20 @@ namespace MESInsight
         {
             var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
             if (type == null) return false;
+            if (type.Value == MessageType.ALL) return _allRecords.Count > 0;
             return _allRecords.Any(r => r.Type == type.Value);
         }
 
         private void MoveTabTo(TabItem tab, int index)
         {
+            if (tab.Tag?.ToString() == "ALL") return;
             int current = MainTabControl.Items.IndexOf(tab);
             if (current < 0 || current == index) return;
+            int allIdx = MainTabControl.Items.OfType<TabItem>()
+                .Select((t, i) => new { t, i })
+                .FirstOrDefault(x => x.t.Tag?.ToString() == "ALL")?.i ?? MainTabControl.Items.Count;
             MainTabControl.Items.RemoveAt(current);
-            MainTabControl.Items.Insert(Math.Min(index, MainTabControl.Items.Count), tab);
+            MainTabControl.Items.Insert(Math.Min(index, allIdx), tab);
         }
 
         private MessageType? TryParseMessageType(string tag)
@@ -1972,7 +2198,6 @@ namespace MESInsight
             return btn;
         }
 
-
         private Canvas BuildChevron(StationInfo station, bool isFirst, bool isEmpty = false)
         {
             return StationChevron.Build(station, isFirst, isEmpty, new ChevronCallbacks
@@ -2066,7 +2291,6 @@ namespace MESInsight
 
         private bool _lazyLoadQueueRunning = false;
 
-
         private async Task EnqueueLazyLoad(StationInfo station)
         {
             if (_stationReadyGlow.Contains(station.FolderPath))
@@ -2123,17 +2347,8 @@ namespace MESInsight
                 _lazyLoadStations.Remove(station);
                 _stationLoadingState[station.FolderPath] = false;
 
-                if (result.Records.Count == 0)
-                {
-                    if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
-                        _loadedStations.Add(station);
-                }
-                else
-                {
-                    if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
-                        _loadedStations.Add(station);
+                if (result.Records.Count > 0)
                     _stationReadyGlow.Add(station.FolderPath);
-                }
 
                 await Dispatcher.InvokeAsync(() =>
                 {
@@ -2282,6 +2497,32 @@ namespace MESInsight
             }
         }
 
+        private async Task CycleThroughAllTabsToTriggerWpfLayoutRendering()
+        {
+            _isCyclingTabs = true;
+            var originalTab = MainTabControl.SelectedItem;
+
+            foreach (var messageType in GetAllSupportedMessageTypes())
+            {
+                foreach (TabItem tab in MainTabControl.Items)
+                    if (tab.Tag?.ToString() == messageType.ToString())
+                    {
+                        MainTabControl.SelectedItem = tab;
+                        break;
+                    }
+
+                await Task.Delay(20);
+            }
+
+            _tabsUserHasAlreadySeen.Clear();
+            MainTabControl.SelectedItem = originalTab;
+            _isCyclingTabs = false;
+
+            var activeType = GetActiveMessageType();
+            if (activeType.HasValue)
+                _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(activeType.Value);
+        }
+
         private void StartSkipButtonTimer()
         {
             _skipButtonTimer?.Stop();
@@ -2289,11 +2530,7 @@ namespace MESInsight
             {
                 Interval = TimeSpan.FromSeconds(5)
             };
-            _skipButtonTimer.Tick += (s, e) =>
-            {
-                _skipButtonTimer.Stop();
-                // WIP: BtnSkipStation not active yet
-            };
+            _skipButtonTimer.Tick += (s, e) => { _skipButtonTimer.Stop(); };
             _skipButtonTimer.Start();
         }
 
@@ -2302,7 +2539,6 @@ namespace MESInsight
             if (LoadingOverlay == null) return;
             LoadingOverlay.Visibility = Visibility.Collapsed;
             _skipButtonTimer?.Stop();
-            // WIP: BtnSkipStation not active yet
         }
 
         private void BtnCloseLoadingOverlay_Click(object sender, RoutedEventArgs e)
@@ -2408,35 +2644,6 @@ namespace MESInsight
 
             outer.Child = root;
             Content = outer;
-        }
-
-
-        private void CloseWithAnimation()
-        {
-            Border overlay = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
-                IsHitTestVisible = false
-            };
-
-            if (Content is Grid root)
-                root.Children.Add(overlay);
-
-            System.Windows.Threading.DispatcherTimer timer = new System.Windows.Threading.DispatcherTimer
-                { Interval = TimeSpan.FromMilliseconds(16) };
-
-            byte alpha = 0;
-            timer.Tick += (s, e) =>
-            {
-                alpha = (byte)Math.Min(255, alpha + 18);
-                overlay.Background = new SolidColorBrush(Color.FromArgb(alpha, 5, 15, 8));
-                if (alpha >= 255)
-                {
-                    timer.Stop();
-                    WindowAnimations.FadeOutAndClose(this, true);
-                }
-            };
-            timer.Start();
         }
     }
 }

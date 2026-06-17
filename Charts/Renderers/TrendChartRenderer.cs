@@ -132,15 +132,6 @@ namespace MESInsight.Charts.Renderers
                 panel.Children.Add(element);
         }
 
-        public void InitializeTimelineWithFirstAvailableDay(MessageType messageType)
-        {
-            if (_recordsGroupedByDay.Count == 0) return;
-
-            if (!_timelineContainerByMessageType.ContainsKey(messageType)) return;
-
-            UpdateTimelineForDay(messageType, _recordsGroupedByDay.Keys.OrderBy(d => d).First());
-        }
-
         private Grid ArrangeChartWithOverlaysAndMonthBar(CartesianChart trendChart, ChartSeries trendChartSeries)
         {
             var container = new Grid();
@@ -255,7 +246,9 @@ namespace MESInsight.Charts.Renderers
                 UpdateTimelineForDay(messageType, realDate);
 
                 var recordsForDay = _recordsGroupedByDay.TryGetValue(realDate.Date, out var allForDay)
-                    ? allForDay.Where(r => r.Type == messageType).ToList()
+                    ? (messageType == MessageType.ALL
+                        ? allForDay.ToList()
+                        : allForDay.Where(r => r.Type == messageType).ToList())
                     : new List<ResponseRecord>();
 
                 var currentState = _dayRecordsPanelByMessageType[messageType];
@@ -278,7 +271,9 @@ namespace MESInsight.Charts.Renderers
         private void OpenDayDetailWindow(DateTime day, MessageType messageType)
         {
             var records = _recordsGroupedByDay.TryGetValue(day.Date, out var allForDay)
-                ? allForDay.Where(r => r.Type == messageType).ToList()
+                ? (messageType == MessageType.ALL
+                    ? allForDay.ToList()
+                    : allForDay.Where(r => r.Type == messageType).ToList())
                 : new List<ResponseRecord>();
 
             double avg = records.Count > 0 ? records.Average(r => r.ResponseTime) : 0;
@@ -527,6 +522,7 @@ namespace MESInsight.Charts.Renderers
 
             chart.AxisY.Add(CreateResponseTimeAxis(CalcMinimumYValue(trendChartSeries)));
             chart.AxisX.Add(dateAxis);
+            chart.Loaded += (s, e) => chart.Update(true, true);
             return chart;
         }
 

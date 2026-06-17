@@ -24,6 +24,9 @@ namespace MESInsight.Core
         public string UidAssy { get; set; }
         public string UidAssyType { get; set; }
         public string ProcDirAssy { get; set; }
+        public string UidAssyUnitResult { get; set; }
+        public string AssyUids { get; set; }
+        public string CarrierIdCid { get; set; }
     }
 
     public class ChartSeries
@@ -44,6 +47,7 @@ namespace MESInsight.Core
     {
         public List<ChartSeries> Charts { get; set; }
         public ChartSeries TrendChart { get; set; }
+        public ScottPlotTrendData ScottPlotTrend { get; set; }
         public List<TimelineEvent> TimelineEvents { get; set; }
         public List<ResponseRecord> FilteredRecords { get; set; }
         public int MaxResponseTime { get; set; }
@@ -90,6 +94,7 @@ namespace MESInsight.Core
         public List<ResponseRecord> GroupedRecords { get; set; }
         public bool IsGroup => GroupedRecords != null && GroupedRecords.Count > 1;
         public int GroupWidth => IsGroup ? GroupedRecords.Count : 1;
+        public string UniqueId => Uid;
     }
 
     public enum ChartType
@@ -111,6 +116,7 @@ namespace MESInsight.Core
         REQ_MATERIAL_INFO,
         REQ_SETUP_CHANGE2,
         SEMI_VALIDATION2,
+        SEMI_VALIDATION,
         OTHER,
         ALL
     }
@@ -132,6 +138,12 @@ namespace MESInsight.Core
                 AddToIndex(r.UidIn, i);
                 AddToIndex(r.UidOut, i);
                 AddToIndex(r.UidAssy, i);
+                AddToIndex(r.UidAssyUnitResult, i);
+                AddToIndex(r.CarrierIdCid, i);
+
+                if (!string.IsNullOrEmpty(r.AssyUids))
+                    foreach (var uid in r.AssyUids.Split(','))
+                        AddToIndex(uid.Trim(), i);
 
                 if (!string.IsNullOrEmpty(r.UidIn) && !string.IsNullOrEmpty(r.UidOut))
                     _aliases[r.UidOut] = r.UidIn;

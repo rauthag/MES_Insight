@@ -828,12 +828,15 @@ namespace RTAnalyzer.Core
                     : Attr(mes, "result=") ?? Attr(plc, "result="),
                 CarrierId       = Attr(mes, "Carrier_ID_val=") ?? Attr(plc, "Carrier_ID_val="),
                 Material        = Attr(mes, "material=")       ?? Attr(plc, "material="),
-                Setup           = Attr(mes, "setup=")          ?? Attr(plc, "setup=")
+                Setup           = Attr(mes, "setup=")          ?? Attr(plc, "setup="),
+                UidAssyUnitResult = Attr(mes, "uid_assy_1=") ?? Attr(plc, "uid_assy_1="),
+                AssyUids          = ExtractAssyUids(mes + " " + plc),
+                CarrierIdCid      = Attr(mes, "cid=") ?? Attr(plc, "cid=")
             };
         }
 
         #endregion
-
+        
         #region GHP Format Parsing
 
         private static void ReadGhpFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
@@ -919,19 +922,25 @@ namespace RTAnalyzer.Core
 
                     result.Records.Add(new ResponseRecord
                     {
-                        Timestamp = timestampRaw,
+                        Timestamp       = timestampRaw,
                         TimestampParsed = parsedTimestamp,
-                        ResponseTime = responseTime,
-                        FileName = sourceName,
-                        Type = ParseGhpMessageType(body),
-                        Uid = ExtractAttribute(mergedBody, "uid="),
-                        UidIn = ExtractAttribute(mergedBody, "uid_in="),
-                        UidOut = ExtractAttribute(mergedBody, "uid_out="),
-                        UidType = ExtractAttribute(mergedBody, "uid_type="),
-                        Result = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result="),
-                        CarrierId = ExtractAttribute(mergedBody, "Carrier_ID_val="),
-                        Material = ExtractAttribute(mergedBody, "material="),
-                        Setup = ExtractAttribute(mergedBody, "setup=")
+                        ResponseTime    = responseTime,
+                        FileName        = sourceName,
+                        Type            = ParseGhpMessageType(body),
+                        Uid             = ExtractAttribute(mergedBody, "uid="),
+                        UidIn           = ExtractAttribute(mergedBody, "uid_in="),
+                        UidOut          = ExtractAttribute(mergedBody, "uid_out="),
+                        UidType         = ExtractAttribute(mergedBody, "uid_type="),
+                        Result          = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result="),
+                        CarrierId       = ExtractAttribute(mergedBody, "Carrier_ID_val="),
+                        Material        = ExtractAttribute(mergedBody, "material="),
+                        Setup           = ExtractAttribute(mergedBody, "setup="),
+                        UidAssy         = ExtractAttribute(mergedBody, "uid_assy="),
+                        UidAssyType     = ExtractAttribute(mergedBody, "uid_assy_type="),
+                        ProcDirAssy     = ExtractAttribute(mergedBody, "procdir_assy="),
+                        UidAssyUnitResult = ExtractAttribute(mergedBody, "uid_assy_1="),
+                        AssyUids          = ExtractAssyUids(mergedBody),
+                        CarrierIdCid      = ExtractAttribute(mergedBody, "cid=")
                     });
 
                     pendingRequests.Remove(pairKey);
@@ -944,6 +953,20 @@ namespace RTAnalyzer.Core
                     }
                 }
             }
+        }
+        
+        private static string ExtractAssyUids(string body)
+        {
+            if (!body.Contains("uid_assy_")) return null;
+            
+            var uids = new List<string>();
+            for (int i = 1; i <= 20; i++)
+            {
+                var val = ExtractAttribute(body, "uid_assy_" + i + "=");
+                if (val == null) break;
+                uids.Add(val);
+            }
+            return uids.Count > 0 ? string.Join(",", uids) : null;
         }
 
         private static string ExtractGhpPairKey(string body)
@@ -976,6 +999,7 @@ namespace RTAnalyzer.Core
             int comma = body.IndexOf(',');
             return MapMessageTypeName(comma > 0 ? body.Substring(0, comma).Trim() : body.Trim());
         }
+        
 
         private static MessageType MapMessageTypeName(string name)
         {
@@ -990,6 +1014,8 @@ namespace RTAnalyzer.Core
                 case "LOAD_MATERIAL": return MessageType.LOAD_MATERIAL;
                 case "REQ_MATERIAL_INFO": return MessageType.REQ_MATERIAL_INFO;
                 case "REQ_SETUP_CHANGE2": return MessageType.REQ_SETUP_CHANGE2;
+                case "SEMI_VALIDATION2": return MessageType.SEMI_VALIDATION2;
+                case "SEMI_VALIDATION": return MessageType.SEMI_VALIDATION;
                 default: return MessageType.OTHER;
             }
         }

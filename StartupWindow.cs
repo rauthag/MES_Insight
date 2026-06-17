@@ -35,6 +35,7 @@ namespace MESInsight
 
         private static string RecentPathFile => IOPath.Combine(AppDir, "recent.txt");
         private static string StationCacheFile => IOPath.Combine(AppDir, "station_cache.txt");
+        private static string RemotePathFile => IOPath.Combine(AppDir, "remote_path.txt");
         private static readonly string SampleDataPath = FindSampleDataPath();
 
         private Canvas _canvas;
@@ -288,13 +289,13 @@ namespace MESInsight
                     SaveRecentPath(SelectedPath);
                     WindowAnimations.FadeOutAndClose(this, true);
                     break;
-                case "LOCAL FOLDER": ExpandHex(title, BuildLocalFolderContent()); break;
-                case "REMOTE BACKUP LOGS": ExpandHex(title, BuildRemoteContent()); break;
-                case "RECENT DATA": ExpandHex(title, BuildRecentContent()); break;
+                case "LOCAL FOLDER": ExpandHex(title, () => BuildLocalFolderContent()); break;
+                case "REMOTE BACKUP LOGS": ExpandHex(title, () => BuildRemoteContent()); break;
+                case "RECENT DATA": ExpandHex(title, () => BuildRecentContent()); break;
             }
         }
 
-        private void ExpandHex(string title, UIElement content)
+        private async void ExpandHex(string title, Func<UIElement> buildContent)
         {
             if (_isExpanded) return;
             _isExpanded = true;
@@ -303,12 +304,56 @@ namespace MESInsight
                 if (child is Grid g && g.Tag?.ToString() != title)
                     AnimateOpacity(g, 1.0, 0.15, 200);
 
+            var dotsLabel = new TextBlock
+            {
+                Text = "",
+                FontSize = 22,
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 100, 20)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            var loadingText = new TextBlock
+            {
+                Text = "Loading Remote Folders",
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 210, 140)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            var spinnerPanel = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            spinnerPanel.Children.Add(loadingText);
+            spinnerPanel.Children.Add(dotsLabel);
             _expandedPanel.Children.Clear();
-            _expandedPanel.Children.Add(content);
+            _expandedPanel.Children.Add(spinnerPanel);
             _expandedPanel.Opacity = 0;
             _expandedPanel.Visibility = Visibility.Visible;
-            AnimateOpacity(_expandedPanel, 0, 1, 280);
+            AnimateOpacity(_expandedPanel, 0, 1, 180);
+
+            int dotCount = 0;
+            var timer = new System.Windows.Threading.DispatcherTimer
+                { Interval = TimeSpan.FromMilliseconds(400) };
+            timer.Tick += (s, e) =>
+            {
+                dotCount = (dotCount % 3) + 1;
+                dotsLabel.Text = new string('●', dotCount);
+            };
+            timer.Start();
+
+            await Task.Delay(300);
+
+            timer.Stop();
+            var content = buildContent();
+            _expandedPanel.Children.Clear();
+            _expandedPanel.Children.Add(content);
         }
+
 
         private void CollapseBack()
         {
@@ -347,7 +392,7 @@ namespace MESInsight
                 Padding = new Thickness(12, 6, 16, 6),
                 Cursor = Cursors.Hand,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 6)
             };
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new TextBlock
@@ -682,7 +727,7 @@ namespace MESInsight
             var allLines = LoadStationCache();
             bool hasCached = allLines.Count > 0;
 
-            var root = new Grid { Margin = new Thickness(36, 28, 36, 28) };
+            var root = new Grid { Margin = new Thickness(36, 12, 36, 12) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -696,9 +741,9 @@ namespace MESInsight
             Grid.SetRow(titleRow, 1);
             root.Children.Add(titleRow);
 
-            var browseTile = BuildRemoteBrowseTile();
-            Grid.SetRow(browseTile, 2);
-            root.Children.Add(browseTile);
+            var pathBar = BuildRemotePathBar();
+            Grid.SetRow(pathBar, 2);
+            root.Children.Add(pathBar);
 
             var treeStack = new StackPanel();
             var rawText = BuildRemoteRawText(hasCached);
@@ -753,7 +798,268 @@ namespace MESInsight
 
             WireRemoteRefreshButton(btnRefresh, spinLabel, rawText, treeStack, allLines, renderTree);
             WireRemoteLoadButton(loadBtn, selectedPaths);
+            StartRemoteConnectProbe(root, rawText, treeStack, allLines, renderTree, hasCached);
             return root;
+        }
+
+        private Border BuildRemotePathBar()
+        {
+            string currentPath = ResolveRemotePath();
+            var pathLabel = new TextBlock
+            {
+                Text = currentPath, FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158)),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            var pathInput = new TextBox
+            {
+                Text = currentPath, FontSize = 11,
+                Background = new SolidColorBrush(Color.FromRgb(22, 27, 34)),
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 210, 220)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(56, 139, 253)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(6, 4, 6, 4),
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
+            var editBtn = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(56, 68, 84)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 4, 8, 4),
+                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(6, 0, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = "✎ Edit path", FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158))
+                }
+            };
+            var confirmBtn = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(20, 60, 25)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(46, 160, 67)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 4, 8, 4),
+                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(6, 0, 0, 0),
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock
+                {
+                    Text = "✓ Save", FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(140, 255, 170))
+                }
+            };
+            var cancelBtn = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(40, 22, 22)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(120, 40, 40)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 4, 8, 4),
+                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(6, 0, 0, 0),
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock
+                {
+                    Text = "✕", FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(240, 140, 140))
+                }
+            };
+            var browseInlineBtn = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(56, 68, 84)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 4, 8, 4),
+                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(6, 0, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = "📂 Browse", FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(255, 200, 100))
+                }
+            };
+            browseInlineBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                var browser = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = "Select station folder", SelectedPath = ResolveRemotePath(),
+                    ShowNewFolderButton = false
+                };
+                if (browser.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+                SaveRemotePathOverride(browser.SelectedPath);
+                pathLabel.Text = browser.SelectedPath;
+                pathInput.Text = browser.SelectedPath;
+            };
+            var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4), LastChildFill = true };
+            DockPanel.SetDock(cancelBtn, Dock.Right);
+            DockPanel.SetDock(confirmBtn, Dock.Right);
+            DockPanel.SetDock(editBtn, Dock.Right);
+            DockPanel.SetDock(browseInlineBtn, Dock.Right);
+            row.Children.Add(cancelBtn);
+            row.Children.Add(confirmBtn);
+            row.Children.Add(editBtn);
+            row.Children.Add(browseInlineBtn);
+            row.Children.Add(pathLabel);
+            row.Children.Add(pathInput);
+            Action commitEdit = () =>
+            {
+                string newPath = pathInput.Text.Trim();
+                if (!string.IsNullOrEmpty(newPath))
+                {
+                    SaveRemotePathOverride(newPath);
+                    pathLabel.Text = newPath;
+                }
+
+                pathLabel.Visibility = Visibility.Visible;
+                pathInput.Visibility = Visibility.Collapsed;
+                editBtn.Visibility = Visibility.Visible;
+                confirmBtn.Visibility = Visibility.Collapsed;
+                cancelBtn.Visibility = Visibility.Collapsed;
+            };
+            editBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                pathLabel.Visibility = Visibility.Collapsed;
+                pathInput.Visibility = Visibility.Visible;
+                editBtn.Visibility = Visibility.Collapsed;
+                confirmBtn.Visibility = Visibility.Visible;
+                cancelBtn.Visibility = Visibility.Visible;
+                pathInput.Focus();
+                pathInput.SelectAll();
+            };
+            confirmBtn.MouseLeftButtonUp += (s, e) => commitEdit();
+            cancelBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                pathInput.Text = pathLabel.Text;
+                pathLabel.Visibility = Visibility.Visible;
+                pathInput.Visibility = Visibility.Collapsed;
+                editBtn.Visibility = Visibility.Visible;
+                confirmBtn.Visibility = Visibility.Collapsed;
+                cancelBtn.Visibility = Visibility.Collapsed;
+            };
+            pathInput.KeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter) commitEdit();
+            };
+            return new Border { Child = row, Padding = new Thickness(0, 2, 0, 2) };
+        }
+
+        private void StartRemoteConnectProbe(
+            Grid root, TextBlock rawText, StackPanel treeStack,
+            List<LineNode> allLines, Action renderTree, bool hasCached)
+        {
+            if (Directory.Exists(ResolveRemotePath())) return;
+            var connectingBar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(28, 22, 14)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(180, 120, 30)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 6, 0, 6)
+            };
+
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(new TextBlock
+            {
+                Text = "⚠",
+                FontSize = 18,
+                Foreground = new SolidColorBrush(Color.FromRgb(210, 140, 30)),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 0, 12, 0)
+            });
+
+            var textStack = new StackPanel();
+            textStack.Children.Add(new TextBlock
+            {
+                Text = "Cannot connect to remote backup disc",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(240, 180, 80))
+            });
+
+            textStack.Children.Add(new TextBlock
+            {
+                Text = "Make sure you are connected to:  " + ResolveRemotePath(),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 155, 100)),
+                Margin = new Thickness(0, 4, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            textStack.Children.Add(new TextBlock
+            {
+                Text =
+                    "If you cannot connect, open File Explorer and navigate to the remote disc manually — this will trigger the connection.",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(140, 120, 80)),
+                Margin = new Thickness(0, 6, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var statusText = new TextBlock
+            {
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 90, 60)),
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+
+            textStack.Children.Add(statusText);
+            content.Children.Add(textStack);
+            connectingBar.Child = content;
+
+            Grid.SetRow(connectingBar, 2);
+            Grid.SetColumnSpan(connectingBar, 10);
+            root.Children.Add(connectingBar);
+
+            int attempt = 0;
+
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+
+            timer.Tick += (s, e) =>
+            {
+                attempt++;
+                string target = ResolveRemotePath();
+                statusText.Text = "Trying to connect to: " + target +
+                                  (attempt > 1 ? "  (attempt " + attempt + ")" : "");
+                Task.Run(() =>
+                {
+                    if (attempt == 1)
+                        try
+                        {
+                            var psi = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "explorer.exe",
+                                Arguments = "\"" + target + "\"",
+                                UseShellExecute = true
+                            };
+                            System.Diagnostics.Process.Start(psi);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine("Explorer open failed: " + ex.Message);
+                        }
+
+                    bool ok = Directory.Exists(target);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (!ok) return;
+                        timer.Stop();
+                        root.Children.Remove(connectingBar);
+
+                        if (allLines.Count == 0)
+                        {
+                            var fresh = ScanLineStructure(target);
+                            allLines.Clear();
+                            allLines.AddRange(fresh);
+                            rawText.Text = BuildRawTreeText(target, fresh);
+                            SaveStationCache(allLines);
+                        }
+
+                        renderTree();
+                    });
+                });
+            };
+            timer.Start();
         }
 
         private static TextBlock BuildRemoteRawText(bool hasCached) => new TextBlock
@@ -802,7 +1108,7 @@ namespace MESInsight
 
         private static (Grid titleRow, TextBlock spinLabel, Border btnRefresh) BuildRemoteTitleRow()
         {
-            var titleRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            var titleRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1316,6 +1622,8 @@ namespace MESInsight
 
         private static string ResolveRemotePath()
         {
+            string saved = LoadRemotePathOverride();
+            if (!string.IsNullOrEmpty(saved) && Directory.Exists(saved)) return saved;
             if (Directory.Exists(DefaultRemotePath)) return DefaultRemotePath;
             string tail = IOPath.Combine("didv0952", "06_MES_App_Logs");
             foreach (char drive in new[] { 'F', 'T', 'Z', 'Y', 'X', 'W', 'V', 'S', 'R', 'Q' })
@@ -1325,6 +1633,29 @@ namespace MESInsight
             }
 
             return DefaultRemotePath;
+        }
+
+        private static string LoadRemotePathOverride()
+        {
+            try
+            {
+                return File.Exists(RemotePathFile) ? File.ReadAllText(RemotePathFile).Trim() : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void SaveRemotePathOverride(string path)
+        {
+            try
+            {
+                File.WriteAllText(RemotePathFile, path.Trim());
+            }
+            catch
+            {
+            }
         }
 
         private static string FindSampleDataPath()
