@@ -118,8 +118,11 @@ namespace MESInsight
         private Dictionary<MessageType, UIElement> _renderedChartCache = new Dictionary<MessageType, UIElement>();
 
         private readonly UidIndex _uidIndex = new UidIndex();
+        private readonly MESInsight.Assembly.AssemblyIndex _assemblyIndex = new MESInsight.Assembly.AssemblyIndex();
+        private bool _assemblyPanelBuilt = false;
+        private bool _assemblyIndexReady = false;
         private bool _isCyclingTabs = false;
-        
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         #endregion
@@ -936,35 +939,6 @@ namespace MESInsight
                 }
             }
 
-            if (records.Count >= 2)
-            {
-                double avg = records.Average(r => (double)r.ResponseTime);
-                double stdDev = Math.Sqrt(records.Average(r => Math.Pow(r.ResponseTime - avg, 2)));
-                var sorted = records.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
-                var byDay = records
-                    .Where(r => r.TimestampParsed != DateTime.MinValue)
-                    .GroupBy(r => r.TimestampParsed.Date)
-                    .ToDictionary(g => g.Key, g => g.ToList());
-                var allInput = new MESInsight.Charts.ChartInputData
-                {
-                    Records = records,
-                    MessageType = MessageType.ALL,
-                    Average = avg,
-                    StdDev = stdDev,
-                    P95 = sorted[(int)(sorted.Count * 0.95)],
-                    P99 = sorted[(int)(sorted.Count * 0.99)],
-                    GroupedByDay = byDay
-                };
-                var allScott = _chartFactory.BuildSingleScottPlot(allInput);
-                if (allScott?.ScottPlotTrend != null)
-                {
-                    if (result.ContainsKey((MessageType.ALL, ChartType.Trend)))
-                        result[(MessageType.ALL, ChartType.Trend)].ScottPlotTrend = allScott.ScottPlotTrend;
-                    else
-                        result[(MessageType.ALL, ChartType.Trend)] = allScott;
-                }
-            }
-
             return result;
         }
 
@@ -1218,6 +1192,7 @@ namespace MESInsight
             TxtStationName.Text = displayName;
 
             _tabsUserHasAlreadySeen.Clear();
+            _assemblyPanelBuilt = false;
             _dayRecordsPanelByMessageType.Clear();
             _scottPlotByMessageType.Clear();
             _timelineContainerByMessageType.Clear();
@@ -1247,6 +1222,14 @@ namespace MESInsight
 
             // ShowLoadingOverlay(TxtStationName.Text, "Prerendering charts...", 95);
             // await PreRenderAllTabs();
+            
+            _assemblyIndexReady = false;
+            _assemblyPanelBuilt = false;
+            var _snapForIndex = _allRecords.ToList();
+            Task.Run(() => _assemblyIndex.Build(_snapForIndex))
+                .ContinueWith(_ => Dispatcher.Invoke(() => _assemblyIndexReady = true));
+
+            SwitchToTabWithMostRecordsIfNeeded();
 
             SwitchToTabWithMostRecordsIfNeeded();
         }
@@ -1352,6 +1335,13 @@ namespace MESInsight
             UpdateSidebarStats();
 
             if (!(MainTabControl.SelectedItem is TabItem tab)) return;
+
+            if (tab.Tag?.ToString() == "ASSEMBLY")
+            {
+                if (!_assemblyPanelBuilt) BuildAssemblyPanel();
+                return;
+            }
+
             var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
             if (!type.HasValue) return;
 
@@ -1384,9 +1374,7 @@ namespace MESInsight
             if (!_dayRecordsPanelByMessageType.ContainsKey(messageType)) return;
             var state = _dayRecordsPanelByMessageType[messageType];
 
-            var records = messageType == MessageType.ALL
-                ? _filteredRecords.ToList()
-                : _filteredRecords.Where(r => r.Type == messageType).ToList();
+            var records = _filteredRecords.Where(r => r.Type == messageType).ToList();
             if (records.Count == 0)
             {
                 MessageBox.Show("No records to display", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1404,7 +1392,7 @@ namespace MESInsight
             }
 
             _dayRecordsPanelBuilder.PopulateWithDayRecords(state.panel, DateTime.Today, records,
-                showingAllRecords: true, showType: messageType == MessageType.ALL);
+                showingAllRecords: true);
         }
 
         #endregion
@@ -1564,105 +1552,80 @@ namespace MESInsight
 
             await Task.Yield();
 
-            if (hasPrebuilt)
+            if (!hasPrebuilt)
             {
-                ShowLoadingOverlay(station, "Using pre-built charts from cache...", 80,
-                    detail: _chartCache.Count + " charts ready");
-                await Task.Yield();
-                return;
-            }
+                _chartCache.Clear();
 
-            _chartCache.Clear();
+                ShowLoadingOverlay(station, "Preparing data for all message types...", 15,
+                    detail: string.Join("  ·  ", messageTypes.Select(t => t.ToString().Replace("_", " "))));
 
-            ShowLoadingOverlay(station, "Preparing data for all message types...", 15,
-                detail: string.Join("  ·  ", messageTypes.Select(t => t.ToString().Replace("_", " "))));
+                var preparedInputs = await Task.Run(() =>
+                    _chartFactory.PrepareAllInputs(_filteredRecords, messageTypes));
 
-            var preparedInputs = await Task.Run(() =>
-                _chartFactory.PrepareAllInputs(_filteredRecords, messageTypes));
+                int nonEmpty = preparedInputs.Count(kv => kv.Value.Records.Count > 0);
 
-            int nonEmpty = preparedInputs.Count(kv => kv.Value.Records.Count > 0);
+                var typeLines = preparedInputs
+                    .OrderByDescending(kv => kv.Value.Records.Count)
+                    .Select(kv =>
+                        kv.Key.ToString().Replace("_", " ") + ":  " + kv.Value.Records.Count.ToString("N0") +
+                        " records");
 
-            var typeLines = preparedInputs
-                .OrderByDescending(kv => kv.Value.Records.Count)
-                .Select(kv =>
-                    kv.Key.ToString().Replace("_", " ") + ":  " + kv.Value.Records.Count.ToString("N0") + " records");
+                string typeDetail = string.Join(Environment.NewLine, typeLines);
 
-            string typeDetail = string.Join(Environment.NewLine, typeLines);
+                ShowLoadingOverlay(station,
+                    nonEmpty + " message types ready  —  " + _filteredRecords.Count.ToString("N0") + " records total",
+                    20, detail: typeDetail);
 
-            ShowLoadingOverlay(station,
-                nonEmpty + " message types ready  —  " + _filteredRecords.Count.ToString("N0") + " records total",
-                20,
-                detail: typeDetail);
-
-            foreach (var messageType in messageTypes)
-            {
-                if (!preparedInputs.TryGetValue(messageType, out var input)) continue;
-                if (input.Records.Count == 0) continue;
-
-
-                string typeName = messageType.ToString().Replace("_", " ");
-
-                foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
+                foreach (var messageType in messageTypes)
                 {
-                    int pct = 20 + (doneCount * 60 / totalSteps);
-                    ShowLoadingOverlay(station,
-                        "Building  " + typeName + "  —  " + chartType,
-                        pct,
-                        detail: "Chart " + (doneCount + 1) + " / " + totalSteps
-                                + "   ·   " + input.Records.Count.ToString("N0") + " records"
-                                + "   ·   " + typeName);
+                    if (!preparedInputs.TryGetValue(messageType, out var input)) continue;
+                    if (input.Records.Count == 0) continue;
 
-                    var data = _chartFactory.BuildSingle(chartType, input);
-                    if (data != null)
-                        _chartCache[(messageType, chartType)] = data;
+                    string typeName = messageType.ToString().Replace("_", " ");
 
-                    doneCount++;
+                    foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
+                    {
+                        int pct = 20 + (doneCount * 60 / totalSteps);
+                        ShowLoadingOverlay(station,
+                            "Building  " + typeName + "  —  " + chartType,
+                            pct,
+                            detail: "Chart " + (doneCount + 1) + " / " + totalSteps
+                                    + "   ·   " + input.Records.Count.ToString("N0") + " records"
+                                    + "   ·   " + typeName);
+
+                        var data = _chartFactory.BuildSingle(chartType, input);
+                        if (data != null)
+                            _chartCache[(messageType, chartType)] = data;
+
+                        doneCount++;
+                    }
+
+                    await Task.Yield();
                 }
 
-                await Task.Yield();
+                ShowLoadingOverlay(station,
+                    "Chart cache built  —  " + doneCount + " charts ready",
+                    80,
+                    detail: "Cached:  " + _chartCache.Count + " charts  ·  " + nonEmpty + " message types");
             }
-
-            ShowLoadingOverlay(station,
-                "Chart cache built  —  " + doneCount + " charts ready",
-                80,
-                detail: "Cached:  " + _chartCache.Count + " charts  ·  " + nonEmpty + " message types");
 
             if (_filteredRecords.Count >= 2)
             {
-                var allScott = await Task.Run(() =>
+                var allRecs = _filteredRecords.ToList();
+                var sorted = allRecs.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
+                double avg = sorted.Average();
+                var allInput = new MESInsight.Charts.ChartInputData
                 {
-                    double avg = _filteredRecords.Average(r => (double)r.ResponseTime);
-                    double stdDev = Math.Sqrt(_filteredRecords.Average(r => Math.Pow(r.ResponseTime - avg, 2)));
-                    var sorted = _filteredRecords.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
-                    int p95 = sorted[(int)(sorted.Count * 0.95)];
-                    int p99 = sorted[(int)(sorted.Count * 0.99)];
-                    var allInput = new MESInsight.Charts.ChartInputData
-                    {
-                        Records = _filteredRecords,
-                        MessageType = MessageType.ALL,
-                        Average = avg,
-                        StdDev = stdDev,
-                        P95 = p95,
-                        P99 = p99,
-                        GroupedByDay = _recordsGroupedByDay
-                    };
-                    return _chartFactory.BuildSingleScottPlot(allInput);
-                });
-                if (allScott?.ScottPlotTrend != null)
-                {
-                    if (_chartCache.ContainsKey((MessageType.ALL, ChartType.Trend)))
-                        _chartCache[(MessageType.ALL, ChartType.Trend)].ScottPlotTrend = allScott.ScottPlotTrend;
-                    else
-                        _chartCache[(MessageType.ALL, ChartType.Trend)] = allScott;
-                }
-
-                var allTimelineInput = new MESInsight.Charts.ChartInputData
-                {
-                    Records = _filteredRecords,
-                    MessageType = MessageType.ALL,
+                    Records = allRecs, MessageType = MessageType.ALL, Average = avg,
+                    StdDev = Math.Sqrt(allRecs.Average(r => Math.Pow(r.ResponseTime - avg, 2))),
+                    P95 = sorted[(int)(sorted.Count * 0.95)],
+                    P99 = sorted[(int)(sorted.Count * 0.99)],
                     GroupedByDay = _recordsGroupedByDay
                 };
-                var allTimeline = _chartFactory.BuildSingle(ChartType.Timeline, allTimelineInput);
+                var allScott = await Task.Run(() => _chartFactory.BuildSingleScottPlot(allInput));
+                if (allScott?.ScottPlotTrend != null)
+                    _chartCache[(MessageType.ALL, ChartType.Trend)] = allScott;
+                var allTimeline = _chartFactory.BuildSingle(ChartType.Timeline, allInput);
                 if (allTimeline != null)
                     _chartCache[(MessageType.ALL, ChartType.Timeline)] = allTimeline;
             }
@@ -1696,7 +1659,6 @@ namespace MESInsight
 
         private void PreRenderChartForMessageType(MessageType messageType)
         {
-            if (messageType == MessageType.ALL) return;
             try
             {
                 double availableHeight = ActualHeight - 160;
@@ -1730,6 +1692,62 @@ namespace MESInsight
         {
             if (!(MainTabControl.SelectedItem is TabItem tab)) return null;
             return TryParseMessageType(tab.Tag?.ToString() ?? "");
+        }
+
+        private void BuildAssemblyPanel()
+        {
+            if (PanelAssembly == null) return;
+            PanelAssembly.Children.Clear();
+
+            if (_assemblyIndexReady)
+            {
+                RenderAssemblyTree();
+                return;
+            }
+
+            PanelAssembly.Children.Add(new TextBlock
+            {
+                Text = "Building assembly index...",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(155, 89, 182)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 40, 0, 0)
+            });
+
+            var snap = _allRecords.ToList();
+            Task.Run(() => _assemblyIndex.Build(snap))
+                .ContinueWith(_ => Dispatcher.Invoke(() =>
+                {
+                    _assemblyIndexReady = true;
+                    if (_assemblyPanelBuilt) return;
+                    PanelAssembly.Children.Clear();
+                    RenderAssemblyTree();
+                }));
+        }
+
+        private void RenderAssemblyTree()
+        {
+            if (_assemblyIndex.IsBuilt)
+                PanelAssembly.Children.Add(
+                    MESInsight.UI.AssemblyTreePanel.Build(_assemblyIndex, _allRecords));
+            else
+                PanelAssembly.Children.Add(new TextBlock
+                {
+                    Text = "No SEMI VALIDATION records found.",
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(100, 110, 120)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 40, 0, 0)
+                });
+
+            _assemblyPanelBuilt = true;
+        }
+
+        private void ShowUidHistory(string uid)
+        {
+            var node = _assemblyIndex.GetNode(uid);
+            if (node == null) return;
+            new MESInsight.UI.SubsetHistoryWindow(uid, node, _allRecords) { Owner = this }.Show();
         }
 
         private MessageType[] GetAllSupportedMessageTypes() => new[]
@@ -1844,8 +1862,17 @@ namespace MESInsight
         {
             if (!(MainTabControl.SelectedItem is TabItem selected) || selected.Tag == null) return;
 
-            MessageType type = (MessageType)Enum.Parse(typeof(MessageType), selected.Tag.ToString());
+            MessageType? parsedType = TryParseMessageType(selected.Tag.ToString());
+            if (!parsedType.HasValue)
+            {
+                ClearSidebarStats();
+                if (PassFailSection != null) PassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            MessageType type = parsedType.Value;
             StatsResult stats = _statsCalculator.Calculate(_filteredRecords, type);
+
 
             if (stats == null)
             {
@@ -1875,9 +1902,7 @@ namespace MESInsight
                 return r.Result;
             }
 
-            var records = (type == MessageType.ALL)
-                ? _filteredRecords.ToList()
-                : _filteredRecords.Where(r => r.Type == type).ToList();
+            var records = _filteredRecords.Where(r => r.Type == type).ToList();
             var withResult = records.Where(r => !string.IsNullOrEmpty(GetResultField(r))).ToList();
 
             if (withResult.Count == 0)
@@ -1936,9 +1961,9 @@ namespace MESInsight
             foreach (TabItem tab in MainTabControl.Items)
             {
                 if (tab.Tag == null) continue;
+                if (tab.Tag.ToString() == "ALL" || tab.Tag.ToString() == "ASSEMBLY") continue;
                 var type = TryParseMessageType(tab.Tag.ToString());
                 if (type == null) continue;
-                if (tab.Tag.ToString() == "ALL") continue;
                 bool highlight = anyActive && _filteredRecords.Any(r => r.Type == type.Value);
                 tab.FontWeight = highlight ? FontWeights.Bold : FontWeights.Normal;
                 tab.FontSize = highlight ? 13 : 11;
@@ -1951,7 +1976,7 @@ namespace MESInsight
         {
             var tabs = MainTabControl.Items.OfType<TabItem>()
                 .Where(t => t.Tag != null && TryParseMessageType(t.Tag.ToString()) != null
-                                          && t.Tag.ToString() != "ALL")
+                                          && t.Tag.ToString() != "ALL" && t.Tag.ToString() != "ASSEMBLY")
                 .ToList();
 
             var withData = tabs.Where(t => HasRecordsForTab(t)).ToList();
@@ -1987,20 +2012,16 @@ namespace MESInsight
         {
             var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
             if (type == null) return false;
-            if (type.Value == MessageType.ALL) return _allRecords.Count > 0;
             return _allRecords.Any(r => r.Type == type.Value);
         }
 
         private void MoveTabTo(TabItem tab, int index)
         {
-            if (tab.Tag?.ToString() == "ALL") return;
+            if (tab.Tag?.ToString() == "ALL" || tab.Tag?.ToString() == "ASSEMBLY") return;
             int current = MainTabControl.Items.IndexOf(tab);
             if (current < 0 || current == index) return;
-            int allIdx = MainTabControl.Items.OfType<TabItem>()
-                .Select((t, i) => new { t, i })
-                .FirstOrDefault(x => x.t.Tag?.ToString() == "ALL")?.i ?? MainTabControl.Items.Count;
             MainTabControl.Items.RemoveAt(current);
-            MainTabControl.Items.Insert(Math.Min(index, allIdx), tab);
+            MainTabControl.Items.Insert(Math.Min(index, MainTabControl.Items.Count), tab);
         }
 
         private MessageType? TryParseMessageType(string tag)

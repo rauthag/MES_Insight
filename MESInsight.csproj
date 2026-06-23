@@ -129,6 +129,7 @@
         <Compile Include="Charts\Renderers\TimelineChartRenderer.cs"/>
         <Compile Include="Charts\Renderers\TrendChartRenderer.cs"/>
         <Compile Include="Charts\ScottPlotTrendData.cs" />
+        <Compile Include="Core\AssemblyTreeBuilder.cs" />
         <Compile Include="Core\DataLoader.cs"/>
         <Compile Include="Core\DataModels.cs"/>
         <Compile Include="Core\DateTimeHelper.cs"/>
@@ -138,7 +139,10 @@
         <Compile Include="StationChevron.cs" />
         <Compile Include="StationLoadEntry.cs" />
         <Compile Include="ToastNotification.cs" />
+        <Compile Include="UI\AssemblyNodeViewModel.cs" />
+        <Compile Include="UI\AssemblyTreePanel.cs" />
         <Compile Include="UI\DayRecordsPanelBuilder.cs"/>
+        <Compile Include="UI\SubsetHistoryWindow.cs" />
         <Compile Include="WindowAnimations.cs" />
     </ItemGroup>
     <ItemGroup>

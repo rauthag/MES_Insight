@@ -104,7 +104,7 @@
         <Style TargetType="{x:Type TabControl}">
             <Setter Property="Background" Value="#0D1117" />
             <Setter Property="BorderBrush" Value="#21262D" />
-            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="0" />
         </Style>
 
@@ -112,80 +112,28 @@
             <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#6E7681" />
-            <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="12,7" />
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="12,8" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="11" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type TabItem}">
-                        <Grid x:Name="Root" Margin="0,0,1,0">
-                            <Border x:Name="Bg"
-                                    Background="Transparent"
-                                    CornerRadius="6,6,0,0"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter x:Name="ContentSite"
-                                                  ContentSource="Header"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
+                        <Grid Margin="0,0,2,0">
+                            <Border x:Name="Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <Border x:Name="BottomAccent"
-                                    Height="2"
-                                    Background="Transparent"
-                                    CornerRadius="1"
-                                    VerticalAlignment="Bottom"
-                                    Margin="6,0,6,0" />
+                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom" Margin="4,0,4,0" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#161B22" />
-                                <Setter TargetName="BottomAccent" Property="Background" Value="#3FB950" />
+                                <Setter TargetName="Underline" Property="Background" Value="#3FB950" />
                                 <Setter Property="Foreground" Value="#E6EDF3" />
+                                <Setter Property="FontSize" Value="13" />
                                 <Setter Property="FontWeight" Value="SemiBold" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#0D1117" />
                                 <Setter Property="Foreground" Value="#C9D1D9" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="AllTabStyle" TargetType="{x:Type TabItem}" BasedOn="{StaticResource {x:Type TabItem}}">
-            <Setter Property="Foreground" Value="#58A6FF" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type TabItem}">
-                        <Grid x:Name="Root" Margin="0,0,0,0">
-                            <Border x:Name="Bg"
-                                    Background="Transparent"
-                                    CornerRadius="6,6,0,0"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter x:Name="ContentSite"
-                                                  ContentSource="Header"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <Border x:Name="BottomAccent"
-                                    Height="2"
-                                    Background="Transparent"
-                                    CornerRadius="1"
-                                    VerticalAlignment="Bottom"
-                                    Margin="6,0,6,0" />
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#161B22" />
-                                <Setter TargetName="BottomAccent" Property="Background" Value="#58A6FF" />
-                                <Setter Property="Foreground" Value="#79C0FF" />
-                                <Setter Property="FontWeight" Value="SemiBold" />
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#0D1117" />
-                                <Setter Property="Foreground" Value="#79C0FF" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -264,6 +212,70 @@
             </Setter>
         </Style>
 
+
+        <Style x:Key="AllTabStyle" TargetType="{x:Type TabItem}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
+            <Setter Property="Foreground" Value="#D18616" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Grid Margin="0,0,2,0">
+                            <Border x:Name="Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom" Margin="4,0,4,0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Underline" Property="Background" Value="#F78166" />
+                                <Setter Property="Foreground" Value="#FFA657" />
+                                <Setter Property="FontSize" Value="13" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#FFA657" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AssemblyTabStyle" TargetType="{x:Type TabItem}">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
+            <Setter Property="Foreground" Value="#388BFD" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Grid Margin="0,0,2,0">
+                            <Border x:Name="Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom" Margin="4,0,4,0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Underline" Property="Background" Value="#58A6FF" />
+                                <Setter Property="Foreground" Value="#79C0FF" />
+                                <Setter Property="FontSize" Value="13" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#79C0FF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -548,52 +560,58 @@
 
             <TabControl x:Name="MainTabControl" Grid.Column="1"
                         SelectionChanged="MainTabControl_SelectionChanged">
-                <TabItem Header="UNIT INFO" Tag="UNIT_INFO">
+                <TabControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <DockPanel IsItemsHost="True" LastChildFill="False" Background="Transparent" />
+                    </ItemsPanelTemplate>
+                </TabControl.ItemsPanel>
+                <TabItem Header="UNIT INFO" Tag="UNIT_INFO" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelUnitInfo" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="NEXT OPERATION" Tag="NEXT_OPERATION">
+                <TabItem Header="NEXT OPERATION" Tag="NEXT_OPERATION" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelNextOperation" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="UNIT CHECKIN" Tag="UNIT_CHECKIN">
+                <TabItem Header="UNIT CHECKIN" Tag="UNIT_CHECKIN" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelUnitCheckin" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="UNIT RESULT" Tag="UNIT_RESULT">
+                <TabItem Header="UNIT RESULT" Tag="UNIT_RESULT" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelUnitResult" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="LOAD MATERIAL" Tag="LOAD_MATERIAL">
+                <TabItem Header="LOAD MATERIAL" Tag="LOAD_MATERIAL" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelLoadMaterial" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="REQUEST MATERIAL INFO" Tag="REQ_MATERIAL_INFO">
+                <TabItem Header="REQUEST MATERIAL INFO" Tag="REQ_MATERIAL_INFO" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelReqMaterialInfo" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="REQUEST SETUP CHANGE" Tag="REQ_SETUP_CHANGE2">
+                <TabItem Header="REQUEST SETUP CHANGE" Tag="REQ_SETUP_CHANGE2" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelReqSetupChange2" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="SEMI VALIDATION 2" Tag="SEMI_VALIDATION2">
+                <TabItem Header="SEMI VALIDATION 2" Tag="SEMI_VALIDATION2" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelSemiValidation2" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="ALL" Tag="ALL"
-                         Style="{StaticResource AllTabStyle}"
-                         HorizontalAlignment="Right">
+                <TabItem Header="ALL RECORDS" Tag="ALL" DockPanel.Dock="Right" Margin="0,0,4,0" Style="{StaticResource AllTabStyle}">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelAll" />
                     </ScrollViewer>
+                </TabItem>
+                <TabItem Header="🔗 ASSEMBLY" Tag="ASSEMBLY" DockPanel.Dock="Right" Style="{StaticResource AssemblyTabStyle}">
+                    <Grid x:Name="PanelAssembly" Background="#0D1117" />
                 </TabItem>
             </TabControl>
         </Grid>
