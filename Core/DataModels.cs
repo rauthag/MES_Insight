@@ -27,6 +27,16 @@ namespace MESInsight.Core
         public string UidAssyUnitResult { get; set; }
         public string AssyUids { get; set; }
         public string CarrierIdCid { get; set; }
+        public string Workcenter { get; set; }
+        public string Operation { get; set; }
+        public string NextWorkcenter1 { get; set; }
+        public string NextOperation1 { get; set; }
+        public string NextWorkcenter2 { get; set; }
+        public string NextOperation2 { get; set; }
+        public string MatPartNr { get; set; }
+        public string MeasValuesRaw { get; set; }
+        public string ProductLine { get; set; }
+        public string EquipId { get; set; }
     }
 
     public class ChartSeries

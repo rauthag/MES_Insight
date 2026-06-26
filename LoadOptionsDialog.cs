@@ -8,7 +8,6 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using MESInsight.Core;
-using RTAnalyzer.Core;
 
 namespace MESInsight
 {

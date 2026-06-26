@@ -11,7 +11,6 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using MESInsight.Core;
-using RTAnalyzer.Core;
 
 namespace MESInsight
 {

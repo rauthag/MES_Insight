@@ -24,11 +24,11 @@ namespace MESInsight.UI
         private static readonly Color CYellow = Color.FromRgb(240, 196, 48);
         private static readonly Color CGray   = Color.FromRgb(140, 160, 180);
 
-        private const int MaxDepth  = 8;
-        private const int IndentPx  = 20;
-        private const int PageSize  = 10;
+        private const int MaxDepth = 8;
+        private const int IndentPx = 20;
+        private const int PageSize = 10;
 
-        public static UIElement Build(AssemblyIndex index, List<ResponseRecord> allRecords)
+        public static UIElement Build(AssemblyIndex index, List<ResponseRecord> allRecords, Action<string> onUidClick = null)
         {
             var root = new Grid { Background = new SolidColorBrush(CBack) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -55,7 +55,7 @@ namespace MESInsight.UI
             root.Children.Add(scroll);
 
             var rootUids = index.GetRootUids();
-            PopulateTree(treePanel, rootUids, index, allRecords, "", 0);
+            PopulateTree(treePanel, rootUids, index, allRecords, "", 0, onUidClick);
 
             string lastQuery = "";
             search.box.TextChanged += (s, e) =>
@@ -63,7 +63,7 @@ namespace MESInsight.UI
                 string q = search.box.Text.Trim();
                 if (q == lastQuery) return;
                 lastQuery = q;
-                PopulateTree(treePanel, rootUids, index, allRecords, q, 0);
+                PopulateTree(treePanel, rootUids, index, allRecords, q, 0, onUidClick);
                 scroll.ScrollToTop();
             };
 
@@ -140,15 +140,14 @@ namespace MESInsight.UI
             AssemblyIndex index,
             List<ResponseRecord> allRecords,
             string query,
-            int offset)
+            int offset,
+            Action<string> onUidClick = null)
         {
             panel.Children.Clear();
 
             List<string> filtered;
             if (string.IsNullOrEmpty(query))
-            {
                 filtered = rootUids;
-            }
             else
             {
                 string q = query.ToUpperInvariant();
@@ -161,10 +160,9 @@ namespace MESInsight.UI
             {
                 panel.Children.Add(new TextBlock
                 {
-                    Text      = "No results.",
-                    FontSize  = 11,
+                    Text = "No results.", FontSize = 11,
                     Foreground = new SolidColorBrush(CDim),
-                    Margin    = new Thickness(12, 20, 0, 0)
+                    Margin = new Thickness(12, 20, 0, 0)
                 });
                 return;
             }
@@ -172,57 +170,41 @@ namespace MESInsight.UI
             var page = filtered.Skip(offset).Take(PageSize).ToList();
 
             if (offset > 0)
-            {
                 panel.Children.Add(BuildPageButton(
                     "▲ Show previous " + Math.Min(offset, PageSize),
-                    () => PopulateTree(panel, rootUids, index, allRecords, query, Math.Max(0, offset - PageSize))));
-            }
+                    () => PopulateTree(panel, rootUids, index, allRecords, query, Math.Max(0, offset - PageSize), onUidClick)));
 
             foreach (var uid in page)
-                panel.Children.Add(BuildNodeCard(uid, index, allRecords, 0));
+                panel.Children.Add(BuildNodeCard(uid, index, allRecords, 0, onUidClick));
 
-            int shown = offset + page.Count;
+            int shown     = offset + page.Count;
             int remaining = filtered.Count - shown;
 
             if (remaining > 0)
-            {
                 panel.Children.Add(BuildPageButton(
                     "▼ Load next " + Math.Min(remaining, PageSize) + "  (" + remaining + " remaining)",
-                    () => PopulateTree(panel, rootUids, index, allRecords, query, offset + PageSize)));
-            }
+                    () => PopulateTree(panel, rootUids, index, allRecords, query, offset + PageSize, onUidClick)));
 
             if (filtered.Count > PageSize || offset > 0)
-            {
                 panel.Children.Add(new TextBlock
                 {
-                    Text      = "Showing " + (offset + 1) + "–" + shown + " of " + filtered.Count,
-                    FontSize  = 9,
-                    Foreground = new SolidColorBrush(CDim),
-                    Margin    = new Thickness(8, 4, 0, 0)
+                    Text = "Showing " + (offset + 1) + "–" + shown + " of " + filtered.Count,
+                    FontSize = 9, Foreground = new SolidColorBrush(CDim),
+                    Margin = new Thickness(8, 4, 0, 0)
                 });
-            }
         }
 
         private static UIElement BuildPageButton(string label, Action onClick)
         {
             var btn = new Border
             {
-                Background      = new SolidColorBrush(Color.FromRgb(22, 27, 34)),
-                BorderBrush     = new SolidColorBrush(CBorder),
-                BorderThickness = new Thickness(1),
-                CornerRadius    = new CornerRadius(4),
-                Padding         = new Thickness(10, 6, 10, 6),
-                Margin          = new Thickness(0, 0, 0, 6),
-                Cursor          = Cursors.Hand
+                Background = new SolidColorBrush(Color.FromRgb(22, 27, 34)),
+                BorderBrush = new SolidColorBrush(CBorder),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 0, 6),
+                Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = label, FontSize = 10, Foreground = new SolidColorBrush(CBlue), HorizontalAlignment = HorizontalAlignment.Center }
             };
-            var txt = new TextBlock
-            {
-                Text      = label,
-                FontSize  = 10,
-                Foreground = new SolidColorBrush(CBlue),
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            btn.Child = txt;
             btn.MouseLeftButtonUp += (s, e) => onClick();
             btn.MouseEnter += (s, e) => btn.Background = new SolidColorBrush(Color.FromRgb(30, 36, 46));
             btn.MouseLeave += (s, e) => btn.Background = new SolidColorBrush(Color.FromRgb(22, 27, 34));
@@ -240,41 +222,29 @@ namespace MESInsight.UI
             return false;
         }
 
-        private static UIElement BuildNodeCard(
-            string uid,
-            AssemblyIndex index,
-            List<ResponseRecord> allRecords,
-            int depth)
+        private static UIElement BuildNodeCard(string uid, AssemblyIndex index, List<ResponseRecord> allRecords, int depth, Action<string> onUidClick = null)
         {
             var node = index.GetNode(uid);
             if (node == null) return new UIElement();
 
-            Border card = null;
+            Border     card        = null;
             StackPanel cardContent = null;
 
             if (depth == 0)
             {
                 card = new Border
                 {
-                    Background      = new SolidColorBrush(CCard),
-                    BorderBrush     = new SolidColorBrush(CBorder),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius    = new CornerRadius(6),
-                    Margin          = new Thickness(0, 0, 0, 6),
-                    Padding         = new Thickness(10, 8, 10, 8)
+                    Background = new SolidColorBrush(CCard), BorderBrush = new SolidColorBrush(CBorder),
+                    BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6),
+                    Margin = new Thickness(0, 0, 0, 6), Padding = new Thickness(10, 8, 10, 8)
                 };
                 cardContent = new StackPanel();
-                card.Child = cardContent;
+                card.Child  = cardContent;
             }
             else
-            {
-                cardContent = new StackPanel
-                {
-                    Margin = new Thickness(IndentPx * depth, 0, 0, 0)
-                };
-            }
+                cardContent = new StackPanel { Margin = new Thickness(IndentPx * depth, 0, 0, 0) };
 
-            var children = index.GetChildren(uid);
+            var children    = index.GetChildren(uid);
             bool hasChildren = children.Count > 0;
 
             var headerRow = new StackPanel
@@ -286,12 +256,10 @@ namespace MESInsight.UI
 
             var expandIcon = new TextBlock
             {
-                Text      = hasChildren ? "▶" : "·",
-                FontSize  = 9,
+                Text = hasChildren ? "▶" : "·", FontSize = 9,
                 Foreground = new SolidColorBrush(hasChildren ? CBlue : CDim),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin    = new Thickness(0, 0, 6, 0),
-                Width     = 12
+                Margin = new Thickness(0, 0, 6, 0), Width = 12
             };
             headerRow.Children.Add(expandIcon);
 
@@ -311,21 +279,14 @@ namespace MESInsight.UI
                 Cursor    = Cursors.Hand,
                 ToolTip   = "Click to copy UID"
             };
-            uidText.MouseLeftButtonUp += (s, e) =>
-            {
-                Clipboard.SetText(uid);
-                e.Handled = true;
-            };
+            uidText.MouseLeftButtonUp += (s, e) => { Clipboard.SetText(uid); e.Handled = true; };
             headerRow.Children.Add(uidText);
 
             if (!string.IsNullOrEmpty(node.UidType))
                 headerRow.Children.Add(new TextBlock
                 {
-                    Text      = node.UidType,
-                    FontSize  = 9,
-                    Foreground = new SolidColorBrush(CDim),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin    = new Thickness(0, 0, 8, 0)
+                    Text = node.UidType, FontSize = 9, Foreground = new SolidColorBrush(CDim),
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0)
                 });
 
             if (node.Components.Count > 0)
@@ -339,39 +300,69 @@ namespace MESInsight.UI
                 if (p > 0) headerRow.Children.Add(BuildChip("P:" + p, CYellow));
             }
 
+            var subsetBtn = new Border
+            {
+                Background      = new SolidColorBrush(Color.FromArgb(0, 30, 50, 80)),
+                BorderBrush     = new SolidColorBrush(Color.FromArgb(0, 56, 182, 255)),
+                BorderThickness = new Thickness(1),
+                CornerRadius    = new CornerRadius(3),
+                Padding         = new Thickness(5, 1, 5, 1),
+                Margin          = new Thickness(8, 0, 0, 0),
+                Cursor          = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text      = "📜 Show History",
+                    FontSize  = 9,
+                    Foreground = new SolidColorBrush(Color.FromArgb(0, 56, 182, 255))
+                }
+            };
+            subsetBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                if (onUidClick != null) onUidClick(uid);
+                else MESInsight.MainWindow.OpenSubsetHistory?.Invoke(uid);
+                e.Handled = true;
+            };
+            subsetBtn.MouseEnter += (s, e) =>
+            {
+                subsetBtn.Background  = new SolidColorBrush(Color.FromArgb(30, 56, 182, 255));
+                subsetBtn.BorderBrush = new SolidColorBrush(Color.FromArgb(100, 56, 182, 255));
+                ((TextBlock)subsetBtn.Child).Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255));
+            };
+            subsetBtn.MouseLeave += (s, e) =>
+            {
+                subsetBtn.Background  = new SolidColorBrush(Color.FromArgb(0, 30, 50, 80));
+                subsetBtn.BorderBrush = new SolidColorBrush(Color.FromArgb(0, 56, 182, 255));
+                ((TextBlock)subsetBtn.Child).Foreground = new SolidColorBrush(Color.FromArgb(0, 56, 182, 255));
+            };
+            headerRow.Children.Add(subsetBtn);
+
             var histBtn = new TextBlock
             {
-                Text      = "Show History",
-                FontSize  = 9,
+                Text = "Show History", FontSize = 9,
                 Foreground = new SolidColorBrush(CDim),
                 TextDecorations = TextDecorations.Underline,
-                Cursor    = Cursors.Hand,
+                Cursor = Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin    = new Thickness(10, 0, 0, 0)
+                Margin = new Thickness(8, 0, 0, 0)
             };
             headerRow.Children.Add(histBtn);
 
             cardContent.Children.Add(headerRow);
 
-            var childrenPanel = new StackPanel { Visibility = Visibility.Collapsed };
+            var childrenPanel  = new StackPanel { Visibility = Visibility.Collapsed };
             if (hasChildren)
-            {
                 foreach (var child in children)
-                {
                     if (depth + 1 <= MaxDepth)
-                        childrenPanel.Children.Add(BuildNodeCard(child, index, allRecords, depth + 1));
-                }
-            }
+                        childrenPanel.Children.Add(BuildNodeCard(child, index, allRecords, depth + 1, onUidClick));
 
             var historyPanel = new Border
             {
-                Visibility      = Visibility.Collapsed,
-                Background      = new SolidColorBrush(Color.FromRgb(10, 14, 20)),
-                BorderBrush     = new SolidColorBrush(Color.FromRgb(36, 50, 80)),
-                BorderThickness = new Thickness(1),
-                CornerRadius    = new CornerRadius(4),
-                Margin          = new Thickness(18, 4, 0, 6),
-                Padding         = new Thickness(10, 8, 10, 8)
+                Visibility = Visibility.Collapsed,
+                Background = new SolidColorBrush(Color.FromRgb(10, 14, 20)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 50, 80)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(18, 4, 0, 6), Padding = new Thickness(10, 8, 10, 8)
             };
             bool historyLoaded = false;
 
@@ -380,7 +371,6 @@ namespace MESInsight.UI
 
             bool expanded = false;
             if (hasChildren)
-            {
                 headerRow.MouseLeftButtonUp += (s, e) =>
                 {
                     expanded = !expanded;
@@ -388,7 +378,6 @@ namespace MESInsight.UI
                     expandIcon.Text = expanded ? "▼" : "▶";
                     e.Handled = true;
                 };
-            }
 
             bool histShown = false;
             histBtn.MouseLeftButtonUp += (s, e) =>
@@ -410,25 +399,20 @@ namespace MESInsight.UI
 
         private static UIElement BuildHistoryContent(string uid, List<ResponseRecord> allRecords)
         {
-            var stack = new StackPanel();
-
+            var stack   = new StackPanel();
             var related = allRecords
                 .Where(r => r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
                             r.UidAssy == uid ||
                             (!string.IsNullOrEmpty(r.AssyUids) && r.AssyUids.Split(',')
                                 .Select(x => x.Trim())
                                 .Contains(uid, StringComparer.OrdinalIgnoreCase)))
-                .OrderBy(r => r.TimestampParsed)
-                .ToList();
+                .OrderBy(r => r.TimestampParsed).ToList();
 
             var headerRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
             headerRow.Children.Add(new TextBlock
             {
-                Text      = "History — " + uid,
-                FontSize  = 10,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(CBlue),
-                FontFamily = new FontFamily("Consolas"),
+                Text = "History — " + uid, FontSize = 10, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(CBlue), FontFamily = new FontFamily("Consolas"),
                 VerticalAlignment = VerticalAlignment.Center
             });
             headerRow.Children.Add(BuildChip(related.Count + " records", CGray));
@@ -436,12 +420,7 @@ namespace MESInsight.UI
 
             if (related.Count == 0)
             {
-                stack.Children.Add(new TextBlock
-                {
-                    Text      = "No records found for this UID.",
-                    FontSize  = 10,
-                    Foreground = new SolidColorBrush(CDim)
-                });
+                stack.Children.Add(new TextBlock { Text = "No records found for this UID.", FontSize = 10, Foreground = new SolidColorBrush(CDim) });
                 return stack;
             }
 
@@ -477,12 +456,10 @@ namespace MESInsight.UI
         {
             var border = new Border
             {
-                Background      = new SolidColorBrush(Color.FromRgb(18, 22, 30)),
-                BorderBrush     = new SolidColorBrush(CBorder),
-                BorderThickness = new Thickness(1),
-                CornerRadius    = new CornerRadius(3),
-                Padding         = new Thickness(8, 5, 8, 5),
-                Margin          = new Thickness(0, 0, 0, 3)
+                Background = new SolidColorBrush(Color.FromRgb(18, 22, 30)),
+                BorderBrush = new SolidColorBrush(CBorder), BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3), Padding = new Thickness(8, 5, 8, 5),
+                Margin = new Thickness(0, 0, 0, 3)
             };
 
             var grid = new Grid();
@@ -491,53 +468,20 @@ namespace MESInsight.UI
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
 
-            var ts = new TextBlock
-            {
-                Text      = r.TimestampParsed.ToString("dd.MM.yyyy HH:mm:ss"),
-                FontSize  = 9,
-                Foreground = new SolidColorBrush(CDim),
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var ts = new TextBlock { Text = r.TimestampParsed.ToString("dd.MM.yyyy HH:mm:ss"), FontSize = 9, Foreground = new SolidColorBrush(CDim), VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(ts, 0);
 
-            var type = new TextBlock
-            {
-                Text      = r.Type.ToString().Replace("_", " "),
-                FontSize  = 9,
-                Foreground = new SolidColorBrush(CText),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin    = new Thickness(6, 0, 6, 0)
-            };
+            var type = new TextBlock { Text = r.Type.ToString().Replace("_", " "), FontSize = 9, Foreground = new SolidColorBrush(CText), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0) };
             Grid.SetColumn(type, 1);
 
             string resultVal = !string.IsNullOrEmpty(r.ProcDirAssy) ? r.ProcDirAssy : r.Result;
-            var resultColor = GetProcDirColor(resultVal);
-            var result = new TextBlock
-            {
-                Text      = resultVal ?? "",
-                FontSize  = 9,
-                FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(resultColor),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin    = new Thickness(0, 0, 8, 0)
-            };
+            var result = new TextBlock { Text = resultVal ?? "", FontSize = 9, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(GetProcDirColor(resultVal)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
             Grid.SetColumn(result, 2);
 
-            var rt = new TextBlock
-            {
-                Text      = r.ResponseTime + " ms",
-                FontSize  = 9,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(r.ResponseTime > 100 ? CRed : CBlue),
-                VerticalAlignment = VerticalAlignment.Center,
-                TextAlignment = TextAlignment.Right
-            };
+            var rt = new TextBlock { Text = r.ResponseTime + " ms", FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(r.ResponseTime > 100 ? CRed : CBlue), VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right };
             Grid.SetColumn(rt, 3);
 
-            grid.Children.Add(ts);
-            grid.Children.Add(type);
-            grid.Children.Add(result);
-            grid.Children.Add(rt);
+            grid.Children.Add(ts); grid.Children.Add(type); grid.Children.Add(result); grid.Children.Add(rt);
             border.Child = grid;
             return border;
         }
@@ -546,8 +490,7 @@ namespace MESInsight.UI
         {
             foreach (var kv in index.UidToComponents)
             {
-                var rel = kv.Value.FirstOrDefault(r =>
-                    string.Equals(r.UidAssy, uid, StringComparison.OrdinalIgnoreCase));
+                var rel = kv.Value.FirstOrDefault(r => string.Equals(r.UidAssy, uid, StringComparison.OrdinalIgnoreCase));
                 if (rel != null) return rel.ProcDir;
             }
             return null;
@@ -559,50 +502,27 @@ namespace MESInsight.UI
             {
                 case "Y": return CGreen;
                 case "N": return CRed;
-                case "P":
-                case "R": return CYellow;
+                case "P": case "R": return CYellow;
                 default:  return CGray;
             }
         }
 
-        private static Border BuildBadge(string text, Color col)
+        private static Border BuildBadge(string text, Color col) => new Border
         {
-            return new Border
-            {
-                Background      = new SolidColorBrush(Color.FromArgb(40,  col.R, col.G, col.B)),
-                BorderBrush     = new SolidColorBrush(Color.FromArgb(120, col.R, col.G, col.B)),
-                BorderThickness = new Thickness(1),
-                CornerRadius    = new CornerRadius(3),
-                Padding         = new Thickness(4, 1, 4, 1),
-                Margin          = new Thickness(0, 0, 4, 0),
-                Child = new TextBlock
-                {
-                    Text      = text,
-                    FontSize  = 9,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(col)
-                }
-            };
-        }
+            Background = new SolidColorBrush(Color.FromArgb(40, col.R, col.G, col.B)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(120, col.R, col.G, col.B)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(4, 1, 4, 1), Margin = new Thickness(0, 0, 4, 0),
+            Child = new TextBlock { Text = text, FontSize = 9, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(col) }
+        };
 
-        private static Border BuildChip(string text, Color col)
+        private static Border BuildChip(string text, Color col) => new Border
         {
-            return new Border
-            {
-                Background      = new SolidColorBrush(Color.FromArgb(25,  col.R, col.G, col.B)),
-                BorderBrush     = new SolidColorBrush(Color.FromArgb(70,  col.R, col.G, col.B)),
-                BorderThickness = new Thickness(1),
-                CornerRadius    = new CornerRadius(3),
-                Padding         = new Thickness(5, 1, 5, 1),
-                Margin          = new Thickness(3, 0, 0, 0),
-                Child = new TextBlock
-                {
-                    Text      = text,
-                    FontSize  = 9,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromArgb(200, col.R, col.G, col.B))
-                }
-            };
-        }
+            Background = new SolidColorBrush(Color.FromArgb(25, col.R, col.G, col.B)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(70, col.R, col.G, col.B)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(3, 0, 0, 0),
+            Child = new TextBlock { Text = text, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromArgb(200, col.R, col.G, col.B)) }
+        };
     }
 }

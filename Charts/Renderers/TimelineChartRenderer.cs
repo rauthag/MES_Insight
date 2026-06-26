@@ -907,6 +907,36 @@ namespace MESInsight.Charts.Renderers
                 panel.Children.Add(new TextBlock { Text = "UID: " + uid, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(180, 190, 200)), Margin = new Thickness(0, 2, 0, 0) });
             if (!string.IsNullOrEmpty(evt.Detail))
                 panel.Children.Add(new TextBlock { Text = evt.Detail, FontSize = 10, Foreground = new SolidColorBrush(Colors.LightGray), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap, MaxWidth = 360 });
+
+            if (!string.IsNullOrEmpty(uid))
+            {
+                var histBtn = new Border
+                {
+                    Background      = new SolidColorBrush(Color.FromArgb(30, 56, 182, 255)),
+                    BorderBrush     = new SolidColorBrush(Color.FromArgb(100, 56, 182, 255)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius    = new CornerRadius(3),
+                    Padding         = new Thickness(8, 3, 8, 3),
+                    Margin          = new Thickness(0, 8, 0, 0),
+                    Cursor          = Cursors.Hand,
+                    Child = new TextBlock
+                    {
+                        Text       = "🔍  Show Subset History",
+                        FontSize   = 10,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255))
+                    }
+                };
+                var capturedUid = uid;
+                histBtn.MouseLeftButtonUp += (s, e) =>
+                    MESInsight.MainWindow.OpenSubsetHistory?.Invoke(capturedUid);
+                histBtn.MouseEnter += (s, e) =>
+                    histBtn.Background = new SolidColorBrush(Color.FromArgb(60, 56, 182, 255));
+                histBtn.MouseLeave += (s, e) =>
+                    histBtn.Background = new SolidColorBrush(Color.FromArgb(30, 56, 182, 255));
+                panel.Children.Add(histBtn);
+            }
+
             return new Border { Background = new SolidColorBrush(Color.FromArgb(248, 18, 22, 30)), BorderBrush = new SolidColorBrush(isErr ? Color.FromRgb(220, 40, 40) : Color.FromRgb(56, 139, 253)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(10), Child = panel };
         }
 
@@ -929,39 +959,14 @@ namespace MESInsight.Charts.Renderers
         private static SKColor GetSkiaColorForLane(TimelineLane lane) =>
             lane.IsOtherCategory ? new SKColor(100, 110, 125) : GetSkiaColorForMessageType(lane.MessageType);
 
-        private static SKColor GetSkiaColorForMessageType(MessageType t)
-        {
-            switch (t)
-            {
-                case MessageType.UNIT_INFO:         return new SKColor( 56, 182, 255);
-                case MessageType.NEXT_OPERATION:    return new SKColor( 50, 230,  90);
-                case MessageType.UNIT_CHECKIN:      return new SKColor(255, 160,  30);
-                case MessageType.UNIT_RESULT:       return new SKColor(180, 100, 255);
-                case MessageType.LOAD_MATERIAL:     return new SKColor(255,  70, 130);
-                case MessageType.REQ_MATERIAL_INFO: return new SKColor( 40, 220, 200);
-                case MessageType.REQ_SETUP_CHANGE2: return new SKColor(255, 220,  40);
-                case MessageType.SEMI_VALIDATION2:  return new SKColor(255, 100,  60);
-                default:                            return new SKColor(120, 130, 140);
-            }
-        }
+        private static SKColor GetSkiaColorForMessageType(MessageType t) =>
+            MessageColors.GetSki(t);
 
-        internal static Color GetWpfColorForMessageType(MessageType t)
-        {
-            switch (t)
-            {
-                case MessageType.UNIT_INFO:         return Color.FromRgb( 56, 182, 255);
-                case MessageType.NEXT_OPERATION:    return Color.FromRgb( 50, 230,  90);
-                case MessageType.UNIT_CHECKIN:      return Color.FromRgb(255, 160,  30);
-                case MessageType.UNIT_RESULT:       return Color.FromRgb(180, 100, 255);
-                case MessageType.LOAD_MATERIAL:     return Color.FromRgb(255,  70, 130);
-                case MessageType.REQ_MATERIAL_INFO: return Color.FromRgb( 40, 220, 200);
-                case MessageType.REQ_SETUP_CHANGE2: return Color.FromRgb(255, 220,  40);
-                case MessageType.SEMI_VALIDATION2:  return Color.FromRgb(255, 100,  60);
-                default:                            return Color.FromRgb(120, 130, 140);
-            }
-        }
+        internal static Color GetWpfColorForMessageType(MessageType t) =>
+            MessageColors.Get(t);
 
-        internal static Color GetMessageColor(MessageType t) => GetWpfColorForMessageType(t);
+        internal static Color GetMessageColor(MessageType t) =>
+            MessageColors.Get(t);
 
         private static SKColor CalculateHeatmapColor(float rt, SKColor col)
         {

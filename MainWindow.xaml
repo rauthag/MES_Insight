@@ -212,7 +212,6 @@
             </Setter>
         </Style>
 
-
         <Style x:Key="AllTabStyle" TargetType="{x:Type TabItem}">
             <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Foreground" Value="#D18616" />
@@ -350,6 +349,7 @@
 
             <Grid Grid.Column="0" Margin="0,0,8,0">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -537,6 +537,32 @@
                 </Border>
 
                 <Border Grid.Row="2" Background="#161B22"
+                        BorderBrush="#21262D" BorderThickness="1"
+                        Padding="12" CornerRadius="6" Margin="0,0,0,6">
+                    <StackPanel>
+                        <TextBlock Text="SUBSET HISTORY" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="#388E3C" Margin="0,0,0,8" />
+                        <TextBlock Text="UID" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TxtSubsetUid"
+                                     FontFamily="Consolas"
+                                     KeyDown="TxtSubsetUid_KeyDown" />
+                            <Button Grid.Column="1"
+                                    Content="🔍"
+                                    Click="BtnSubsetSearch_Click"
+                                    Padding="8,4" Margin="4,0,0,0"
+                                    Background="#0D1117" Foreground="#3FB950"
+                                    BorderBrush="#30363D" BorderThickness="1"
+                                    FontSize="11" Cursor="Hand" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="3" Background="#161B22"
                         BorderBrush="#21262D" BorderThickness="1" CornerRadius="6">
                     <Grid>
                         <Grid.RowDefinitions>

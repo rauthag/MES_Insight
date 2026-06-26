@@ -13,7 +13,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using LiveCharts.Wpf;
 using MESInsight.Charts;
-using RTAnalyzer.Core;
+using MESInsight.Core;
 using ScottPlot.WPF;
 
 namespace MESInsight
@@ -123,6 +123,8 @@ namespace MESInsight
         private bool _assemblyIndexReady = false;
         private bool _isCyclingTabs = false;
 
+        public static Action<string> OpenSubsetHistory;
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         #endregion
@@ -134,6 +136,7 @@ namespace MESInsight
             InitializeComponent();
             ValidateLoadingControls();
             DataContext = this;
+            OpenSubsetHistory = uid => OpenSubsetHistoryTab(uid);
             WindowState = WindowState.Maximized;
 
             _chartFactory = new ChartFactory(
@@ -584,7 +587,8 @@ namespace MESInsight
             }
 
             bool overlayWasVisible = LoadingOverlay.Visibility == Visibility.Visible;
-            await SwitchToStation(stations[0]);
+            if (stations.Count > 0)
+                await SwitchToStation(stations[0]);
 
             if (overlayWasVisible)
                 ShowLoadingOverlay(
@@ -1193,6 +1197,7 @@ namespace MESInsight
 
             _tabsUserHasAlreadySeen.Clear();
             _assemblyPanelBuilt = false;
+            _assemblyIndexReady = false;
             _dayRecordsPanelByMessageType.Clear();
             _scottPlotByMessageType.Clear();
             _timelineContainerByMessageType.Clear();
@@ -1220,16 +1225,9 @@ namespace MESInsight
             SetDatePickersToFullDataRange();
             await RefreshChartsAndStatsWithLoadingOverlay();
 
-            // ShowLoadingOverlay(TxtStationName.Text, "Prerendering charts...", 95);
-            // await PreRenderAllTabs();
-            
-            _assemblyIndexReady = false;
-            _assemblyPanelBuilt = false;
-            var _snapForIndex = _allRecords.ToList();
-            Task.Run(() => _assemblyIndex.Build(_snapForIndex))
+            var snapForIndex = _allRecords.ToList();
+            Task.Run(() => _assemblyIndex.Build(snapForIndex))
                 .ContinueWith(_ => Dispatcher.Invoke(() => _assemblyIndexReady = true));
-
-            SwitchToTabWithMostRecordsIfNeeded();
 
             SwitchToTabWithMostRecordsIfNeeded();
         }
@@ -1308,6 +1306,26 @@ namespace MESInsight
 
         #region Event Handlers
 
+        private void BtnSubsetSearch_Click(object sender, RoutedEventArgs e)
+        {
+            string uid = TxtSubsetUid.Text.Trim();
+            if (string.IsNullOrEmpty(uid)) return;
+            if (!_uidIndex.HasUid(uid))
+            {
+                MessageBox.Show("UID not found in current station records.",
+                    "Not Found", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            OpenSubsetHistoryTab(uid);
+        }
+
+        private void TxtSubsetUid_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+                BtnSubsetSearch_Click(sender, null);
+        }
+
         private async void BtnSelectFolder_Click(object sender, RoutedEventArgs e)
         {
             var startup = new StartupWindow();
@@ -1341,6 +1359,8 @@ namespace MESInsight
                 if (!_assemblyPanelBuilt) BuildAssemblyPanel();
                 return;
             }
+
+            if (tab.Tag?.ToString().StartsWith("SUBSET_") == true) return;
 
             var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
             if (!type.HasValue) return;
@@ -1495,22 +1515,31 @@ namespace MESInsight
                 {
                     if (r.TimestampParsed == DateTime.MinValue) continue;
                     if (r.TimestampParsed < start || r.TimestampParsed > end) continue;
-                    if (!string.IsNullOrEmpty(filterUid) && (r.Uid == null || !r.Uid.Contains(filterUid))) continue;
+                    if (!string.IsNullOrEmpty(filterUid))
+                    {
+                        bool match =
+                            (r.Uid != null && r.Uid.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                            (r.UidIn != null && r.UidIn.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                            (r.UidOut != null &&
+                             r.UidOut.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                            (r.UidAssy != null &&
+                             r.UidAssy.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0);
+                        if (!match) continue;
+                    }
+
                     if (!string.IsNullOrEmpty(filterUidIn) &&
-                        (r.UidIn == null || !r.UidIn.Contains(filterUidIn))) continue;
-                    if (!string.IsNullOrEmpty(filterUidOut) &&
-                        (r.UidOut == null || !r.UidOut.Contains(filterUidOut))) continue;
-                    if (!string.IsNullOrEmpty(filterMaterial) &&
-                        (r.Material == null || !r.Material.Contains(filterMaterial))) continue;
-                    if (!string.IsNullOrEmpty(filterCarrierId) &&
-                        (r.CarrierId == null || !r.CarrierId.Contains(filterCarrierId))) continue;
-                    if (!string.IsNullOrEmpty(filterResult) && r.Result != filterResult) continue;
-                    if (!string.IsNullOrEmpty(filterUid) &&
-                        (r.Uid == null || !r.Uid.Contains(filterUid)) &&
-                        !(r.Type == MessageType.SEMI_VALIDATION2 && r.UidAssy != null &&
-                          r.UidAssy.Contains(filterUid)) &&
-                        !(r.Type == MessageType.SEMI_VALIDATION2 && r.UidIn != null && r.UidIn.Contains(filterUid)))
+                        (r.UidIn == null || r.UidIn.IndexOf(filterUidIn, StringComparison.OrdinalIgnoreCase) < 0))
                         continue;
+                    if (!string.IsNullOrEmpty(filterUidOut) &&
+                        (r.UidOut == null || r.UidOut.IndexOf(filterUidOut, StringComparison.OrdinalIgnoreCase) < 0))
+                        continue;
+                    if (!string.IsNullOrEmpty(filterMaterial) &&
+                        (r.Material == null ||
+                         r.Material.IndexOf(filterMaterial, StringComparison.OrdinalIgnoreCase) < 0)) continue;
+                    if (!string.IsNullOrEmpty(filterCarrierId) &&
+                        (r.CarrierId == null ||
+                         r.CarrierId.IndexOf(filterCarrierId, StringComparison.OrdinalIgnoreCase) < 0)) continue;
+                    if (!string.IsNullOrEmpty(filterResult) && r.Result != filterResult) continue;
                     _filteredRecords.Add(r);
                 }
 
@@ -1729,7 +1758,10 @@ namespace MESInsight
         {
             if (_assemblyIndex.IsBuilt)
                 PanelAssembly.Children.Add(
-                    MESInsight.UI.AssemblyTreePanel.Build(_assemblyIndex, _allRecords));
+                    MESInsight.UI.AssemblyTreePanel.Build(
+                        _assemblyIndex,
+                        _allRecords,
+                        uid => OpenSubsetHistoryTab(uid)));
             else
                 PanelAssembly.Children.Add(new TextBlock
                 {
@@ -1743,11 +1775,207 @@ namespace MESInsight
             _assemblyPanelBuilt = true;
         }
 
-        private void ShowUidHistory(string uid)
+        public void OpenSubsetHistoryTab(string uid)
         {
-            var node = _assemblyIndex.GetNode(uid);
-            if (node == null) return;
-            new MESInsight.UI.SubsetHistoryWindow(uid, node, _allRecords) { Owner = this }.Show();
+            if (string.IsNullOrEmpty(uid)) return;
+
+            string tag = "SUBSET_" + uid;
+            foreach (TabItem existing in MainTabControl.Items)
+            {
+                if (existing.Tag?.ToString() == tag)
+                {
+                    MainTabControl.SelectedItem = existing;
+                    return;
+                }
+            }
+
+            string shortUid = uid.Length > 16
+                ? uid.Substring(0, 8) + "…" + uid.Substring(uid.Length - 6)
+                : uid;
+
+            var equipNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var st in _loadedStations.Concat(_lazyLoadStations))
+            {
+                if (string.IsNullOrEmpty(st.FolderPath)) continue;
+                string folderName = System.IO.Path.GetFileName(st.FolderPath);
+                // Kľúč 1: priamy názov priečinka (napr. MON0240_St1160...)
+                if (!equipNames.ContainsKey(folderName))
+                    equipNames[folderName] = st.StationName;
+                // Kľúč 2: OR_MON0240 → hľadaj MON0240 v priečinku
+                string monPart = System.Text.RegularExpressions.Regex.Match(folderName, @"MON\d+",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase).Value;
+                if (!string.IsNullOrEmpty(monPart))
+                {
+                    if (!equipNames.ContainsKey("OR_" + monPart))
+                        equipNames["OR_" + monPart] = st.StationName;
+                    if (!equipNames.ContainsKey(monPart))
+                        equipNames[monPart] = st.StationName;
+                }
+
+                // Kľúč 3: LCS, BFL varianty
+                string lcsPart = System.Text.RegularExpressions.Regex.Match(folderName, @"LCS\d+",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase).Value;
+                if (!string.IsNullOrEmpty(lcsPart) && !equipNames.ContainsKey("OR_" + lcsPart))
+                    equipNames["OR_" + lcsPart] = st.StationName;
+            }
+
+            var loadingPanel = MESInsight.UI.SubsetHistoryTab.BuildLoading(uid);
+
+            var closeBtn = new TextBlock
+            {
+                Text = "×", FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 110, 130)),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
+            };
+
+            var header = new StackPanel
+                { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            header.Children.Add(new TextBlock
+            {
+                Text = "🔍", FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0)
+            });
+            var headerStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            headerStack.Children.Add(new TextBlock
+            {
+                Text = "SUBSET HISTORY", FontSize = 7, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 130, 170))
+            });
+            headerStack.Children.Add(new TextBlock
+            {
+                Text = shortUid, FontSize = 9, FontFamily = new FontFamily("Consolas"),
+                Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255))
+            });
+            header.Children.Add(headerStack);
+            header.Children.Add(closeBtn);
+
+            var tab = new TabItem
+            {
+                Header = header, Tag = tag, Content = loadingPanel,
+                Background = new SolidColorBrush(Colors.Transparent),
+                BorderThickness = new Thickness(0), Padding = new Thickness(8, 4, 4, 4),
+                Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217)),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+
+            closeBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                MainTabControl.Items.Remove(tab);
+                e.Handled = true;
+            };
+            closeBtn.MouseEnter += (s, e) => closeBtn.Foreground = new SolidColorBrush(Color.FromRgb(248, 81, 73));
+            closeBtn.MouseLeave += (s, e) => closeBtn.Foreground = new SolidColorBrush(Color.FromRgb(100, 110, 130));
+
+            MainTabControl.Items.Insert(0, tab);
+            MainTabControl.SelectedItem = tab;
+
+            string activePath = _activeStation?.FolderPath ?? "";
+            string lineRoot = System.IO.Path.GetDirectoryName(activePath) ?? activePath;
+
+            Task.Run(() =>
+            {
+                var allStations = DataLoader.FindStations(lineRoot);
+                if (allStations.Count == 0)
+                    allStations.Add(new StationInfo { FolderPath = lineRoot });
+
+                var allRecords = new List<ResponseRecord>();
+
+                foreach (var st in allStations)
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                        MESInsight.UI.SubsetHistoryTab.UpdateLoadingStation(loadingPanel, st.StationName)));
+
+                    List<ResponseRecord> recs;
+
+                    if (_stationDataCache.TryGetValue(st.FolderPath, out var cached) && cached.records != null)
+                    {
+                        // Použi cache pre rýchle výsledky
+                        recs = cached.records.Where(r =>
+                                r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
+                                r.UidAssy == uid ||
+                                (!string.IsNullOrEmpty(r.AssyUids) && r.AssyUids.Split(',')
+                                    .Select(x => x.Trim())
+                                    .Contains(uid, StringComparer.OrdinalIgnoreCase)))
+                            .ToList();
+
+                        // Ak cache má date filter, doplň aj scan z disku pre staršie záznamy
+                        if (_dataLoader.DateFilter.HasValue)
+                        {
+                            var diskRecs = DataLoader.ScanForUid(st.FolderPath, uid);
+                            var cacheKeys =
+                                new HashSet<string>(recs.Select(r => r.TimestampParsed.Ticks + r.Type.ToString()));
+                            foreach (var dr in diskRecs)
+                                if (!cacheKeys.Contains(dr.TimestampParsed.Ticks + dr.Type.ToString()))
+                                    recs.Add(dr);
+                        }
+                    }
+                    else
+                        recs = DataLoader.ScanForUid(st.FolderPath, uid);
+
+                    allRecords.AddRange(recs);
+                }
+
+                var records = allRecords
+                    .GroupBy(r => r.TimestampParsed.Ticks.ToString() + r.Type.ToString() + (r.EquipId ?? ""))
+                    .Select(g => g.First())
+                    .OrderBy(r => r.TimestampParsed)
+                    .ToList();
+
+                Dispatcher.Invoke(() =>
+                {
+                    tab.Content = MESInsight.UI.SubsetHistoryTab.Build(
+                        uid, records,
+                        onOpenUid: u => OpenSubsetHistoryTab(u),
+                        onSwitchStation: null,
+                        onScanFullLine: null,
+                        equipNames: equipNames);
+                });
+            });
+        }
+
+        private List<ResponseRecord> ScanFullLineHistory(string uid, Action<string> progress = null)
+        {
+            var allRecords = new List<ResponseRecord>();
+            string activePath = _activeStation?.FolderPath ?? "";
+            string lineRoot = System.IO.Path.GetDirectoryName(activePath) ?? activePath;
+
+            var allStations = DataLoader.FindStations(lineRoot);
+            if (allStations.Count == 0)
+                allStations.Add(new StationInfo { FolderPath = lineRoot });
+
+            foreach (var st in allStations)
+            {
+                progress?.Invoke(st.StationName);
+
+                List<ResponseRecord> recs = null;
+
+                if (_stationDataCache.TryGetValue(st.FolderPath, out var cached))
+                    recs = cached.records;
+
+                if (recs == null)
+                {
+                    var loader = new DataLoader { DateFilter = null };
+                    recs = loader.Load(st.FolderPath, null).Records;
+                }
+
+                if (recs == null) continue;
+
+                foreach (var r in recs)
+                {
+                    if (r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
+                        r.UidAssy == uid ||
+                        (!string.IsNullOrEmpty(r.AssyUids) && r.AssyUids
+                            .Split(',').Select(x => x.Trim())
+                            .Contains(uid, StringComparer.OrdinalIgnoreCase)))
+                        allRecords.Add(r);
+                }
+            }
+
+            return allRecords.OrderBy(r => r.TimestampParsed).ToList();
         }
 
         private MessageType[] GetAllSupportedMessageTypes() => new[]
@@ -1962,6 +2190,7 @@ namespace MESInsight
             {
                 if (tab.Tag == null) continue;
                 if (tab.Tag.ToString() == "ALL" || tab.Tag.ToString() == "ASSEMBLY") continue;
+                if (tab.Tag.ToString().StartsWith("SUBSET_")) continue;
                 var type = TryParseMessageType(tab.Tag.ToString());
                 if (type == null) continue;
                 bool highlight = anyActive && _filteredRecords.Any(r => r.Type == type.Value);
@@ -2018,6 +2247,7 @@ namespace MESInsight
         private void MoveTabTo(TabItem tab, int index)
         {
             if (tab.Tag?.ToString() == "ALL" || tab.Tag?.ToString() == "ASSEMBLY") return;
+            if (tab.Tag?.ToString().StartsWith("SUBSET_") == true) return;
             int current = MainTabControl.Items.IndexOf(tab);
             if (current < 0 || current == index) return;
             MainTabControl.Items.RemoveAt(current);

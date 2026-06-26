@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MESInsight.Core;
 
-namespace RTAnalyzer.Core
+namespace MESInsight.Core
 {
     public enum StationCategory
     {
@@ -186,6 +186,122 @@ namespace RTAnalyzer.Core
             if (string.IsNullOrWhiteSpace(name)) return true;
             string t = name.Trim();
             return RxPlaceholder.IsMatch(t) || RxGenericLine.IsMatch(t);
+        }
+
+        public static List<ResponseRecord> ScanForUid(string path, string uid)
+        {
+            if (!Directory.Exists(path) || string.IsNullOrEmpty(uid))
+                return new List<ResponseRecord>();
+
+            var patterns = new[]
+            {
+                "uid=\"" + uid + "\"",
+                "uid_in=\"" + uid + "\"",
+                "uid_out=\"" + uid + "\"",
+                "uid_assy=\"" + uid + "\""
+            };
+
+            var bag  = new ConcurrentBag<ResponseRecord>();
+            var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+
+            var opts = new ParallelOptions
+                { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+
+            Parallel.ForEach(files, opts, file =>
+            {
+                string fileName = Path.GetFileName(file);
+                string ext      = Path.GetExtension(file).ToLower();
+
+                if (!ShouldProcessFile(fileName)) return;
+
+                try
+                {
+                    // Rýchla kontrola či súbor vôbec obsahuje UID
+                    bool fileContainsUid = false;
+                    using (var fs = File.OpenRead(file))
+                    using (var reader = new StreamReader(fs))
+                    {
+                        string line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            foreach (var p in patterns)
+                                if (line.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)
+                                    { fileContainsUid = true; break; }
+                            if (fileContainsUid) break;
+                        }
+                    }
+
+                    if (!fileContainsUid) return;
+
+                    // Parsuj celý súbor normálne
+                    var loader = new DataLoader { DateFilter = null };
+                    var result = new DataLoadResult();
+
+                    using (var fs = File.OpenRead(file))
+                    {
+                        if (IsGhpLogFile(fileName))
+                            ReadGhpFormatLines(fs, fileName, result, null);
+                        else
+                            ReadOldFormatLines(fs, fileName, result, null);
+                    }
+
+                    // Filtruj len záznamy s daným UID
+                    foreach (var r in result.Records)
+                    {
+                        if (r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
+                            r.UidAssy == uid ||
+                            (!string.IsNullOrEmpty(r.AssyUids) && r.AssyUids.Split(',')
+                                .Select(x => x.Trim())
+                                .Contains(uid, StringComparer.OrdinalIgnoreCase)))
+                            bag.Add(r);
+                    }
+                }
+                catch { }
+            });
+
+            return bag.OrderBy(r => r.TimestampParsed).ToList();
+        }
+
+        private static void ScanZipForUid(string zipFile, string uid, string[] patterns, ConcurrentBag<ResponseRecord> bag)
+        {
+            try
+            {
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(zipFile))
+                    foreach (var entry in zip.Entries)
+                    {
+                        if (!ShouldProcessFile(entry.Name)) continue;
+                        try
+                        {
+                            using (var stream = entry.Open())
+                            using (var reader = new StreamReader(stream))
+                            {
+                                string line;
+                                while ((line = reader.ReadLine()) != null)
+                                {
+                                    bool hit = false;
+                                    foreach (var p in patterns)
+                                        if (line.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)
+                                            { hit = true; break; }
+                                    if (!hit) continue;
+
+                                    var local = new DataLoadResult();
+                                    var ms = new System.IO.MemoryStream(
+                                        System.Text.Encoding.UTF8.GetBytes(line));
+                                    bool isGhp = line.IndexOf("<STX>", StringComparison.OrdinalIgnoreCase) >= 0
+                                              || line.IndexOf("<ETX>", StringComparison.OrdinalIgnoreCase) >= 0
+                                              || IsGhpLogFile(entry.Name);
+                                    if (isGhp)
+                                        ReadGhpFormatLines(ms, entry.Name, local, null);
+                                    else
+                                        ReadOldFormatLines(ms, entry.Name, local, null);
+                                    foreach (var r in local.Records) bag.Add(r);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+            }
+            catch { }
         }
 
         public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null)
@@ -738,10 +854,10 @@ namespace RTAnalyzer.Core
             DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
         {
             long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
-            long readBytes = 0;
-            int lineNum = 0;
-            int recCount = 0;
-            string plcLine = null;
+            long readBytes  = 0;
+            int  lineNum    = 0;
+            int  recCount   = 0;
+            string plcLine  = null;
 
             using (StreamReader reader = new StreamReader(dataStream))
             {
@@ -755,19 +871,71 @@ namespace RTAnalyzer.Core
 
                     if (line.Contains("[C->S"))
                     {
+                        // Ak predchádzajúci request nemal response, parsuj ho s RT=0
+                        if (plcLine != null)
+                        {
+                            int before = result.Records.Count;
+                            TryParseRequestOnlyRecord(plcLine, sourceName, result, cutoff);
+                            if (result.Records.Count > before) recCount++;
+                        }
                         plcLine = line;
                         continue;
                     }
 
-                    int before = result.Records.Count;
-                    TryParseOldRecord(line, sourceName, result, plcLine, cutoff);
-                    if (result.Records.Count > before) recCount++;
-                    plcLine = null;
+                    if (line.Contains("[S") && line.Contains("->C]"))
+                    {
+                        int before = result.Records.Count;
+                        TryParseOldRecord(line, sourceName, result, plcLine, cutoff);
+                        if (result.Records.Count > before) recCount++;
+                        plcLine = null;
+                    }
 
                     if (lineNum % 2000 == 0)
                         lineProgress?.Invoke(lineNum, recCount, ProgressPct(readBytes, totalBytes));
                 }
+
+                // Posledný request bez response
+                if (plcLine != null)
+                    TryParseRequestOnlyRecord(plcLine, sourceName, result, cutoff);
             }
+        }
+
+        private static void TryParseRequestOnlyRecord(string line, string sourceName,
+            DataLoadResult result, DateTime? cutoff)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+
+            string[] cols = line.Split('\t');
+            if (cols.Length < 4) return;
+
+            string content = cols[3];
+
+            // Musí obsahovať STX
+            if (!content.Contains("<STX>") && !content.Contains("REQ_") && !content.Contains("UNIT_"))
+                return;
+
+            TryParseTimestampFlexible(cols[0], out DateTime ts);
+            if (ts == DateTime.MinValue) return;
+            if (cutoff.HasValue && ts < cutoff.Value) return;
+
+            var type = ParseMessageType(content);
+            if (type == MessageType.OTHER) return;
+
+            result.Records.Add(new ResponseRecord
+            {
+                Timestamp       = cols[0],
+                TimestampParsed = ts,
+                ResponseTime    = 0,
+                FileName        = sourceName,
+                Type            = type,
+                Uid             = Attr(content, "uid=\""),
+                UidIn           = Attr(content, "uid_in=\""),
+                UidOut          = Attr(content, "uid_out=\""),
+                UidAssy         = Attr(content, "uid_assy=\""),
+                UidType         = Attr(content, "uid_type=\""),
+                Material        = Attr(content, "material=\""),
+                Result          = null
+            });
         }
 
         private static void TryExtractStationName(string line, DataLoadResult result)
@@ -796,7 +964,13 @@ namespace RTAnalyzer.Core
             TryParseTimestampFlexible(cols[0], out DateTime ts);
             if (cutoff.HasValue && ts != DateTime.MinValue && ts < cutoff.Value) return;
             
-            bool isError = mes.Contains(",ERROR,") || mes.Contains("ERROR,<Error");
+            bool isError = mes.Contains(",ERROR,")
+                        || mes.Contains("ERROR,<Error")
+                        || mes.IndexOf(",ERR,",  StringComparison.OrdinalIgnoreCase) >= 0
+                        || mes.IndexOf(",ERR ",  StringComparison.OrdinalIgnoreCase) >= 0
+                        || mes.Contains("result=\"[ERR")
+                        || mes.Contains("result=\"ERR")
+                        || (mes.Contains("Error") && mes.Contains("Exception"));
             string errorText = null;
             if (isError)
             {
@@ -831,7 +1005,16 @@ namespace RTAnalyzer.Core
                 Setup           = Attr(mes, "setup=")          ?? Attr(plc, "setup="),
                 UidAssyUnitResult = Attr(mes, "uid_assy_1=") ?? Attr(plc, "uid_assy_1="),
                 AssyUids          = ExtractAssyUids(mes + " " + plc),
-                CarrierIdCid      = Attr(mes, "cid=") ?? Attr(plc, "cid=")
+                CarrierIdCid      = Attr(mes, "cid=")         ?? Attr(plc, "cid="),
+                Workcenter        = Attr(mes, "workcenter=")  ?? Attr(plc, "workcenter="),
+                Operation         = Attr(mes, "operation=")   ?? Attr(plc, "operation="),
+                NextWorkcenter1   = Attr(mes, "workcenter_1=") ?? Attr(plc, "workcenter_1="),
+                NextOperation1    = Attr(mes, "operation_1=") ?? Attr(plc, "operation_1="),
+                NextWorkcenter2   = Attr(mes, "workcenter_2=") ?? Attr(plc, "workcenter_2="),
+                NextOperation2    = Attr(mes, "operation_2=") ?? Attr(plc, "operation_2="),
+                MatPartNr         = Attr(mes, "mat_part_nr_1=") ?? Attr(plc, "mat_part_nr_1="),
+                MeasValuesRaw     = ExtractMeasValuesRaw(mes + " " + plc),
+                ProductLine       = Attr(mes, "productline=") ?? Attr(plc, "productline=")
             };
         }
 
@@ -888,7 +1071,13 @@ namespace RTAnalyzer.Core
                     string afterEtx = line.Substring(etxPos + 1).TrimStart(',').Trim();
 
                     bool isError = afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase)
-                                   || body.Contains(",ERROR,");
+                                   || body.Contains(",ERROR,")
+                                   || body.Contains("ERROR,<")
+                                   || body.IndexOf(",ERR,",  StringComparison.OrdinalIgnoreCase) >= 0
+                                   || body.IndexOf(",ERR ",  StringComparison.OrdinalIgnoreCase) >= 0
+                                   || afterEtx.StartsWith("ERR,", StringComparison.OrdinalIgnoreCase)
+                                   || body.Contains("result=\"[ERR")
+                                   || body.Contains("result=\"ERR");
 
                     int responseTime = 0;
                     if (isError && afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase))
@@ -922,25 +1111,35 @@ namespace RTAnalyzer.Core
 
                     result.Records.Add(new ResponseRecord
                     {
-                        Timestamp       = timestampRaw,
-                        TimestampParsed = parsedTimestamp,
-                        ResponseTime    = responseTime,
-                        FileName        = sourceName,
-                        Type            = ParseGhpMessageType(body),
-                        Uid             = ExtractAttribute(mergedBody, "uid="),
-                        UidIn           = ExtractAttribute(mergedBody, "uid_in="),
-                        UidOut          = ExtractAttribute(mergedBody, "uid_out="),
-                        UidType         = ExtractAttribute(mergedBody, "uid_type="),
-                        Result          = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result="),
-                        CarrierId       = ExtractAttribute(mergedBody, "Carrier_ID_val="),
-                        Material        = ExtractAttribute(mergedBody, "material="),
-                        Setup           = ExtractAttribute(mergedBody, "setup="),
-                        UidAssy         = ExtractAttribute(mergedBody, "uid_assy="),
-                        UidAssyType     = ExtractAttribute(mergedBody, "uid_assy_type="),
-                        ProcDirAssy     = ExtractAttribute(mergedBody, "procdir_assy="),
+                        Timestamp         = timestampRaw,
+                        TimestampParsed   = parsedTimestamp,
+                        ResponseTime      = responseTime,
+                        FileName          = sourceName,
+                        Type              = ParseGhpMessageType(body),
+                        Uid               = ExtractAttribute(mergedBody, "uid="),
+                        UidIn             = ExtractAttribute(mergedBody, "uid_in="),
+                        UidOut            = ExtractAttribute(mergedBody, "uid_out="),
+                        UidType           = ExtractAttribute(mergedBody, "uid_type="),
+                        Result            = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result="),
+                        CarrierId         = ExtractAttribute(mergedBody, "Carrier_ID_val="),
+                        Material          = ExtractAttribute(mergedBody, "material="),
+                        Setup             = ExtractAttribute(mergedBody, "setup="),
+                        UidAssy           = ExtractAttribute(mergedBody, "uid_assy="),
+                        UidAssyType       = ExtractAttribute(mergedBody, "uid_assy_type="),
+                        ProcDirAssy       = ExtractAttribute(mergedBody, "procdir_assy="),
                         UidAssyUnitResult = ExtractAttribute(mergedBody, "uid_assy_1="),
                         AssyUids          = ExtractAssyUids(mergedBody),
-                        CarrierIdCid      = ExtractAttribute(mergedBody, "cid=")
+                        CarrierIdCid      = ExtractAttribute(mergedBody, "cid="),
+                        Workcenter        = ExtractAttribute(mergedBody, "workcenter="),
+                        Operation         = ExtractAttribute(mergedBody, "operation="),
+                        NextWorkcenter1   = ExtractAttribute(mergedBody, "workcenter_1="),
+                        NextOperation1    = ExtractAttribute(mergedBody, "operation_1="),
+                        NextWorkcenter2   = ExtractAttribute(mergedBody, "workcenter_2="),
+                        NextOperation2    = ExtractAttribute(mergedBody, "operation_2="),
+                        MatPartNr         = ExtractAttribute(mergedBody, "mat_part_nr_1="),
+                        MeasValuesRaw     = ExtractMeasValuesRaw(mergedBody),
+                        ProductLine       = ExtractAttribute(mergedBody, "productline="),
+                        EquipId           = ExtractEquipId(body)
                     });
 
                     pendingRequests.Remove(pairKey);
@@ -967,6 +1166,49 @@ namespace RTAnalyzer.Core
                 uids.Add(val);
             }
             return uids.Count > 0 ? string.Join(",", uids) : null;
+        }
+
+        private static string ExtractMeasValuesRaw(string body)
+        {
+            if (!body.Contains("_val=\"")) return null;
+
+            var parts = new List<string>();
+            int pos = 0;
+            while (true)
+            {
+                int valIdx = body.IndexOf("_val=\"", pos, StringComparison.Ordinal);
+                if (valIdx < 0) break;
+
+                int keyStart = valIdx;
+                while (keyStart > 0 && body[keyStart - 1] != ' ' && body[keyStart - 1] != '<')
+                    keyStart--;
+
+                string key = body.Substring(keyStart, valIdx - keyStart + 4);
+
+                int valStart = valIdx + 6;
+                int valEnd = body.IndexOf('"', valStart);
+                if (valEnd < 0) break;
+
+                string val = body.Substring(valStart, valEnd - valStart);
+
+                if (!key.StartsWith("uid") && !key.StartsWith("mat") &&
+                    !key.StartsWith("cid") && !key.StartsWith("procdir") &&
+                    !string.IsNullOrEmpty(val))
+                    parts.Add(key + "=" + val);
+
+                pos = valEnd + 1;
+            }
+
+            return parts.Count > 0 ? string.Join("|", parts) : null;
+        }
+
+        private static string ExtractEquipId(string body)
+        {
+            int a = body.IndexOf(',');
+            if (a < 0) return null;
+            int b = body.IndexOf(',', a + 1);
+            if (b < 0) return null;
+            return body.Substring(a + 1, b - a - 1);
         }
 
         private static string ExtractGhpPairKey(string body)
