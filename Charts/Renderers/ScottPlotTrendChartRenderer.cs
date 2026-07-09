@@ -28,6 +28,8 @@ namespace MESInsight.Charts.Renderers
         private readonly Dictionary<DateTime, List<ResponseRecord>> _recordsGroupedByDay;
         private readonly List<ResponseRecord> _filteredRecords;
         private readonly Action<MessageType> _onShowAllRecordsRequested;
+        private readonly Action<DateTime, List<ResponseRecord>, MessageType> _onDaySelected;
+
 
         private static readonly ScottPlot.Color ColorAvg = new ScottPlot.Color(79, 195, 247);
         private static readonly ScottPlot.Color ColorP95 = new ScottPlot.Color(165, 214, 167);
@@ -61,7 +63,8 @@ namespace MESInsight.Charts.Renderers
             ChartFactory chartFactory,
             Dictionary<DateTime, List<ResponseRecord>> recordsGroupedByDay,
             List<ResponseRecord> filteredRecords,
-            Action<MessageType> onShowAllRecordsRequested)
+            Action<MessageType> onShowAllRecordsRequested,
+            Action<DateTime, List<ResponseRecord>, MessageType> onDaySelected = null)
         {
             _dayRecordsPanelBuilder = dayRecordsPanelBuilder;
             _dayRecordsPanelByMessageType = dayRecordsPanelByMessageType;
@@ -71,6 +74,7 @@ namespace MESInsight.Charts.Renderers
             _recordsGroupedByDay = recordsGroupedByDay;
             _filteredRecords = filteredRecords;
             _onShowAllRecordsRequested = onShowAllRecordsRequested;
+            _onDaySelected = onDaySelected;
         }
 
         public override ChartType GetChartType() => ChartType.Trend;
@@ -640,6 +644,8 @@ namespace MESInsight.Charts.Renderers
                     {
                         bool isDouble = (DateTime.UtcNow - lastClickTime).TotalMilliseconds < 400;
                         lastClickTime = DateTime.UtcNow;
+                        
+                        List<ResponseRecord> recordsForDay = null;
                         if (!isDouble)
                         {
                             UpdateTimelineForDay(messageType, realDate);
@@ -660,8 +666,7 @@ namespace MESInsight.Charts.Renderers
                                 UpdateClickGlowPosition();
                                 clickGlow.Visibility = Visibility.Visible;
                             }
-
-                            List<ResponseRecord> recordsForDay;
+                            
                             if (_recordsGroupedByDay.TryGetValue(realDate.Date, out var allForDay))
                             {
                                 recordsForDay = messageType == MessageType.ALL
@@ -674,6 +679,8 @@ namespace MESInsight.Charts.Renderers
                                     .Where(r => r.TimestampParsed.Date == realDate.Date)
                                     .ToList();
                             }
+
+                            _onDaySelected?.Invoke(realDate, recordsForDay, messageType);
 
                             if (_dayRecordsPanelByMessageType.ContainsKey(messageType))
                             {
@@ -812,7 +819,7 @@ namespace MESInsight.Charts.Renderers
             });
             return row;
         }
-
+        
         public void UpdateTimelineForDay(MessageType messageType, DateTime selectedDay)
         {
             if (!_timelineContainerByMessageType.ContainsKey(messageType)) return;
@@ -847,6 +854,11 @@ namespace MESInsight.Charts.Renderers
             if (!_timelineContainerByMessageType.ContainsKey(messageType)) return;
             var bestDay = _recordsGroupedByDay.OrderByDescending(kv => kv.Value.Count).First().Key;
             UpdateTimelineForDay(messageType, bestDay);
+
+            var recordsForDay = messageType == MessageType.ALL
+                ? new List<ResponseRecord>(_recordsGroupedByDay[bestDay])
+                : _recordsGroupedByDay[bestDay].Where(r => r.Type == messageType).ToList();
+            _onDaySelected?.Invoke(bestDay, recordsForDay, messageType);
         }
 
         private Border BuildTimelineSection(MessageType messageType)

@@ -1,0 +1,965 @@
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
+using Microsoft.Win32;
+
+namespace MESInsight
+{
+    public class BugReportPanel : UserControl
+    {
+        private const string ReportEmail = "lukas.paucin@mail.schaeffler.com";
+
+        private static readonly Color ColBg = Color.FromRgb(10, 16, 13);
+        private static readonly Color ColPanel = Color.FromRgb(17, 24, 20);
+        private static readonly Color ColPanelAlt = Color.FromRgb(19, 29, 23);
+        private static readonly Color ColBorder = Color.FromRgb(42, 72, 51);
+        private static readonly Color ColBorderAlt = Color.FromRgb(60, 100, 72);
+        private static readonly Color ColGreen = Color.FromRgb(76, 201, 110);
+        private static readonly Color ColGreenSoft = Color.FromRgb(124, 232, 150);
+        private static readonly Color ColTextPri = Color.FromRgb(233, 242, 236);
+        private static readonly Color ColTextSec = Color.FromRgb(202, 219, 208);
+        private static readonly Color ColTextDim = Color.FromRgb(142, 164, 150);
+        private static readonly Color ColCardHover = Color.FromRgb(25, 39, 31);
+
+        private readonly TextBox _descriptionBox;
+        private readonly TextBox _stackTraceBox;
+        private readonly Image _imagePreview;
+        private readonly TextBlock _imageNameLabel;
+        private readonly Border _imagePreviewBorder;
+        private string _attachedImagePath;
+
+        public event Action RequestClose;
+
+        public BugReportPanel(Exception ex = null)
+        {
+            var scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = new SolidColorBrush(ColBg)
+            };
+
+            var mainGrid = new Grid();
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var backContent = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            backContent.Children.Add(new TextBlock
+            {
+                Text = "‹",
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(ColGreenSoft),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            });
+            backContent.Children.Add(new TextBlock
+            {
+                Text = "Back to options",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(ColGreenSoft),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            var backButton = new Border
+            {
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Padding = new Thickness(8, 10, 12, 10),
+                Margin = new Thickness(12, 8, 0, 8),
+                CornerRadius = new CornerRadius(6),
+                Child = backContent
+            };
+            backButton.MouseEnter += (s, e) =>
+            {
+                backButton.Background = new SolidColorBrush(Color.FromArgb(50, ColGreen.R, ColGreen.G, ColGreen.B));
+            };
+            backButton.MouseLeave += (s, e) => { backButton.Background = Brushes.Transparent; };
+            backButton.MouseLeftButtonUp += (s, e) => RequestClose?.Invoke();
+
+            var header = new Border
+            {
+                Background = new SolidColorBrush(ColPanel),
+                BorderBrush = new SolidColorBrush(ColBorder),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0),
+                Child = backButton
+            };
+            mainGrid.Children.Add(header);
+
+            string prefilledTrace = ex?.ToString() ?? string.Empty;
+
+            var body = new StackPanel
+            {
+                Margin = new Thickness(24, 18, 24, 18)
+            };
+
+            body.Children.Add(FieldLabel("Describe the issue"));
+            _descriptionBox = MakeInputBox(108, multiline: true);
+            body.Children.Add(_descriptionBox);
+            body.Children.Add(new Border { Height = 14 });
+
+            body.Children.Add(FieldLabel("Attach a screenshot (optional)"));
+
+            var attachRow = new Grid();
+            attachRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            attachRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            _imageNameLabel = new TextBlock
+            {
+                Text = "No image selected",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(ColTextDim),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            attachRow.Children.Add(_imageNameLabel);
+
+            var attachButton = MakeAttachButton();
+            attachButton.MouseLeftButtonUp += (s, e) => BrowseForImage();
+            Grid.SetColumn(attachButton, 1);
+            attachRow.Children.Add(attachButton);
+
+            body.Children.Add(attachRow);
+            body.Children.Add(new TextBlock
+            {
+                Text =
+                    "Outlook desktop can attach the screenshot automatically. Web mail options open a draft and let you attach the image manually.",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(ColTextDim),
+                Margin = new Thickness(0, 7, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            _imagePreviewBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(9, 18, 13)),
+                BorderBrush = new SolidColorBrush(ColBorder),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(7),
+                Margin = new Thickness(0, 8, 0, 0),
+                MaxHeight = 190,
+                Visibility = Visibility.Collapsed
+            };
+            _imagePreview = new Image
+            {
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(6)
+            };
+            _imagePreviewBorder.Child = _imagePreview;
+            body.Children.Add(_imagePreviewBorder);
+
+            if (!string.IsNullOrEmpty(prefilledTrace))
+            {
+                body.Children.Add(new Border { Height = 14 });
+                body.Children.Add(FieldLabel("Stack trace (auto-captured)"));
+                _stackTraceBox = new TextBox
+                {
+                    Text = prefilledTrace,
+                    IsReadOnly = true,
+                    AcceptsReturn = true,
+                    TextWrapping = TextWrapping.NoWrap,
+                    Height = 158,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    Background = new SolidColorBrush(Color.FromRgb(8, 20, 14)),
+                    Foreground = new SolidColorBrush(ColGreenSoft),
+                    BorderBrush = new SolidColorBrush(ColBorderAlt),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(8, 6, 8, 6),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 10,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    CaretBrush = new SolidColorBrush(ColGreen)
+                };
+                body.Children.Add(_stackTraceBox);
+            }
+            else
+            {
+                body.Children.Add(new Border { Height = 10 });
+                var expander = new Expander
+                {
+                    Header = "Additional technical details (optional)",
+                    IsExpanded = false,
+                    Foreground = new SolidColorBrush(ColTextDim),
+                    FontSize = 11,
+                    Margin = new Thickness(0, 2, 0, 0)
+                };
+                _stackTraceBox = MakeInputBox(84, multiline: true, mono: true);
+                expander.Content = _stackTraceBox;
+                body.Children.Add(expander);
+            }
+
+            Grid.SetRow(body, 1);
+            mainGrid.Children.Add(body);
+
+            var sendSection = new Border
+            {
+                Background = new SolidColorBrush(ColPanelAlt),
+                BorderBrush = new SolidColorBrush(ColBorder),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(24, 18, 24, 22)
+            };
+
+            var sendGrid = new Grid();
+            sendGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            sendGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            sendGrid.Children.Add(new TextBlock
+            {
+                Text = "Choose how to send the report",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(ColTextSec),
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            var optionGrid = new UniformGrid
+            {
+                Columns = 5,
+                Rows = 1
+            };
+            Grid.SetRow(optionGrid, 1);
+
+            var outlookDesktopTile = MakeSendTile(CreateOutlookDesktopIcon(), "Outlook app",
+                "Opens a draft in Outlook desktop and attaches your screenshot.", true);
+            outlookDesktopTile.MouseLeftButtonUp += (s, e) => Send(SendMode.OutlookDesktop);
+
+            var mailAppTile = MakeSendTile(CreateMailAppIcon(), "Mail app",
+                "Opens your default desktop mail application.", false);
+            mailAppTile.MouseLeftButtonUp += (s, e) => Send(SendMode.DefaultApp);
+
+            var outlookWebTile = MakeSendTile(CreateOutlookWebIcon(), "Outlook Web",
+                "Opens Outlook on the web in your browser.", false);
+            outlookWebTile.MouseLeftButtonUp += (s, e) => Send(SendMode.OutlookWeb);
+
+            var gmailTile = MakeSendTile(CreateGmailIcon(), "Gmail", "Opens Gmail compose in your browser.", false);
+            gmailTile.MouseLeftButtonUp += (s, e) => Send(SendMode.Gmail);
+
+            var copyTile = MakeSendTile(CreateClipboardIcon(), "Copy report",
+                "Copies the report text and screenshot to the clipboard.", false);
+            copyTile.MouseLeftButtonUp += (s, e) => CopyToClipboard();
+
+            optionGrid.Children.Add(outlookDesktopTile);
+            optionGrid.Children.Add(mailAppTile);
+            optionGrid.Children.Add(outlookWebTile);
+            optionGrid.Children.Add(gmailTile);
+            optionGrid.Children.Add(copyTile);
+
+            sendGrid.Children.Add(optionGrid);
+            sendSection.Child = sendGrid;
+
+            Grid.SetRow(sendSection, 2);
+            mainGrid.Children.Add(sendSection);
+
+            scroll.Content = mainGrid;
+            Content = scroll;
+        }
+
+        private enum SendMode
+        {
+            OutlookDesktop,
+            DefaultApp,
+            OutlookWeb,
+            Gmail
+        }
+
+        private void Send(SendMode mode)
+        {
+            if (mode == SendMode.OutlookDesktop)
+            {
+                SendViaOutlookDesktop();
+                return;
+            }
+
+            string text = BuildReportText();
+            string subject = Uri.EscapeDataString("Bug Report — MES Insight");
+            string body = Uri.EscapeDataString(TruncateForUrl(text));
+            string url;
+
+            switch (mode)
+            {
+                case SendMode.OutlookWeb:
+                    url = "https://outlook.office.com/mail/deeplink/compose"
+                          + $"?to={Uri.EscapeDataString(ReportEmail)}"
+                          + $"&subject={subject}&body={body}";
+                    break;
+                case SendMode.Gmail:
+                    url = "https://mail.google.com/mail/?view=cm"
+                          + $"&to={Uri.EscapeDataString(ReportEmail)}"
+                          + $"&su={subject}&body={body}";
+                    break;
+                default:
+                    url = $"mailto:{ReportEmail}?subject={subject}&body={body}";
+                    break;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                MessageBox.Show(
+                    "Your bug report has been sent successfully to:\n" + ReportEmail,
+                    "Report Sent",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                RequestClose?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "The selected mail option could not be opened.\n\n"
+                    + ex.Message
+                    + "\n\nPlease send the report manually to:\n"
+                    + ReportEmail,
+                    "MES Insight — Send Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
+        private void CopyToClipboard()
+        {
+            try
+            {
+                var data = new DataObject();
+                data.SetText(BuildReportText());
+
+                bool imageCopied = TryLoadAttachedImage(out var bitmap);
+                if (imageCopied)
+                    data.SetImage(bitmap);
+
+                Clipboard.SetDataObject(data, true);
+
+                MessageBox.Show(
+                    imageCopied
+                        ? "The report text and screenshot were copied to the clipboard.\n\nPaste them into an email and send it to:\n" +
+                          ReportEmail
+                        : "The report text was copied to the clipboard.\n\nPaste it into an email and send it to:\n" +
+                          ReportEmail,
+                    "Copied",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                RequestClose?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "The report could not be copied.\n\n" + ex.Message,
+                    "MES Insight",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
+        private void BrowseForImage()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Select a screenshot or image",
+                Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff|All files|*.*"
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            try
+            {
+                _attachedImagePath = dialog.FileName;
+                _imageNameLabel.Text = System.IO.Path.GetFileName(_attachedImagePath);
+                _imageNameLabel.Foreground = new SolidColorBrush(ColTextSec);
+
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(_attachedImagePath);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                _imagePreview.Source = bitmap;
+                _imagePreviewBorder.Visibility = Visibility.Visible;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "The image could not be loaded.\n\n" + ex.Message,
+                    "MES Insight",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
+        private void SendViaOutlookDesktop()
+        {
+            object outlook = null;
+            object mailItem = null;
+
+            try
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null)
+                    throw new InvalidOperationException("Outlook desktop is not installed.");
+
+                outlook = Activator.CreateInstance(outlookType);
+                mailItem = outlookType.InvokeMember(
+                    "CreateItem",
+                    System.Reflection.BindingFlags.InvokeMethod,
+                    null,
+                    outlook,
+                    new object[] { 0 });
+
+                var mailType = mailItem.GetType();
+                mailType.InvokeMember("To", System.Reflection.BindingFlags.SetProperty, null, mailItem,
+                    new object[] { ReportEmail });
+                mailType.InvokeMember("Subject", System.Reflection.BindingFlags.SetProperty, null, mailItem,
+                    new object[] { "Bug Report — MES Insight" });
+                mailType.InvokeMember("Body", System.Reflection.BindingFlags.SetProperty, null, mailItem,
+                    new object[] { BuildReportText() });
+
+                if (!string.IsNullOrWhiteSpace(_attachedImagePath) && File.Exists(_attachedImagePath))
+                {
+                    var attachments = mailType.InvokeMember(
+                        "Attachments",
+                        System.Reflection.BindingFlags.GetProperty,
+                        null,
+                        mailItem,
+                        null);
+
+                    attachments.GetType().InvokeMember(
+                        "Add",
+                        System.Reflection.BindingFlags.InvokeMethod,
+                        null,
+                        attachments,
+                        new object[] { _attachedImagePath });
+
+                    ReleaseComObjectIfNeeded(attachments);
+                }
+
+                mailType.InvokeMember(
+                    "Display",
+                    System.Reflection.BindingFlags.InvokeMethod,
+                    null,
+                    mailItem,
+                    new object[] { true });
+
+                MessageBox.Show(
+                    "Your bug report draft has been opened in Outlook.\n\nPlease review and send the email manually to:\n" +
+                    ReportEmail,
+                    "Draft Ready",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                RequestClose?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Outlook desktop could not be opened with the bug report draft.\n\n"
+                    + ex.Message
+                    + "\n\nPlease choose another send option if Outlook is not available.",
+                    "MES Insight — Outlook",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            finally
+            {
+                ReleaseComObjectIfNeeded(mailItem);
+                ReleaseComObjectIfNeeded(outlook);
+            }
+        }
+
+        private string BuildReportText()
+        {
+            string description = _descriptionBox?.Text.Trim() ?? string.Empty;
+            string trace = _stackTraceBox?.Text.Trim() ?? string.Empty;
+            var builder = new System.Text.StringBuilder();
+
+            builder.AppendLine("=== MES Insight — Bug Report ===");
+            builder.AppendLine();
+            builder.AppendLine("Description:");
+            builder.AppendLine(string.IsNullOrEmpty(description) ? "(no description provided)" : description);
+
+            if (!string.IsNullOrEmpty(trace))
+            {
+                builder.AppendLine();
+                builder.AppendLine("--- Stack Trace / Technical Details ---");
+                builder.AppendLine(trace);
+            }
+
+            builder.AppendLine();
+            builder.AppendLine("--- Environment ---");
+            builder.AppendLine("App version : MES Insight v1.0");
+            builder.AppendLine($"OS          : {Environment.OSVersion}");
+            builder.AppendLine($"Date/Time   : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            builder.AppendLine($"Machine     : {Environment.MachineName}");
+            builder.AppendLine($"User        : {Environment.UserName}");
+
+            if (!string.IsNullOrEmpty(_attachedImagePath))
+            {
+                builder.AppendLine();
+                builder.AppendLine("--- Selected Screenshot ---");
+                builder.AppendLine(_attachedImagePath);
+                builder.AppendLine(
+                    "Outlook desktop can attach this file automatically. Web mail options require a manual attachment.");
+            }
+
+            return builder.ToString();
+        }
+
+        private static bool TryLoadAttachedImage(string path, out BitmapSource bitmap)
+        {
+            bitmap = null;
+
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return false;
+
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.UriSource = new Uri(path);
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                image.EndInit();
+                image.Freeze();
+                bitmap = image;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool TryLoadAttachedImage(out BitmapSource bitmap)
+        {
+            return TryLoadAttachedImage(_attachedImagePath, out bitmap);
+        }
+
+        private static void ReleaseComObjectIfNeeded(object value)
+        {
+            if (value != null && Marshal.IsComObject(value))
+                Marshal.FinalReleaseComObject(value);
+        }
+
+        private static string TruncateForUrl(string text, int maxChars = 900)
+        {
+            if (text.Length <= maxChars)
+                return text;
+
+            return text.Substring(0, maxChars) + "\n\n[... truncated — attach the full details manually ...]";
+        }
+
+        private static TextBlock FieldLabel(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(ColTextDim),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+        }
+
+        private static TextBox MakeInputBox(double height, bool multiline = false, bool mono = false)
+        {
+            var box = new TextBox
+            {
+                AcceptsReturn = multiline,
+                TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                Height = height,
+                Background = new SolidColorBrush(ColPanel),
+                Foreground = new SolidColorBrush(ColTextSec),
+                BorderBrush = new SolidColorBrush(ColBorderAlt),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(8, 6, 8, 6),
+                FontSize = mono ? 10 : 12,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                CaretBrush = new SolidColorBrush(ColGreen)
+            };
+
+            if (mono)
+                box.FontFamily = new FontFamily("Consolas");
+
+            return box;
+        }
+
+        private Border MakeAttachButton()
+        {
+            var title = new TextBlock
+            {
+                Text = "Attach image",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(ColTextPri)
+            };
+
+            var subtitle = new TextBlock
+            {
+                Text = "Open file picker",
+                FontSize = 9,
+                Foreground = new SolidColorBrush(ColTextDim),
+                Margin = new Thickness(0, 1, 0, 0)
+            };
+
+            var symbol = new Border
+            {
+                Width = 24,
+                Height = 24,
+                CornerRadius = new CornerRadius(12),
+                Background = new SolidColorBrush(Color.FromArgb(60, ColGreen.R, ColGreen.G, ColGreen.B)),
+                Child = new TextBlock
+                {
+                    Text = "+",
+                    FontSize = 15,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(ColGreenSoft),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                }
+            };
+
+            var textStack = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0)
+            };
+            textStack.Children.Add(title);
+            textStack.Children.Add(subtitle);
+
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            content.Children.Add(symbol);
+            content.Children.Add(textStack);
+
+            var normalBg = new SolidColorBrush(Color.FromRgb(18, 34, 24));
+            var hoverBg = new SolidColorBrush(Color.FromRgb(23, 43, 30));
+            var normalBorder = new SolidColorBrush(ColBorderAlt);
+            var hoverBorder = new SolidColorBrush(ColGreenSoft);
+
+            var button = new Border
+            {
+                Background = normalBg,
+                BorderBrush = normalBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(9),
+                Padding = new Thickness(12, 8, 14, 8),
+                Cursor = Cursors.Hand,
+                Child = content
+            };
+
+            button.MouseEnter += (s, e) =>
+            {
+                button.Background = hoverBg;
+                button.BorderBrush = hoverBorder;
+            };
+            button.MouseLeave += (s, e) =>
+            {
+                button.Background = normalBg;
+                button.BorderBrush = normalBorder;
+            };
+
+            return button;
+        }
+
+        private static Border MakeSendTile(FrameworkElement icon, string title, string subtitle, bool recommended)
+        {
+            var titleBlock = new TextBlock
+            {
+                Text = title,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(ColTextPri),
+                Margin = new Thickness(0, 10, 0, 5)
+            };
+
+            var subtitleBlock = new TextBlock
+            {
+                Text = subtitle,
+                FontSize = 9.5,
+                Foreground = new SolidColorBrush(ColTextDim),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            var tag = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(46, ColGreen.R, ColGreen.G, ColGreen.B)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(85, ColGreen.R, ColGreen.G, ColGreen.B)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(7),
+                Padding = new Thickness(6, 2, 6, 2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 10, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = "Recommended",
+                    FontSize = 8.5,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(ColGreenSoft)
+                },
+                Visibility = recommended ? Visibility.Visible : Visibility.Collapsed
+            };
+
+            var stack = new StackPanel();
+            stack.Children.Add(icon);
+            stack.Children.Add(titleBlock);
+            stack.Children.Add(subtitleBlock);
+            stack.Children.Add(tag);
+
+            var normalBackground = new SolidColorBrush(Color.FromRgb(18, 27, 22));
+            var hoverBackground = new SolidColorBrush(ColCardHover);
+            var normalBorder = new SolidColorBrush(recommended ? ColBorderAlt : ColBorder);
+            var hoverBorder = new SolidColorBrush(recommended ? ColGreenSoft : Color.FromRgb(92, 136, 106));
+
+            var tile = new Border
+            {
+                Margin = new Thickness(0, 0, 12, 0),
+                Height = 176,
+                Padding = new Thickness(14, 14, 14, 12),
+                Background = normalBackground,
+                BorderBrush = normalBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Cursor = Cursors.Hand,
+                Child = stack
+            };
+
+            tile.MouseEnter += (s, e) =>
+            {
+                tile.Background = hoverBackground;
+                tile.BorderBrush = hoverBorder;
+            };
+            tile.MouseLeave += (s, e) =>
+            {
+                tile.Background = normalBackground;
+                tile.BorderBrush = normalBorder;
+            };
+
+            return tile;
+        }
+
+        private static FrameworkElement CreateOutlookDesktopIcon()
+        {
+            var grid = new Grid { Width = 48, Height = 48 };
+            var mailSheet = new Border
+            {
+                Width = 31,
+                Height = 38,
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromRgb(87, 165, 255)),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            grid.Children.Add(mailSheet);
+            grid.Children.Add(new TextBlock
+            {
+                Text = "✉",
+                FontSize = 17,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            });
+            var front = new Border
+            {
+                Width = 28,
+                Height = 36,
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromRgb(0, 89, 179)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = "O",
+                    FontSize = 20,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                }
+            };
+            grid.Children.Add(front);
+            return grid;
+        }
+
+        private static FrameworkElement CreateOutlookWebIcon()
+        {
+            var root = new Grid { Width = 48, Height = 48 };
+            var back = new Border
+            {
+                Width = 31,
+                Height = 38,
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromRgb(57, 138, 247)),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            root.Children.Add(back);
+            var globe = new Grid
+            {
+                Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 2, 2)
+            };
+            globe.Children.Add(new Ellipse { Stroke = Brushes.White, StrokeThickness = 1.4 });
+            globe.Children.Add(
+                new Line { X1 = 9, Y1 = 2, X2 = 9, Y2 = 16, Stroke = Brushes.White, StrokeThickness = 1 });
+            globe.Children.Add(
+                new Line { X1 = 3, Y1 = 9, X2 = 15, Y2 = 9, Stroke = Brushes.White, StrokeThickness = 1 });
+            root.Children.Add(globe);
+            var front = new Border
+            {
+                Width = 28,
+                Height = 36,
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromRgb(0, 99, 197)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = "O",
+                    FontSize = 20,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                }
+            };
+            root.Children.Add(front);
+            return root;
+        }
+
+        private static FrameworkElement CreateMailAppIcon()
+        {
+            var icon = new Grid { Width = 48, Height = 48 };
+            icon.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(27, 114, 214)),
+                CornerRadius = new CornerRadius(10)
+            });
+            var envelope = new Canvas
+            {
+                Width = 32, Height = 22, HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            envelope.Children.Add(new Rectangle
+                { Width = 32, Height = 22, RadiusX = 4, RadiusY = 4, Stroke = Brushes.White, StrokeThickness = 2 });
+            envelope.Children.Add(new Line
+                { X1 = 2, Y1 = 3, X2 = 16, Y2 = 13, Stroke = Brushes.White, StrokeThickness = 2 });
+            envelope.Children.Add(new Line
+                { X1 = 30, Y1 = 3, X2 = 16, Y2 = 13, Stroke = Brushes.White, StrokeThickness = 2 });
+            icon.Children.Add(envelope);
+            return icon;
+        }
+
+        private static FrameworkElement CreateGmailIcon()
+        {
+            var root = new Grid { Width = 48, Height = 48 };
+            root.Children.Add(new Border
+            {
+                Background = Brushes.White,
+                CornerRadius = new CornerRadius(10),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(223, 228, 234)),
+                BorderThickness = new Thickness(1)
+            });
+            var canvas = new Canvas
+            {
+                Width = 34, Height = 24, HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            canvas.Children.Add(new Line
+            {
+                X1 = 2, Y1 = 20, X2 = 2, Y2 = 4, Stroke = new SolidColorBrush(Color.FromRgb(66, 133, 244)),
+                StrokeThickness = 3
+            });
+            canvas.Children.Add(new Line
+            {
+                X1 = 32, Y1 = 20, X2 = 32, Y2 = 4, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)),
+                StrokeThickness = 3
+            });
+            canvas.Children.Add(new Line
+            {
+                X1 = 2, Y1 = 4, X2 = 17, Y2 = 15, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)),
+                StrokeThickness = 3
+            });
+            canvas.Children.Add(new Line
+            {
+                X1 = 32, Y1 = 4, X2 = 17, Y2 = 15, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)),
+                StrokeThickness = 3
+            });
+            canvas.Children.Add(new Line
+            {
+                X1 = 2, Y1 = 20, X2 = 12, Y2 = 12, Stroke = new SolidColorBrush(Color.FromRgb(52, 168, 83)),
+                StrokeThickness = 3
+            });
+            canvas.Children.Add(new Line
+            {
+                X1 = 32, Y1 = 20, X2 = 22, Y2 = 12, Stroke = new SolidColorBrush(Color.FromRgb(251, 188, 5)),
+                StrokeThickness = 3
+            });
+            root.Children.Add(canvas);
+            return root;
+        }
+
+        private static FrameworkElement CreateClipboardIcon()
+        {
+            var grid = new Grid { Width = 48, Height = 48 };
+            grid.Children.Add(new Border
+            {
+                Width = 34,
+                Height = 38,
+                CornerRadius = new CornerRadius(9),
+                Background = new SolidColorBrush(Color.FromRgb(18, 64, 38)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(86, 179, 118)),
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom
+            });
+            grid.Children.Add(new Border
+            {
+                Width = 16,
+                Height = 10,
+                CornerRadius = new CornerRadius(5),
+                Background = new SolidColorBrush(Color.FromRgb(86, 179, 118)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 5, 0, 0)
+            });
+            var lines = new StackPanel
+            {
+                Width = 18, HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 5, 0, 0)
+            };
+            lines.Children.Add(
+                new Border { Height = 2, Background = Brushes.White, Margin = new Thickness(0, 0, 0, 4) });
+            lines.Children.Add(
+                new Border { Height = 2, Background = Brushes.White, Margin = new Thickness(0, 0, 0, 4) });
+            lines.Children.Add(new Border { Height = 2, Background = Brushes.White });
+            grid.Children.Add(lines);
+            return grid;
+        }
+    }
+}

@@ -319,13 +319,14 @@ namespace MESInsight.Charts.Renderers
                 Color.FromRgb(139, 148, 158)));
             outerPanel.Children.Add(statsRow);
 
-            var timelineData = _chartFactory.Build(ChartType.Timeline, allForDay ?? new List<ResponseRecord>(),
-                MessageType.ALL);
+            var timelineData = _chartFactory.Build(ChartType.Timeline, allForDay ?? new List<ResponseRecord>(), MessageType.ALL);
+            
             if (timelineData?.TimelineEvents != null)
             {
                 var timelineRenderer = _chartFactory.GetRenderer(ChartType.Timeline) as TimelineChartRenderer;
                 var context = new RenderContext { MessageType = MessageType.ALL, AvailableHeightPixels = 200 };
                 var timelineElement = timelineRenderer?.Render(timelineData, context);
+                
                 if (timelineElement != null)
                 {
                     var timelineWrapper = new Border { Margin = new Thickness(12, 4, 12, 8), Child = timelineElement };
@@ -338,6 +339,7 @@ namespace MESInsight.Charts.Renderers
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Margin = new Thickness(12, 0, 12, 12)
             };
+            
             var recordsList = new StackPanel();
             foreach (var r in records.OrderBy(x => x.TimestampParsed))
             {
@@ -363,6 +365,7 @@ namespace MESInsight.Charts.Renderers
                     FontFamily = new FontFamily("Consolas"),
                     Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158))
                 });
+                
                 if (!string.IsNullOrEmpty(r.Uid ?? r.UidIn))
                     leftStack.Children.Add(new TextBlock
                     {
@@ -371,6 +374,7 @@ namespace MESInsight.Charts.Renderers
                         Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217)),
                         Margin = new Thickness(0, 2, 0, 0)
                     });
+                
                 if (!string.IsNullOrEmpty(r.Result))
                     leftStack.Children.Add(new TextBlock
                     {

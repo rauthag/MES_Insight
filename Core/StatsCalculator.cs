@@ -6,15 +6,15 @@ namespace MESInsight.Core
 {
     public class StatsResult
     {
-        public int    Count          { get; set; }
-        public double Average        { get; set; }
-        public double P95            { get; set; }
-        public double Min            { get; set; }
-        public double Max            { get; set; }
-        public double StdDev         { get; set; }
-        public double CV             { get; set; }
+        public int Count { get; set; }
+        public double Average { get; set; }
+        public double P95 { get; set; }
+        public double Min { get; set; }
+        public double Max { get; set; }
+        public double StdDev { get; set; }
+        public double CV { get; set; }
         public string StabilityLabel { get; set; }
-        public Color  StabilityColor { get; set; }
+        public Color StabilityColor { get; set; }
     }
 
     public class StatsCalculator
@@ -30,7 +30,7 @@ namespace MESInsight.Core
         {
             if (records.Count == 0) return (0, 0, 0, type);
             long first = records[0].TimestampParsed.Ticks;
-            long last  = records[records.Count - 1].TimestampParsed.Ticks;
+            long last = records[records.Count - 1].TimestampParsed.Ticks;
             return (records.Count, first, last, type);
         }
 
@@ -42,7 +42,7 @@ namespace MESInsight.Core
             var values = new List<double>();
             foreach (var r in records)
             {
-                if (r.Type == type)
+                if (type == MessageType.ALL || r.Type == type)
                     values.Add(r.ResponseTime);
             }
 
@@ -58,18 +58,18 @@ namespace MESInsight.Core
             foreach (double v in values) sumSquares += Math.Pow(v - avg, 2);
             double stdDev = Math.Sqrt(sumSquares / values.Count);
 
-            double cv  = avg > 0 ? (stdDev / avg) * 100 : 0;
+            double cv = avg > 0 ? (stdDev / avg) * 100 : 0;
             double p95 = values[(int)(values.Count * 0.95)];
 
             var result = new StatsResult
             {
-                Count          = values.Count,
-                Average        = avg,
-                P95            = p95,
-                Min            = values[0],
-                Max            = values[values.Count - 1],
-                StdDev         = stdDev,
-                CV             = cv,
+                Count = values.Count,
+                Average = avg,
+                P95 = p95,
+                Min = values[0],
+                Max = values[values.Count - 1],
+                StdDev = stdDev,
+                CV = cv,
                 StabilityLabel = GetStabilityLabel(cv),
                 StabilityColor = GetStabilityColor(cv)
             };
@@ -90,7 +90,7 @@ namespace MESInsight.Core
         {
             if (cv < 15) return (Color)ColorConverter.ConvertFromString("#27AE60");
             if (cv < 30) return (Color)ColorConverter.ConvertFromString("#F39C12");
-            return           (Color)ColorConverter.ConvertFromString("#C0392B");
+            return (Color)ColorConverter.ConvertFromString("#C0392B");
         }
     }
 }

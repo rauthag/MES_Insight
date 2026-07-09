@@ -7,9 +7,11 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using LiveCharts.Wpf;
 using MESInsight.Charts;
@@ -67,6 +69,50 @@ namespace MESInsight
 
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
+        private const int WM_GETMINMAXINFO = 0x0024;
+        private const int MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private class MONITORINFO
+        {
+            public int cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public int dwFlags;
+        }
+
+        [DllImport("user32")]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, MONITORINFO lpmi);
+
+        [DllImport("user32")]
+        private static extern IntPtr MonitorFromWindow(IntPtr handle, int flags);
+
         #region Fields
 
         private readonly DataLoader _dataLoader = new DataLoader();
@@ -148,12 +194,15 @@ namespace MESInsight
                 _timelineContainerByMessageType,
                 _recordsGroupedByDay,
                 _filteredRecords,
-                OnShowAllRecordsRequested);
+                OnShowAllRecordsRequested,
+                onDaySelected: (date, records, msgType) =>
+                    Dispatcher.Invoke(() => UpdateSelectedDayPanel(date, records, msgType)));
             _scottPlotRenderer = _chartFactory.GetRenderer(ChartType.Trend) as ScottPlotTrendChartRenderer;
 
             Loaded += (s, e) =>
             {
                 InitToastCanvas();
+                InitTopBarHandlers();
                 if (LoadingStationLog != null)
                     LoadingStationLog.ItemsSource = _stationLogEntries;
 
@@ -169,6 +218,53 @@ namespace MESInsight
                             await LoadAllStationsFromRoot(startup.SelectedPath);
                     }));
             };
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var source = HwndSource.FromHwnd(hwnd);
+            source?.AddHook(WindowProc);
+
+
+        }
+
+        private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_GETMINMAXINFO)
+            {
+                WmGetMinMaxInfo(hwnd, lParam);
+                handled = true;
+            }
+
+            return IntPtr.Zero;
+        }
+
+        private static void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
+        {
+            if (lParam == IntPtr.Zero) return;
+
+            MINMAXINFO mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
+            if (monitor != IntPtr.Zero)
+            {
+                var monitorInfo = new MONITORINFO();
+                if (GetMonitorInfo(monitor, monitorInfo))
+                {
+                    RECT rcWorkArea = monitorInfo.rcWork;
+                    RECT rcMonitorArea = monitorInfo.rcMonitor;
+
+                    mmi.ptMaxPosition.x = Math.Abs(rcWorkArea.left - rcMonitorArea.left);
+                    mmi.ptMaxPosition.y = Math.Abs(rcWorkArea.top - rcMonitorArea.top);
+                    mmi.ptMaxSize.x = Math.Abs(rcWorkArea.right - rcWorkArea.left);
+                    mmi.ptMaxSize.y = Math.Abs(rcWorkArea.bottom - rcWorkArea.top);
+                }
+            }
+
+            Marshal.StructureToPtr(mmi, lParam, true);
         }
 
         private void ValidateLoadingControls()
@@ -487,6 +583,7 @@ namespace MESInsight
         private async Task<DataLoadResult> LoadStationFiles(List<StationInfo> stations, int i)
         {
             StationInfo st = stations[i];
+            int stationCountSafe = Math.Max(1, stations.Count);
             int liveFileCount = 0;
 
             return await Task.Run(() => _dataLoader.Load(st.FolderPath, (status, percent, extra) =>
@@ -495,7 +592,7 @@ namespace MESInsight
                     System.Threading.Interlocked.Increment(ref liveFileCount);
 
                 int fc = liveFileCount;
-                int innerPct = 5 + (i * 88 / stations.Count) + (percent * 88 / 100 / stations.Count);
+                int innerPct = 5 + (i * 88 / stationCountSafe) + (percent * 88 / 100 / stationCountSafe);
                 long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
                 if (nowMs - _lastBeginInvokeMs < 150) return;
@@ -559,10 +656,11 @@ namespace MESInsight
             StationInfo st, DataLoadResult result, string displayName,
             List<StationInfo> stations, int i, int totalFiles)
         {
+            int stationCountSafe = Math.Max(1, stations.Count);
             ShowLoadingOverlay(
                 "Station " + (i + 1) + " / " + stations.Count + "  —  building charts",
                 st.StationName,
-                5 + ((i * 88 + 44) / stations.Count),
+                5 + ((i * 88 + 44) / stationCountSafe),
                 detail: "Building charts for " + result.Records.Count.ToString("N0") + " records...",
                 fileCount: totalFiles, recordCount: result.Records.Count, typeCount: stations.Count);
 
@@ -580,6 +678,8 @@ namespace MESInsight
 
         private async Task SwitchToFirstStationOrRebuild(List<StationInfo> stations, int i, DataLoadResult result)
         {
+            int stationCountSafe = Math.Max(1, stations.Count);
+
             if (i != 0)
             {
                 RebuildStationBar();
@@ -593,7 +693,7 @@ namespace MESInsight
             if (overlayWasVisible)
                 ShowLoadingOverlay(
                     "Loading " + (i + 2) + " / " + stations.Count + "...", "",
-                    5 + ((i + 1) * 88 / stations.Count),
+                    5 + ((i + 1) * 88 / stationCountSafe),
                     typeCount: stations.Count);
         }
 
@@ -1212,7 +1312,9 @@ namespace MESInsight
                 _timelineContainerByMessageType,
                 _recordsGroupedByDay,
                 _filteredRecords,
-                OnShowAllRecordsRequested);
+                OnShowAllRecordsRequested,
+                onDaySelected: (date, records, msgType) =>
+                    Dispatcher.Invoke(() => UpdateSelectedDayPanel(date, records, msgType)));
 
             _scottPlotRenderer = _chartFactory.GetRenderer(ChartType.Trend) as ScottPlotTrendChartRenderer;
 
@@ -1222,7 +1324,6 @@ namespace MESInsight
                 foreach (var kv in prebuiltCharts)
                     _chartCache[kv.Key] = kv.Value;
 
-            SetDatePickersToFullDataRange();
             await RefreshChartsAndStatsWithLoadingOverlay();
 
             var snapForIndex = _allRecords.ToList();
@@ -1232,16 +1333,68 @@ namespace MESInsight
             SwitchToTabWithMostRecordsIfNeeded();
         }
 
-        private async Task PreRenderAllTabs()
+        private void UpdateSelectedDayPanel(DateTime date, List<ResponseRecord> records, MessageType messageType)
         {
-            foreach (var mt in GetAllSupportedMessageTypes())
+            if (TxtSelectedDayHeader != null)
+                TxtSelectedDayHeader.Text = "STATS FOR " + date.ToString("dd.MM.yyyy");
+
+            SelectedDayPlaceholder.Visibility = Visibility.Collapsed;
+            SelectedDayContent.Visibility = Visibility.Visible;
+
+            var relevant = messageType == MessageType.ALL
+                ? records
+                : records.Where(r => r.Type == messageType).ToList();
+
+            if (relevant.Count == 0)
             {
-                if (!_renderedChartCache.ContainsKey(mt))
-                {
-                    PreRenderChartForMessageType(mt);
-                    await Task.Delay(10);
-                }
+                SelectedDayContent.Visibility = Visibility.Collapsed;
+                SelectedDayPlaceholder.Visibility = Visibility.Visible;
+                return;
             }
+
+            var sorted = relevant.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
+            double avg = sorted.Average();
+            int p95 = sorted[(int)(sorted.Count * 0.95)];
+
+            TxtDayRecords.Text = "Records: " + relevant.Count.ToString("N0");
+            TxtDayAvg.Text = Math.Round(avg, 1) + " ms";
+            TxtDayP95.Text = p95 + " ms";
+            TxtDayMin.Text = "Min: " + sorted[0] + " ms";
+            TxtDayMax.Text = "Max: " + sorted[sorted.Count - 1] + " ms";
+
+            // Pass/Fail pre deň
+            UpdateDayPassFailSection(relevant, messageType);
+        }
+
+        private void UpdateDayPassFailSection(List<ResponseRecord> records, MessageType messageType)
+        {
+            if (DayPassFailSection == null) return;
+
+            var sourceType = messageType == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : messageType;
+
+            string GetResultField(ResponseRecord r)
+            {
+                if (r.Type == MessageType.SEMI_VALIDATION2 || r.Type == MessageType.SEMI_VALIDATION)
+                    return r.ProcDirAssy;
+                return r.Result;
+            }
+
+            var withResult = records
+                .Where(r => PassFailSupportedTypes.Contains(r.Type))
+                .Where(r => !string.IsNullOrEmpty(GetResultField(r)))
+                .ToList();
+
+            if (withResult.Count == 0)
+            {
+                DayPassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var slices = MESInsight.UI.HexagonPieChart.BuildSlicesFromResults(
+                withResult.Select(r => GetResultField(r)), sourceType);
+
+            DayPassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildQualityWidget(slices, chartSize: 110);
+            DayPassFailSection.Visibility = Visibility.Visible;
         }
 
         private void SwitchToTabWithMostRecordsIfNeeded()
@@ -1276,47 +1429,145 @@ namespace MESInsight
                 MainTabControl.SelectedItem = bestTab;
         }
 
-        private void SetDatePickersToFullDataRange()
-        {
-            if (_allRecords.Count == 0) return;
-
-            DateTime earliest = DateTime.MaxValue;
-            DateTime latest = DateTime.MinValue;
-
-            foreach (var r in _allRecords)
-            {
-                if (r.TimestampParsed == DateTime.MinValue) continue;
-                if (r.TimestampParsed < earliest) earliest = r.TimestampParsed;
-                if (r.TimestampParsed > latest) latest = r.TimestampParsed;
-            }
-
-            if (earliest == DateTime.MaxValue) return;
-
-            DatePickerFrom.DisplayDateStart = earliest.Date;
-            DatePickerFrom.DisplayDateEnd = latest.Date;
-            DatePickerTo.DisplayDateStart = earliest.Date;
-            DatePickerTo.DisplayDateEnd = latest.Date;
-            DatePickerFrom.SelectedDate = earliest.Date;
-            DatePickerTo.SelectedDate = latest.Date;
-            DatePickerFrom.DisplayDate = earliest.Date;
-            DatePickerTo.DisplayDate = latest.Date;
-        }
-
         #endregion
 
         #region Event Handlers
+
+        private bool _trackUidExpanded = false;
+
+        private void InitTopBarHandlers()
+        {
+            ReportBugButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            TrackUidButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            NewSessionButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            TrackUidInputHost.MouseLeftButtonDown += (s, e) => e.Handled = true;
+
+            // Report Bug button
+            ReportBugButton.MouseEnter += (s, e) =>
+            {
+                ReportBugIcon.Foreground = new SolidColorBrush(Color.FromRgb(255, 85, 85));
+                ReportBugLabel.Foreground = new SolidColorBrush(Color.FromRgb(255, 85, 85));
+            };
+            ReportBugButton.MouseLeave += (s, e) =>
+            {
+                ReportBugIcon.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+                ReportBugLabel.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+            };
+            ReportBugButton.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                var dlg = new BugReportDialog();
+                dlg.Owner = this;
+                dlg.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                dlg.ShowDialog();
+            };
+
+            // Track UID button — hover
+            TrackUidButton.MouseEnter += (s, e) =>
+            {
+                TrackUidIcon.Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255));
+                TrackUidLabel.Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255));
+            };
+            TrackUidButton.MouseLeave += (s, e) =>
+            {
+                if (_trackUidExpanded) return;
+                TrackUidIcon.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+                TrackUidLabel.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+            };
+            TrackUidButton.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                ToggleTrackUidExpand();
+            };
+
+            // New Session button — hover
+            NewSessionButton.MouseEnter += (s, e) =>
+            {
+                foreach (var tb in FindVisualChildren<TextBlock>(NewSessionButton))
+                    tb.Foreground = new SolidColorBrush(Color.FromRgb(63, 185, 80));
+            };
+            NewSessionButton.MouseLeave += (s, e) =>
+            {
+                foreach (var tb in FindVisualChildren<TextBlock>(NewSessionButton))
+                    tb.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+            };
+            NewSessionButton.MouseLeftButtonUp += async (s, e) =>
+            {
+                e.Handled = true;
+                var startup = new StartupWindow();
+                if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
+                if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
+                    await LoadAllStationsFromPaths(startup.SelectedPaths);
+                else
+                    await LoadAllStationsFromRoot(startup.SelectedPath);
+            };
+
+            // Ctrl+K
+            KeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.K &&
+                    (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+                {
+                    ToggleTrackUidExpand();
+                    e.Handled = true;
+                }
+            };
+        }
+
+        private void ToggleTrackUidExpand()
+        {
+            if (_trackUidExpanded)
+                CollapseTrackUid();
+            else
+                ExpandTrackUid();
+        }
+
+        private void ExpandTrackUid()
+        {
+            _trackUidExpanded = true;
+            TrackUidLabel.Visibility = Visibility.Collapsed;
+            TrackUidIcon.Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255));
+
+            var anim = new System.Windows.Media.Animation.DoubleAnimation(0, 200,
+                TimeSpan.FromMilliseconds(200))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+            };
+            TrackUidInputHost.BeginAnimation(WidthProperty, anim);
+
+            Dispatcher.BeginInvoke(new Action(() => TxtSubsetUid.Focus()),
+                System.Windows.Threading.DispatcherPriority.Input);
+        }
+
+        private void CollapseTrackUid()
+        {
+            _trackUidExpanded = false;
+            TrackUidLabel.Visibility = Visibility.Visible;
+            TrackUidIcon.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+            TrackUidLabel.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+            TxtSubsetUid.Text = "";
+
+            var anim = new System.Windows.Media.Animation.DoubleAnimation(200, 0,
+                TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseIn }
+            };
+            TrackUidInputHost.BeginAnimation(WidthProperty, anim);
+        }
+
+        private void TrackUidClose_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            CollapseTrackUid();
+            e.Handled = true;
+        }
 
         private void BtnSubsetSearch_Click(object sender, RoutedEventArgs e)
         {
             string uid = TxtSubsetUid.Text.Trim();
             if (string.IsNullOrEmpty(uid)) return;
-            if (!_uidIndex.HasUid(uid))
-            {
-                MessageBox.Show("UID not found in current station records.",
-                    "Not Found", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
+            CollapseTrackUid();
             OpenSubsetHistoryTab(uid);
         }
 
@@ -1324,6 +1575,8 @@ namespace MESInsight
         {
             if (e.Key == System.Windows.Input.Key.Enter)
                 BtnSubsetSearch_Click(sender, null);
+            else if (e.Key == System.Windows.Input.Key.Escape)
+                CollapseTrackUid();
         }
 
         private async void BtnSelectFolder_Click(object sender, RoutedEventArgs e)
@@ -1336,16 +1589,15 @@ namespace MESInsight
                 await LoadAllStationsFromRoot(startup.SelectedPath);
         }
 
-        private async void BtnResetFilter_Click(object sender, RoutedEventArgs e)
+        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
         {
-            ClearAllFilters();
-            SetDatePickersToFullDataRange();
-            await RefreshChartsAndStatsWithLoadingOverlay();
-        }
-
-        private async void BtnApplyFilter_Click(object sender, RoutedEventArgs e)
-        {
-            await RefreshChartsAndStatsWithLoadingOverlay();
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T t) yield return t;
+                foreach (var c in FindVisualChildren<T>(child))
+                    yield return c;
+            }
         }
 
         private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1371,22 +1623,6 @@ namespace MESInsight
 
             if (!_isCyclingTabs)
                 _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(type.Value);
-        }
-
-        private void CmbFilterMessageType_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (CmbFilterMessageType.SelectedItem is ComboBoxItem item && item.Tag != null)
-            {
-                string tag = item.Tag.ToString();
-                foreach (TabItem t in MainTabControl.Items)
-                    if (t.Tag?.ToString() == tag)
-                    {
-                        MainTabControl.SelectedItem = t;
-                        break;
-                    }
-            }
-
-            RefreshChartsWithoutLoadingOverlay();
         }
 
         private async void OnShowAllRecordsRequested(MessageType messageType)
@@ -1415,42 +1651,46 @@ namespace MESInsight
                 showingAllRecords: true);
         }
 
+        #region Borderless Window
+
+        private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2) { ToggleMaximize(); return; }
+            WindowResizer.DragMove(this);
+        }
+
+        private void BtnMinimize_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
+        private void BtnMaximize_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
+        private void BtnClose_Click(object sender, RoutedEventArgs e) => SystemCommands.CloseWindow(this);
+
+        private void ToggleMaximize()
+        {
+            if (WindowState == WindowState.Maximized)
+            {
+                WindowState = WindowState.Normal;
+                if (RootBorder != null) RootBorder.BorderThickness = new Thickness(1);
+            }
+            else
+            {
+                WindowState = WindowState.Maximized;
+                if (RootBorder != null) RootBorder.BorderThickness = new Thickness(0);
+            }
+        }
+
+        private void ResizeLeft_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeLeft(this);
+        private void ResizeRight_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeRight(this);
+        private void ResizeTop_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeTop(this);
+        private void ResizeBottom_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeBottom(this);
+        private void ResizeTL_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeTopLeft(this);
+        private void ResizeTR_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeTopRight(this);
+        private void ResizeBL_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeBottomLeft(this);
+        private void ResizeBR_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeBottomRight(this);
+
         #endregion
-
-        #region Filter Management
-
-        private void ClearAllFilters()
-        {
-            TxtFilterUid.Text = "";
-            TxtFilterUidIn.Text = "";
-            TxtFilterUidOut.Text = "";
-            TxtFilterMaterial.Text = "";
-            TxtFilterCarrierId.Text = "";
-            TxtTimeFrom.Text = "00:00";
-            TxtTimeTo.Text = "23:59";
-            CmbFilterResult.SelectedIndex = 0;
-            CmbFilterMessageType.SelectedIndex = 0;
-        }
-
-        private bool AnyNonDateFilterIsActive()
-        {
-            if (!string.IsNullOrWhiteSpace(TxtFilterUid.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterUidIn.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterUidOut.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterMaterial.Text)) return true;
-            if (!string.IsNullOrWhiteSpace(TxtFilterCarrierId.Text)) return true;
-            var result = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
-            return !string.IsNullOrEmpty(result) && result != "All";
-        }
 
         #endregion
 
         #region Display Refresh
-
-        private async void RefreshChartsWithoutLoadingOverlay()
-        {
-            await RefreshChartsAndStatsWithLoadingOverlay();
-        }
 
         private async Task RefreshChartsAndStatsWithLoadingOverlay()
         {
@@ -1464,27 +1704,18 @@ namespace MESInsight
 
             await ApplyActiveFiltersToAllRecords();
 
-            string filterDetail = _filteredRecords.Count < _allRecords.Count
-                ? (_allRecords.Count - _filteredRecords.Count).ToString("N0") + " records excluded by active filters"
-                : "No active filters — showing all records";
-
             ShowLoadingOverlay(station,
-                "Filters applied  —  " + _filteredRecords.Count.ToString("N0") + " records match",
-                10,
-                detail: filterDetail);
+                "Loaded  —  " + _filteredRecords.Count.ToString("N0") + " records",
+                10);
 
             await BuildAllChartDataFromFilteredRecords();
 
             await RenderAllCachedChartsToUI();
 
-            // await CycleThroughAllTabsToTriggerWpfLayoutRendering();
-
-
             ShowLoadingOverlay(station, "Updating records table and statistics...", 95);
 
             await Task.Yield();
 
-            GridRecords.ItemsSource = _filteredRecords;
             UpdateSidebarStats();
             UpdateTabHighlightsForActiveFilter();
 
@@ -1493,60 +1724,14 @@ namespace MESInsight
 
         private async Task ApplyActiveFiltersToAllRecords()
         {
-            TimeSpan.TryParse(TxtTimeFrom.Text, out TimeSpan ts1);
-            TimeSpan.TryParse(TxtTimeTo.Text, out TimeSpan ts2);
-            DateTime startBase = DatePickerFrom.SelectedDate ?? DateTime.MinValue;
-            DateTime endBase = DatePickerTo.SelectedDate ?? DateTime.MaxValue;
-            DateTime start = startBase == DateTime.MinValue ? DateTime.MinValue : startBase.Add(ts1);
-            DateTime end = endBase == DateTime.MaxValue ? DateTime.MaxValue : endBase.Add(ts2);
-
-            string filterUid = TxtFilterUid.Text.Trim();
-            string filterUidIn = TxtFilterUidIn.Text.Trim();
-            string filterUidOut = TxtFilterUidOut.Text.Trim();
-            string filterMaterial = TxtFilterMaterial.Text.Trim();
-            string filterCarrierId = TxtFilterCarrierId.Text.Trim();
-            string filterResult = (CmbFilterResult.SelectedItem as ComboBoxItem)?.Content.ToString();
-            if (filterResult == "All") filterResult = null;
-
             await Task.Run(() =>
             {
                 _filteredRecords.Clear();
-                foreach (var r in _allRecords)
-                {
-                    if (r.TimestampParsed == DateTime.MinValue) continue;
-                    if (r.TimestampParsed < start || r.TimestampParsed > end) continue;
-                    if (!string.IsNullOrEmpty(filterUid))
-                    {
-                        bool match =
-                            (r.Uid != null && r.Uid.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                            (r.UidIn != null && r.UidIn.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                            (r.UidOut != null &&
-                             r.UidOut.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                            (r.UidAssy != null &&
-                             r.UidAssy.IndexOf(filterUid, StringComparison.OrdinalIgnoreCase) >= 0);
-                        if (!match) continue;
-                    }
-
-                    if (!string.IsNullOrEmpty(filterUidIn) &&
-                        (r.UidIn == null || r.UidIn.IndexOf(filterUidIn, StringComparison.OrdinalIgnoreCase) < 0))
-                        continue;
-                    if (!string.IsNullOrEmpty(filterUidOut) &&
-                        (r.UidOut == null || r.UidOut.IndexOf(filterUidOut, StringComparison.OrdinalIgnoreCase) < 0))
-                        continue;
-                    if (!string.IsNullOrEmpty(filterMaterial) &&
-                        (r.Material == null ||
-                         r.Material.IndexOf(filterMaterial, StringComparison.OrdinalIgnoreCase) < 0)) continue;
-                    if (!string.IsNullOrEmpty(filterCarrierId) &&
-                        (r.CarrierId == null ||
-                         r.CarrierId.IndexOf(filterCarrierId, StringComparison.OrdinalIgnoreCase) < 0)) continue;
-                    if (!string.IsNullOrEmpty(filterResult) && r.Result != filterResult) continue;
-                    _filteredRecords.Add(r);
-                }
+                _filteredRecords.AddRange(_allRecords.Where(r => r.TimestampParsed != DateTime.MinValue));
 
                 _recordsGroupedByDay.Clear();
                 foreach (var r in _filteredRecords)
                 {
-                    if (r.TimestampParsed == DateTime.MinValue) continue;
                     DateTime key = r.TimestampParsed.Date;
                     if (!_recordsGroupedByDay.ContainsKey(key))
                         _recordsGroupedByDay[key] = new List<ResponseRecord>();
@@ -1798,10 +1983,8 @@ namespace MESInsight
             {
                 if (string.IsNullOrEmpty(st.FolderPath)) continue;
                 string folderName = System.IO.Path.GetFileName(st.FolderPath);
-                // Kľúč 1: priamy názov priečinka (napr. MON0240_St1160...)
                 if (!equipNames.ContainsKey(folderName))
                     equipNames[folderName] = st.StationName;
-                // Kľúč 2: OR_MON0240 → hľadaj MON0240 v priečinku
                 string monPart = System.Text.RegularExpressions.Regex.Match(folderName, @"MON\d+",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase).Value;
                 if (!string.IsNullOrEmpty(monPart))
@@ -1812,7 +1995,6 @@ namespace MESInsight
                         equipNames[monPart] = st.StationName;
                 }
 
-                // Kľúč 3: LCS, BFL varianty
                 string lcsPart = System.Text.RegularExpressions.Regex.Match(folderName, @"LCS\d+",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase).Value;
                 if (!string.IsNullOrEmpty(lcsPart) && !equipNames.ContainsKey("OR_" + lcsPart))
@@ -1874,26 +2056,94 @@ namespace MESInsight
             MainTabControl.SelectedItem = tab;
 
             string activePath = _activeStation?.FolderPath ?? "";
-            string lineRoot = System.IO.Path.GetDirectoryName(activePath) ?? activePath;
 
             Task.Run(() =>
             {
-                var allStations = DataLoader.FindStations(lineRoot);
-                if (allStations.Count == 0)
-                    allStations.Add(new StationInfo { FolderPath = lineRoot });
+                var loadedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var st in _loadedStations)
+                    if (!string.IsNullOrEmpty(st?.FolderPath))
+                        loadedPaths.Add(st.FolderPath);
+                if (!string.IsNullOrEmpty(activePath)) loadedPaths.Add(activePath);
 
-                var allRecords = new List<ResponseRecord>();
+                var lazyPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var st in _lazyLoadStations)
+                    if (!string.IsNullOrEmpty(st?.FolderPath))
+                        lazyPaths.Add(st.FolderPath);
 
-                foreach (var st in allStations)
+                var knownPaths = new HashSet<string>(loadedPaths, StringComparer.OrdinalIgnoreCase);
+                foreach (var lp in lazyPaths)
+                    knownPaths.Add(lp);
+
+                var candidateRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrEmpty(activePath))
                 {
-                    Dispatcher.BeginInvoke(new Action(() =>
-                        MESInsight.UI.SubsetHistoryTab.UpdateLoadingStation(loadingPanel, st.StationName)));
+                    string activeParent = System.IO.Path.GetDirectoryName(activePath);
+                    if (!string.IsNullOrEmpty(activeParent) && System.IO.Directory.Exists(activeParent))
+                        candidateRoots.Add(activeParent);
+                }
+
+                foreach (var kp in knownPaths)
+                {
+                    if (string.IsNullOrEmpty(kp) || !System.IO.Directory.Exists(kp)) continue;
+                    string parent = System.IO.Path.GetDirectoryName(kp);
+                    if (!string.IsNullOrEmpty(parent) && System.IO.Directory.Exists(parent))
+                        candidateRoots.Add(parent);
+                }
+
+                var allByPath = new Dictionary<string, StationInfo>(StringComparer.OrdinalIgnoreCase);
+                foreach (var rootPath in candidateRoots)
+                {
+                    foreach (var st in DataLoader.FindStations(rootPath))
+                    {
+                        if (st == null || string.IsNullOrEmpty(st.FolderPath)) continue;
+                        if (!allByPath.ContainsKey(st.FolderPath))
+                            allByPath[st.FolderPath] = st;
+                    }
+                }
+
+                foreach (var kp in knownPaths)
+                {
+                    if (string.IsNullOrEmpty(kp) || !System.IO.Directory.Exists(kp)) continue;
+                    if (!allByPath.ContainsKey(kp))
+                        allByPath[kp] = new StationInfo
+                        {
+                            FolderPath = kp,
+                            StationName = System.IO.Path.GetFileName(kp)
+                        };
+                }
+
+                var allStations = allByPath.Values.ToList();
+
+                var primaryStations = allStations
+                    .Where(st => !string.IsNullOrEmpty(st.FolderPath) && loadedPaths.Contains(st.FolderPath))
+                    .ToList();
+
+                if (primaryStations.Count == 0 && allStations.Count > 0)
+                    primaryStations.Add(allStations[0]);
+
+                var lazySecondary = allStations
+                    .Where(st => !string.IsNullOrEmpty(st.FolderPath)
+                                 && !primaryStations.Any(p =>
+                                     string.Equals(p.FolderPath, st.FolderPath, StringComparison.OrdinalIgnoreCase))
+                                 && lazyPaths.Contains(st.FolderPath))
+                    .ToList();
+
+                var otherSecondary = allStations
+                    .Where(st => !string.IsNullOrEmpty(st.FolderPath)
+                                 && !primaryStations.Any(p =>
+                                     string.Equals(p.FolderPath, st.FolderPath, StringComparison.OrdinalIgnoreCase))
+                                 && !lazyPaths.Contains(st.FolderPath))
+                    .ToList();
+
+                var secondaryStations = lazySecondary.Concat(otherSecondary).ToList();
+
+                List<ResponseRecord> ScanStationForUid(StationInfo st)
+                {
+                    if (st == null || string.IsNullOrEmpty(st.FolderPath)) return new List<ResponseRecord>();
 
                     List<ResponseRecord> recs;
-
                     if (_stationDataCache.TryGetValue(st.FolderPath, out var cached) && cached.records != null)
                     {
-                        // Použi cache pre rýchle výsledky
                         recs = cached.records.Where(r =>
                                 r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
                                 r.UidAssy == uid ||
@@ -1902,38 +2152,120 @@ namespace MESInsight
                                     .Contains(uid, StringComparer.OrdinalIgnoreCase)))
                             .ToList();
 
-                        // Ak cache má date filter, doplň aj scan z disku pre staršie záznamy
                         if (_dataLoader.DateFilter.HasValue)
                         {
                             var diskRecs = DataLoader.ScanForUid(st.FolderPath, uid);
-                            var cacheKeys =
-                                new HashSet<string>(recs.Select(r => r.TimestampParsed.Ticks + r.Type.ToString()));
+                            var cacheKeys = new HashSet<string>(recs.Select(r =>
+                                r.TimestampParsed.Ticks + "|" + r.Type + "|" + (r.EquipId ?? "") + "|" +
+                                (r.FileName ?? "")));
                             foreach (var dr in diskRecs)
-                                if (!cacheKeys.Contains(dr.TimestampParsed.Ticks + dr.Type.ToString()))
+                            {
+                                var key = dr.TimestampParsed.Ticks + "|" + dr.Type + "|" + (dr.EquipId ?? "") + "|" +
+                                          (dr.FileName ?? "");
+                                if (!cacheKeys.Contains(key))
                                     recs.Add(dr);
+                            }
                         }
                     }
                     else
-                        recs = DataLoader.ScanForUid(st.FolderPath, uid);
+                    {
+                        recs = DataLoader.ScanForUid(st.FolderPath, uid, fileName =>
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (!MainTabControl.Items.Contains(tab)) return;
+                                var content = tab.Content as UIElement;
+                                MESInsight.UI.SubsetHistoryTab.UpdateLoadingFile(content, fileName);
+                                MESInsight.UI.SubsetHistoryTab.UpdateScanFile(content, fileName);
+                            })));
+                    }
 
-                    allRecords.AddRange(recs);
+                    return recs ?? new List<ResponseRecord>();
                 }
 
-                var records = allRecords
-                    .GroupBy(r => r.TimestampParsed.Ticks.ToString() + r.Type.ToString() + (r.EquipId ?? ""))
-                    .Select(g => g.First())
-                    .OrderBy(r => r.TimestampParsed)
-                    .ToList();
+                var aggregate = new List<ResponseRecord>();
+                var aggregateKeys = new HashSet<string>(StringComparer.Ordinal);
+
+                bool TryAddUnique(ResponseRecord r)
+                {
+                    var key = r.TimestampParsed.Ticks + "|" + r.Type + "|" + (r.EquipId ?? "") + "|" +
+                              (r.FileName ?? "");
+                    if (!aggregateKeys.Add(key)) return false;
+                    aggregate.Add(r);
+                    return true;
+                }
+
+                int scanned = 0;
+                int totalStations = allStations.Count;
+
+                foreach (var st in primaryStations)
+                {
+                    scanned++;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                        MESInsight.UI.SubsetHistoryTab.UpdateLoadingStation(loadingPanel, st.StationName)));
+
+                    foreach (var rec in ScanStationForUid(st))
+                        TryAddUnique(rec);
+                }
+
+                var firstBatch = aggregate.OrderBy(r => r.TimestampParsed).ToList();
 
                 Dispatcher.Invoke(() =>
                 {
-                    tab.Content = MESInsight.UI.SubsetHistoryTab.Build(
-                        uid, records,
+                    if (!MainTabControl.Items.Contains(tab)) return;
+
+                    var subsetPanel = MESInsight.UI.SubsetHistoryTab.Build(
+                        uid,
+                        firstBatch,
                         onOpenUid: u => OpenSubsetHistoryTab(u),
                         onSwitchStation: null,
                         onScanFullLine: null,
                         equipNames: equipNames);
+
+                    tab.Content = subsetPanel;
+
+                    if (secondaryStations.Count > 0)
+                        MESInsight.UI.SubsetHistoryTab.UpdateBackgroundScanStatus(subsetPanel, "warm cache", uid,
+                            scanned, totalStations);
+                    else
+                        MESInsight.UI.SubsetHistoryTab.CompleteBackgroundScan(subsetPanel, firstBatch.Count);
                 });
+
+                for (int i = 0; i < secondaryStations.Count; i++)
+                {
+                    var st = secondaryStations[i];
+                    scanned++;
+
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (!MainTabControl.Items.Contains(tab)) return;
+                        MESInsight.UI.SubsetHistoryTab.UpdateBackgroundScanStatus(tab.Content as UIElement,
+                            st.StationName, uid, scanned, totalStations);
+                    }));
+
+                    var recs = ScanStationForUid(st);
+                    var added = new List<ResponseRecord>();
+                    foreach (var rec in recs)
+                        if (TryAddUnique(rec))
+                            added.Add(rec);
+
+                    if (added.Count > 0)
+                    {
+                        var addedCount = added.Count;
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (!MainTabControl.Items.Contains(tab)) return;
+                            var panel = tab.Content as UIElement;
+                            MESInsight.UI.SubsetHistoryTab.MarkFoundStation(panel, st.StationName, addedCount);
+                            MESInsight.UI.SubsetHistoryTab.MergeRecordsAndRefresh(panel, added);
+                        }));
+                    }
+                }
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!MainTabControl.Items.Contains(tab)) return;
+                    MESInsight.UI.SubsetHistoryTab.CompleteBackgroundScan(tab.Content as UIElement, aggregate.Count);
+                }));
             });
         }
 
@@ -1953,26 +2285,37 @@ namespace MESInsight
 
                 List<ResponseRecord> recs = null;
 
-                if (_stationDataCache.TryGetValue(st.FolderPath, out var cached))
-                    recs = cached.records;
-
-                if (recs == null)
+                if (_stationDataCache.TryGetValue(st.FolderPath, out var cached) && cached.records != null)
                 {
-                    var loader = new DataLoader { DateFilter = null };
-                    recs = loader.Load(st.FolderPath, null).Records;
+                    recs = cached.records.Where(r =>
+                            r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
+                            r.UidAssy == uid ||
+                            (!string.IsNullOrEmpty(r.AssyUids) && r.AssyUids.Split(',')
+                                .Select(x => x.Trim())
+                                .Contains(uid, StringComparer.OrdinalIgnoreCase)))
+                        .ToList();
+
+                    if (_dataLoader.DateFilter.HasValue)
+                    {
+                        var diskRecs = DataLoader.ScanForUid(st.FolderPath, uid);
+                        var cacheKeys = new HashSet<string>(recs.Select(r =>
+                            r.TimestampParsed.Ticks + "|" + r.Type + "|" + (r.EquipId ?? "") + "|" +
+                            (r.FileName ?? "")));
+                        foreach (var dr in diskRecs)
+                        {
+                            var key = dr.TimestampParsed.Ticks + "|" + dr.Type + "|" + (dr.EquipId ?? "") + "|" +
+                                      (dr.FileName ?? "");
+                            if (!cacheKeys.Contains(key))
+                                recs.Add(dr);
+                        }
+                    }
+                }
+                else
+                {
+                    recs = DataLoader.ScanForUid(st.FolderPath, uid);
                 }
 
-                if (recs == null) continue;
-
-                foreach (var r in recs)
-                {
-                    if (r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
-                        r.UidAssy == uid ||
-                        (!string.IsNullOrEmpty(r.AssyUids) && r.AssyUids
-                            .Split(',').Select(x => x.Trim())
-                            .Contains(uid, StringComparer.OrdinalIgnoreCase)))
-                        allRecords.Add(r);
-                }
+                allRecords.AddRange(recs);
             }
 
             return allRecords.OrderBy(r => r.TimestampParsed).ToList();
@@ -1982,7 +2325,8 @@ namespace MESInsight
         {
             MessageType.UNIT_INFO, MessageType.NEXT_OPERATION, MessageType.UNIT_CHECKIN,
             MessageType.UNIT_RESULT, MessageType.LOAD_MATERIAL,
-            MessageType.REQ_MATERIAL_INFO, MessageType.REQ_SETUP_CHANGE2, MessageType.SEMI_VALIDATION2
+            MessageType.REQ_MATERIAL_INFO, MessageType.REQ_SETUP_CHANGE2, MessageType.SEMI_VALIDATION2,
+            MessageType.PANEL_CHECKIN, MessageType.PANEL_RESULT
         };
 
         #endregion
@@ -2077,6 +2421,8 @@ namespace MESInsight
                 case MessageType.REQ_MATERIAL_INFO: return PanelReqMaterialInfo;
                 case MessageType.REQ_SETUP_CHANGE2: return PanelReqSetupChange2;
                 case MessageType.SEMI_VALIDATION2: return PanelSemiValidation2;
+                case MessageType.PANEL_CHECKIN: return PanelPanelCheckin;
+                case MessageType.PANEL_RESULT: return PanelPanelResult;
                 case MessageType.ALL: return PanelAll;
                 default: return null;
             }
@@ -2088,6 +2434,8 @@ namespace MESInsight
 
         private void UpdateSidebarStats()
         {
+            UpdateStatsRangeHeader();
+
             if (!(MainTabControl.SelectedItem is TabItem selected) || selected.Tag == null) return;
 
             MessageType? parsedType = TryParseMessageType(selected.Tag.ToString());
@@ -2116,21 +2464,167 @@ namespace MESInsight
             TxtTabStability.Text = stats.StabilityLabel + " (" + Math.Round(stats.CV, 1) + "%)";
             TxtTabStability.Foreground = new SolidColorBrush(stats.StabilityColor);
 
+            UpdateSlowestRecords(type);
             UpdatePassFailChart(type);
         }
+
+        private void UpdateStatsRangeHeader()
+        {
+            if (TxtStatsRangeHeader == null)
+                return;
+
+            var days = _filteredRecords
+                .Select(r => r.TimestampParsed)
+                .Where(ts => ts > DateTime.MinValue)
+                .Select(ts => ts.Date)
+                .ToList();
+
+            if (days.Count == 0)
+            {
+                TxtStatsRangeHeader.Text = "STATS for: —";
+                return;
+            }
+
+            DateTime from = days.Min();
+            DateTime to = days.Max();
+
+            TxtStatsRangeHeader.Text = from == to
+                ? "STATS for: " + from.ToString("dd.MM.yyyy")
+                : "STATS for: " + from.ToString("dd.MM.yyyy") + " - " + to.ToString("dd.MM.yyyy");
+        }
+
+        private void UpdateSlowestRecords(MessageType type)
+        {
+            if (SlowestSection == null || SlowestRecordsHost == null) return;
+            SlowestRecordsHost.Children.Clear();
+
+            var source = type == MessageType.ALL
+                ? _filteredRecords
+                : _filteredRecords.Where(r => r.Type == type).ToList();
+
+            var top3 = source
+                .Where(r => r.ResponseTime > 0)
+                .OrderByDescending(r => r.ResponseTime)
+                .Take(3)
+                .ToList();
+
+            if (top3.Count == 0)
+            {
+                SlowestSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            foreach (var r in top3)
+            {
+                string uid = r.UidIn ?? r.Uid ?? r.UidOut;
+                string shortUid = !string.IsNullOrEmpty(uid) && uid.Length > 10
+                    ? uid.Substring(uid.Length - 8)
+                    : uid;
+
+                var row = new Grid { Margin = new Thickness(0, 0, 0, 5), Cursor = System.Windows.Input.Cursors.Hand };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var info = new StackPanel();
+                Grid.SetColumn(info, 0);
+                info.Children.Add(new TextBlock
+                {
+                    Text = r.TimestampParsed.ToString("dd.MM  HH:mm:ss"),
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129))
+                });
+                if (!string.IsNullOrEmpty(shortUid))
+                    info.Children.Add(new TextBlock
+                    {
+                        Text = "…" + shortUid,
+                        FontSize = 8,
+                        FontFamily = new FontFamily("Consolas"),
+                        Foreground = new SolidColorBrush(Color.FromRgb(88, 166, 255))
+                    });
+
+                var rtBadge = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(40, 248, 81, 73)),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(100, 40, 36)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(3),
+                    Padding = new Thickness(5, 2, 5, 2),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(rtBadge, 1);
+                rtBadge.Child = new TextBlock
+                {
+                    Text = r.ResponseTime.ToString("N0") + " ms",
+                    FontSize = 9,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromRgb(248, 81, 73))
+                };
+
+                row.Children.Add(info);
+                row.Children.Add(rtBadge);
+
+                if (!string.IsNullOrEmpty(uid))
+                {
+                    var capturedUid = uid;
+                    row.MouseLeftButtonUp += (s, e) => OpenSubsetHistoryTab(capturedUid);
+                    row.MouseEnter += (s, e) =>
+                    {
+                        foreach (var tb in FindVisualChildren<TextBlock>(info))
+                            tb.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+                    };
+                    row.MouseLeave += (s, e) =>
+                    {
+                        if (info.Children.Count > 0)
+                            ((TextBlock)info.Children[0]).Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129));
+                        if (info.Children.Count > 1)
+                            ((TextBlock)info.Children[1]).Foreground = new SolidColorBrush(Color.FromRgb(88, 166, 255));
+                    };
+                }
+
+                SlowestRecordsHost.Children.Add(row);
+            }
+
+            SlowestSection.Visibility = Visibility.Visible;
+        }
+
+        private static readonly HashSet<MessageType> PassFailSupportedTypes = new HashSet<MessageType>
+        {
+            MessageType.UNIT_INFO,
+            MessageType.UNIT_RESULT,
+            MessageType.UNIT_CHECKIN,
+            MessageType.SEMI_VALIDATION2,
+            MessageType.PANEL_CHECKIN,
+            MessageType.PANEL_RESULT
+        };
 
         private void UpdatePassFailChart(MessageType type)
         {
             if (PassFailSection == null) return;
 
+            PassFailChartHost.Content = null;
+
+            if (type == MessageType.ALL)
+            {
+                BuildQualityOverviewForAll();
+                return;
+            }
+
+            if (!PassFailSupportedTypes.Contains(type))
+            {
+                PassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var sourceType = type == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : type;
+
             string GetResultField(ResponseRecord r)
             {
-                if (type == MessageType.SEMI_VALIDATION2 || type == MessageType.SEMI_VALIDATION)
+                if (r.Type == MessageType.SEMI_VALIDATION2 || r.Type == MessageType.SEMI_VALIDATION)
                     return r.ProcDirAssy;
                 return r.Result;
             }
 
-            var records = _filteredRecords.Where(r => r.Type == type).ToList();
+            var records = _filteredRecords.Where(r => r.Type == sourceType).ToList();
             var withResult = records.Where(r => !string.IsNullOrEmpty(GetResultField(r))).ToList();
 
             if (withResult.Count == 0)
@@ -2139,40 +2633,219 @@ namespace MESInsight
                 return;
             }
 
-            var passValues = new[] { "Y", "P", "G", "R" };
-            int pass = withResult.Count(r => passValues.Contains(GetResultField(r)?.ToUpper()));
-            int fail = withResult.Count - pass;
+            PassFailSectionLabel.Text = type == MessageType.UNIT_INFO ? "QUALITY  (from Unit Result)" : "QUALITY";
 
-            double passRate = pass * 100.0 / withResult.Count;
-            double failRate = fail * 100.0 / withResult.Count;
+            var slices = MESInsight.UI.HexagonPieChart.BuildSlicesFromResults(
+                withResult.Select(r => GetResultField(r)), sourceType);
 
-            PassFailPieChart.Series = new LiveCharts.SeriesCollection
+            PassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildQualityWidget(slices, chartSize: 130);
+            PassFailSection.Visibility = Visibility.Visible;
+        }
+
+        private void BuildQualityOverviewForAll()
+        {
+            if (PassFailSection == null) return;
+
+            var overviewTypes = new[]
             {
-                new LiveCharts.Wpf.PieSeries
-                {
-                    Title = "Pass",
-                    Values = new LiveCharts.ChartValues<double> { pass },
-                    Fill = new SolidColorBrush(Color.FromRgb(46, 160, 67)),
-                    DataLabels = false,
-                    LabelPoint = p => pass + " (" + passRate.ToString("F1") + "%)"
-                },
-                new LiveCharts.Wpf.PieSeries
-                {
-                    Title = "Fail",
-                    Values = new LiveCharts.ChartValues<double> { fail },
-                    Fill = new SolidColorBrush(Color.FromRgb(248, 81, 73)),
-                    DataLabels = false,
-                    LabelPoint = p => fail + " (" + failRate.ToString("F1") + "%)"
-                }
+                MessageType.UNIT_RESULT, MessageType.PANEL_RESULT,
+                MessageType.SEMI_VALIDATION2, MessageType.UNIT_CHECKIN, MessageType.PANEL_CHECKIN
             };
 
-            TxtPassRate.Text = "Pass: " + pass.ToString("N0") + "  (" + passRate.ToString("F1") + "%)";
-            TxtFailRate.Text = "Fail: " + fail.ToString("N0") + "  (" + failRate.ToString("F1") + "%)";
+            string GetResultField(ResponseRecord r)
+            {
+                if (r.Type == MessageType.SEMI_VALIDATION2 || r.Type == MessageType.SEMI_VALIDATION)
+                    return r.ProcDirAssy;
+                return r.Result;
+            }
+
+            var stack = new StackPanel();
+            bool any = false;
+
+            foreach (var t in overviewTypes)
+            {
+                var recs = _filteredRecords
+                    .Where(r => r.Type == t && !string.IsNullOrEmpty(GetResultField(r)))
+                    .ToList();
+                if (recs.Count == 0) continue;
+
+                any = true;
+                var passValues = GetPassValues(t);
+                int pass = recs.Count(r => passValues.Contains(GetResultField(r)?.ToUpper()));
+                double pct = pass * 100.0 / recs.Count;
+                Color typeColor = GetTypeColor(t);
+                Color pctColor = pct >= 90
+                    ? Color.FromRgb(63, 185, 80)
+                    : pct >= 70
+                        ? Color.FromRgb(210, 153, 34)
+                        : Color.FromRgb(248, 81, 73);
+
+                var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var lbl = new TextBlock
+                {
+                    Text = GetShortTypeLabel(t), FontSize = 9, FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromArgb(200, typeColor.R, typeColor.G, typeColor.B)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var pctTxt = new TextBlock
+                {
+                    Text = pct.ToString("F0") + "%", FontSize = 9, FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(pctColor),
+                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(pctTxt, 1);
+                row.Children.Add(lbl);
+                row.Children.Add(pctTxt);
+
+                var barContainer = new Grid { Margin = new Thickness(0, 3, 0, 0) };
+                barContainer.Children.Add(new Border
+                {
+                    Height = 3, CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(Color.FromRgb(33, 38, 45))
+                });
+                var fill = new Border
+                {
+                    Height = 3, CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(pctColor),
+                    HorizontalAlignment = HorizontalAlignment.Left
+                };
+                barContainer.Children.Add(fill);
+                double capturedPct = pct;
+                barContainer.SizeChanged += (s, e) => fill.Width = e.NewSize.Width * capturedPct / 100.0;
+                barContainer.Loaded += (s, e) => fill.Width = barContainer.ActualWidth * capturedPct / 100.0;
+
+                var rowStack = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+                rowStack.Children.Add(row);
+                rowStack.Children.Add(barContainer);
+                stack.Children.Add(rowStack);
+            }
+
+            if (!any)
+            {
+                PassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            PassFailSectionLabel.Text = "QUALITY OVERVIEW";
+            PassFailChartHost.Content = stack;
             PassFailSection.Visibility = Visibility.Visible;
+        }
+
+        private static string[] GetPassValues(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_RESULT:
+                case MessageType.PANEL_RESULT:
+                    return new[] { "P" };
+                case MessageType.SEMI_VALIDATION2:
+                case MessageType.UNIT_CHECKIN:
+                    return new[] { "Y", "G" };
+                case MessageType.PANEL_CHECKIN:
+                    return new[] { "Y" };
+                default:
+                    return new[] { "Y", "P", "G" };
+            }
+        }
+
+        private static string[] GetFailValues(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_RESULT:
+                case MessageType.PANEL_RESULT:
+                    return new[] { "F", "-" };
+                case MessageType.SEMI_VALIDATION2:
+                case MessageType.UNIT_CHECKIN:
+                case MessageType.PANEL_CHECKIN:
+                    return new[] { "N" };
+                default:
+                    return new[] { "F", "N" };
+            }
+        }
+
+        private static string GetPassLabel(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_CHECKIN:
+                case MessageType.PANEL_CHECKIN:
+                    return "Process";
+                case MessageType.SEMI_VALIDATION2:
+                    return "OK";
+                default:
+                    return "Pass";
+            }
+        }
+
+        private static string GetFailLabel(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_CHECKIN:
+                case MessageType.PANEL_CHECKIN:
+                    return "Skip";
+                case MessageType.SEMI_VALIDATION2:
+                    return "NOK";
+                default:
+                    return "Fail";
+            }
+        }
+
+        private static bool IsErrorResult(string result)
+        {
+            if (string.IsNullOrEmpty(result)) return false;
+            return result.StartsWith("[ERR", StringComparison.OrdinalIgnoreCase)
+                   || result.StartsWith("ERR", StringComparison.OrdinalIgnoreCase)
+                   || result.Equals("ERROR", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetShortTypeLabel(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_RESULT: return "Unit Result";
+                case MessageType.PANEL_RESULT: return "Panel Result";
+                case MessageType.SEMI_VALIDATION2: return "Semi Valid.";
+                case MessageType.UNIT_CHECKIN: return "Unit Checkin";
+                case MessageType.PANEL_CHECKIN: return "Panel Checkin";
+                default: return type.ToString();
+            }
+        }
+
+        private static Color GetTypeColor(MessageType type)
+        {
+            switch (type)
+            {
+                case MessageType.UNIT_RESULT: return Color.FromRgb(79, 195, 247);
+                case MessageType.PANEL_RESULT: return Color.FromRgb(165, 214, 167);
+                case MessageType.SEMI_VALIDATION2: return Color.FromRgb(155, 89, 182);
+                case MessageType.UNIT_CHECKIN: return Color.FromRgb(255, 159, 28);
+                case MessageType.PANEL_CHECKIN: return Color.FromRgb(56, 182, 255);
+                default: return Color.FromRgb(139, 148, 158);
+            }
+        }
+
+        private static T FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+        {
+            if (parent == null) return null;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T fe && fe.Name == name) return fe;
+                var result = FindChild<T>(child, name);
+                if (result != null) return result;
+            }
+
+            return null;
         }
 
         private void ClearSidebarStats()
         {
+            UpdateStatsRangeHeader();
             TxtTabRecords.Text = "Records: 0";
             TxtTabAvg.Text = "0 ms";
             TxtTabP95.Text = "0 ms";
@@ -2180,12 +2853,12 @@ namespace MESInsight
             TxtTabMax.Text = "Max: 0 ms";
             TxtTabStability.Text = "N/A";
             TxtTabStability.Foreground = Brushes.Gray;
+            if (SlowestSection != null) SlowestSection.Visibility = Visibility.Collapsed;
+            if (SlowestRecordsHost != null) SlowestRecordsHost.Children.Clear();
         }
 
         private void UpdateTabHighlightsForActiveFilter()
         {
-            bool anyActive = AnyNonDateFilterIsActive();
-
             foreach (TabItem tab in MainTabControl.Items)
             {
                 if (tab.Tag == null) continue;
@@ -2193,9 +2866,8 @@ namespace MESInsight
                 if (tab.Tag.ToString().StartsWith("SUBSET_")) continue;
                 var type = TryParseMessageType(tab.Tag.ToString());
                 if (type == null) continue;
-                bool highlight = anyActive && _filteredRecords.Any(r => r.Type == type.Value);
-                tab.FontWeight = highlight ? FontWeights.Bold : FontWeights.Normal;
-                tab.FontSize = highlight ? 13 : 11;
+                tab.FontWeight = FontWeights.Normal;
+                tab.FontSize = 11;
             }
 
             UpdateTabEmptyState();
@@ -2251,7 +2923,7 @@ namespace MESInsight
             int current = MainTabControl.Items.IndexOf(tab);
             if (current < 0 || current == index) return;
             MainTabControl.Items.RemoveAt(current);
-            MainTabControl.Items.Insert(Math.Min(index, MainTabControl.Items.Count), tab);
+            MainTabControl.Items.Insert(Math.Min(index, MainTabControl.Items.Count - 1), tab);
         }
 
         private MessageType? TryParseMessageType(string tag)
@@ -2896,5 +3568,7 @@ namespace MESInsight
             outer.Child = root;
             Content = outer;
         }
+
+
     }
 }

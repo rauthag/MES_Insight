@@ -3,11 +3,35 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:lvc="clr-namespace:LiveCharts.Wpf;assembly=LiveCharts.Wpf"
         Title="MES Insight" WindowStartupLocation="Manual"
+        WindowStyle="None" AllowsTransparency="True" ResizeMode="CanResize"
         Background="#0D1117"
         MinWidth="1024" MinHeight="600"
         FontFamily="pack://application:,,,/Fonts/#Inter 18pt">
 
     <Window.Resources>
+        <Style x:Key="StatsHelpToolTipStyle" TargetType="{x:Type ToolTip}">
+            <Setter Property="Background" Value="#161B22" />
+            <Setter Property="BorderBrush" Value="#30363D" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="#C9D1D9" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ToolTip}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="ThinScrollBarThumb" TargetType="{x:Type Thumb}">
             <Setter Property="Template">
                 <Setter.Value>
@@ -83,6 +107,73 @@
             <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
         </Style>
 
+        <Style x:Key="TitleBarButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#8B949E" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1A2A21" />
+                                <Setter Property="Foreground" Value="#C9D1D9" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#24402F" />
+                                <Setter Property="Foreground" Value="#E6EDF3" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TitleBarCloseButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource TitleBarButtonStyle}">
+            <Setter Property="Foreground" Value="#E05252" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#3A1F24" />
+                                <Setter Property="Foreground" Value="#FFB3B8" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#5B2730" />
+                                <Setter Property="Foreground" Value="#FFD2D6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TopBarActionBorderStyle" TargetType="{x:Type Border}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#14261D" />
+                    <Setter Property="BorderBrush" Value="#284233" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style TargetType="{x:Type ComboBox}">
             <Setter Property="FontFamily" Value="pack://application:,,,/Fonts/#Inter 18pt" />
             <Setter Property="Background" Value="#161B22" />
@@ -121,9 +212,11 @@
                     <ControlTemplate TargetType="{x:Type TabItem}">
                         <Grid Margin="0,0,2,0">
                             <Border x:Name="Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
                             </Border>
-                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom" Margin="4,0,4,0" />
+                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom"
+                                    Margin="4,0,4,0" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
@@ -224,9 +317,11 @@
                     <ControlTemplate TargetType="{x:Type TabItem}">
                         <Grid Margin="0,0,2,0">
                             <Border x:Name="Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
                             </Border>
-                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom" Margin="4,0,4,0" />
+                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom"
+                                    Margin="4,0,4,0" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
@@ -256,9 +351,11 @@
                     <ControlTemplate TargetType="{x:Type TabItem}">
                         <Grid Margin="0,0,2,0">
                             <Border x:Name="Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
                             </Border>
-                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom" Margin="4,0,4,0" />
+                            <Border x:Name="Underline" Height="2" Background="Transparent" VerticalAlignment="Bottom"
+                                    Margin="4,0,4,0" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
@@ -277,6 +374,7 @@
         </Style>
     </Window.Resources>
 
+    <Border x:Name="RootBorder" Background="#0D1117" BorderBrush="#1A3A20" BorderThickness="1">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36" />
@@ -284,7 +382,16 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Background="#0A1F12">
+        <Border Width="4"  HorizontalAlignment="Left"   VerticalAlignment="Stretch"   Background="Transparent" Cursor="SizeWE"  Panel.ZIndex="999" Grid.RowSpan="3" MouseLeftButtonDown="ResizeLeft_Down" />
+        <Border Width="4"  HorizontalAlignment="Right"  VerticalAlignment="Stretch"   Background="Transparent" Cursor="SizeWE"  Panel.ZIndex="999" Grid.RowSpan="3" MouseLeftButtonDown="ResizeRight_Down" />
+        <Border Height="4" VerticalAlignment="Top"      HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"  Panel.ZIndex="999" MouseLeftButtonDown="ResizeTop_Down" />
+        <Border Height="4" VerticalAlignment="Bottom"   HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"  Panel.ZIndex="999" Grid.Row="2" MouseLeftButtonDown="ResizeBottom_Down" />
+        <Border Width="8" Height="8" HorizontalAlignment="Left"  VerticalAlignment="Top"    Background="Transparent" Cursor="SizeNWSE" Panel.ZIndex="1000" MouseLeftButtonDown="ResizeTL_Down" />
+        <Border Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Top"    Background="Transparent" Cursor="SizeNESW" Panel.ZIndex="1000" MouseLeftButtonDown="ResizeTR_Down" />
+        <Border Width="8" Height="8" HorizontalAlignment="Left"  VerticalAlignment="Bottom" Background="Transparent" Cursor="SizeNESW" Panel.ZIndex="1000" Grid.Row="2" MouseLeftButtonDown="ResizeBL_Down" />
+        <Border Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="Transparent" Cursor="SizeNWSE" Panel.ZIndex="1000" Grid.Row="2" MouseLeftButtonDown="ResizeBR_Down" />
+
+        <Grid Grid.Row="0" Background="#0A1F12" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -306,15 +413,76 @@
                        VerticalAlignment="Center"
                        HorizontalAlignment="Center" />
 
-            <Button Grid.Column="2"
-                    Content="📁  Load Logs"
-                    Click="BtnSelectFolder_Click"
-                    Padding="14,0" Margin="0,0,12,0"
-                    Height="26"
-                    Background="#1A4F2E" Foreground="#3FB950"
-                    FontWeight="SemiBold" FontSize="11"
-                    BorderThickness="1" BorderBrush="#238636"
-                    VerticalAlignment="Center" Cursor="Hand" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+
+                <!-- Report Bug -->
+                <Border x:Name="ReportBugButton" Cursor="Hand" Padding="10,0" Height="36"
+                        Style="{StaticResource TopBarActionBorderStyle}"
+                        ToolTip="Report a bug or issue">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="ReportBugIcon" Text="🐛︎" FontSize="14"
+                                   FontFamily="Segoe UI Symbol"
+                                   Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,5,0" />
+                        <TextBlock x:Name="ReportBugLabel" Text="Report Bug" FontSize="12"
+                                   Foreground="#C9D1D9" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Separator -->
+                <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center" Opacity="0.9" />
+
+                <!-- Track UID -->
+                <Border x:Name="TrackUidButton" Cursor="Hand" Padding="10,0" Height="36"
+                        Style="{StaticResource TopBarActionBorderStyle}" ToolTip="Track UID (Ctrl+K)">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="TrackUidIcon" Text="⚲" FontSize="15"
+                                   Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,5,0" />
+                        <TextBlock x:Name="TrackUidLabel" Text="Track UID" FontSize="12"
+                                   Foreground="#C9D1D9" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Expand TextBox -->
+                <Border x:Name="TrackUidInputHost" Width="0" Height="26" Margin="0,0,4,0"
+                        Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
+                        CornerRadius="4" ClipToBounds="True" VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="TxtSubsetUid" FontFamily="Consolas" FontSize="11"
+                                 Background="Transparent" Foreground="#C9D1D9"
+                                 BorderThickness="0" Padding="8,0,4,0"
+                                 VerticalContentAlignment="Center"
+                                 KeyDown="TxtSubsetUid_KeyDown" />
+                        <TextBlock Grid.Column="1" Text="✕" FontSize="10" Cursor="Hand"
+                                   x:Name="TrackUidClose" Foreground="#6E7681"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   MouseLeftButtonUp="TrackUidClose_Click" />
+                    </Grid>
+                </Border>
+
+                <!-- Separator -->
+                <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center" Opacity="0.9" />
+
+                <!-- New Session -->
+                <Border x:Name="NewSessionButton" Cursor="Hand" Padding="10,0" Height="36"
+                        Style="{StaticResource TopBarActionBorderStyle}" ToolTip="Start new session — clears all loaded data">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="⇪" FontSize="15" Foreground="#C9D1D9"
+                                   VerticalAlignment="Center" Margin="0,0,5,0" />
+                        <TextBlock Text="New Session" FontSize="12" Foreground="#C9D1D9"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Window controls -->
+                <Border Width="1" Height="18" Background="#30363D" Margin="8,0,4,0" VerticalAlignment="Center" Opacity="0.9" />
+                <Button Width="40" Height="40" Style="{StaticResource TitleBarButtonStyle}" FontSize="18" Cursor="Hand" Click="BtnMinimize_Click" ToolTip="Minimize">&#x2014;</Button>
+                <Button x:Name="BtnWinMaximize" Width="40" Height="40" Style="{StaticResource TitleBarButtonStyle}" FontSize="18" Cursor="Hand" Click="BtnMaximize_Click" ToolTip="Maximize">&#x25A1;</Button>
+                <Button Width="40" Height="40" Style="{StaticResource TitleBarCloseButtonStyle}" FontSize="14" Cursor="Hand" Click="BtnClose_Click" ToolTip="Close">&#x2715;</Button>
+            </StackPanel>
         </Grid>
 
         <Border Grid.Row="1" Background="#071810"
@@ -351,237 +519,259 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0"
                         Background="#161B22"
                         BorderBrush="#21262D" BorderThickness="1"
-                        Padding="12" CornerRadius="6" Margin="0,0,0,6">
+                        Padding="0" CornerRadius="6" Margin="0,0,0,6">
                     <StackPanel>
-                        <TextBlock Text="STATISTICS"
-                                   FontSize="10" FontWeight="SemiBold"
-                                   Foreground="#388E3C" Margin="0,0,0,10" />
+
+                        <!-- Header with green left accent -->
+                        <Grid Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="3" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="#3FB950" CornerRadius="6,0,0,0" />
+
+                            <TextBlock x:Name="TxtStatsRangeHeader" Grid.Column="1" Text="STATS for: —"
+                                       FontSize="9" FontWeight="Bold"
+                                       Foreground="#3FB950" Margin="10,8,10,6" />
+                        </Grid>
+
+                        <StackPanel Margin="12,4,12,12">
 
                         <TextBlock x:Name="TxtTabRecords" Text="Message Records: 0"
-                                   FontSize="11" Foreground="#8B949E" Margin="0,0,0,8" />
+                                   FontSize="11" Foreground="#8B949E" Margin="0,0,0,10" />
 
-                        <TextBlock Text="Average Speed" Foreground="#6E7681" FontSize="10" Margin="0,0,0,2" />
-                        <TextBlock x:Name="TxtTabAvg" Text="0 ms"
-                                   Foreground="#4FC3F7" FontSize="26" FontWeight="Thin" Margin="0,0,0,10" />
+                        <Border Height="1" Background="#21262D" Margin="0,0,0,10" />
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                            <TextBlock Text="Guaranteed Speed (P95)" Foreground="#6E7681" FontSize="10"
-                                       VerticalAlignment="Center" />
-                            <TextBlock Text="  ⓘ" Foreground="#388E3C" FontSize="10" VerticalAlignment="Center"
-                                       Cursor="Help">
-                                <TextBlock.ToolTip>
-                                    <ToolTip>
-                                        <StackPanel Width="260">
-                                            <TextBlock Text="95th Percentile (P95)" FontSize="13" FontWeight="Bold"
-                                                       Margin="0,0,0,5" />
-                                            <TextBlock TextWrapping="Wrap" FontSize="11">
-                                                Maximum response time in 95% of cases.
-                                                If P95 is high, 5% of production cycles are delayed.
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </ToolTip>
-                                </TextBlock.ToolTip>
-                            </TextBlock>
-                        </StackPanel>
-                        <TextBlock x:Name="TxtTabP95" Text="0 ms"
-                                   Foreground="#A5D6A7" FontSize="22" FontWeight="Light" Margin="0,0,0,10" />
+                        <!-- AVG + Guaranteed speed side by side -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,1" Cursor="Help">
+                                    <StackPanel.ToolTip>
+                                        <ToolTip Style="{StaticResource StatsHelpToolTipStyle}">
+                                            <StackPanel Width="290">
+                                                <TextBlock Text="AVG Response" FontSize="12" FontWeight="SemiBold" Foreground="#E6EDF3" Margin="0,0,0,5" />
+                                                <TextBlock TextWrapping="Wrap" Text="Average PLC↔MES response time across all messages in the current selection." />
+                                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#8B949E"
+                                                           Text="Note: this is a coarse mean. It can hide short latency spikes, retries, and timeout bursts in PLC/MES communication." />
+                                            </StackPanel>
+                                        </ToolTip>
+                                    </StackPanel.ToolTip>
+                                    <TextBlock Text="AVG Response" Foreground="#6E7681" FontSize="12"
+                                               FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <TextBlock Text="  ?" Foreground="#388E3C" FontSize="8" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock x:Name="TxtTabAvg" Text="0 ms"
+                                           Foreground="#4FC3F7" FontSize="24" FontWeight="Thin" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="8,0,0,0">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,1" Cursor="Help">
+                                    <StackPanel.ToolTip>
+                                        <ToolTip Style="{StaticResource StatsHelpToolTipStyle}">
+                                            <StackPanel Width="310">
+                                                <TextBlock Text="Guaranteed speed (P⁹⁵)" FontSize="11" FontWeight="SemiBold" Foreground="#E6EDF3" Margin="0,0,0,5" />
+                                                <TextBlock TextWrapping="Wrap" Text="The response-time threshold that 95% of PLC↔MES messages stay under. This is a practical guaranteed speed indicator for line communication." />
+                                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#8B949E"
+                                                           Text="Example: if P⁹⁵ = 420 ms, then 95% of PLC/MES telegrams complete in &lt;= 420 ms." />
+                                            </StackPanel>
+                                        </ToolTip>
+                                    </StackPanel.ToolTip>
+                                    <TextBlock Text="Guaranteed speed (P⁹⁵)" Foreground="#6E7681" FontSize="11"
+                                               FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <TextBlock Text="  ?" Foreground="#388E3C" FontSize="8" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock x:Name="TxtTabP95" Text="0 ms"
+                                           Foreground="#A5D6A7" FontSize="24" FontWeight="Thin"
+                                           HorizontalAlignment="Right" />
+                            </StackPanel>
+                        </Grid>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                            <TextBlock Text="Stability Index" Foreground="#6E7681" FontSize="10"
-                                       VerticalAlignment="Center" />
-                            <TextBlock Text="  ⓘ" Foreground="#388E3C" FontSize="10" VerticalAlignment="Center"
-                                       Cursor="Help">
-                                <TextBlock.ToolTip>
-                                    <ToolTip>
-                                        <StackPanel Width="260">
-                                            <TextBlock Text="Stability Index (CV)" FontSize="13" FontWeight="Bold"
-                                                       Margin="0,0,0,5" />
-                                            <TextBlock TextWrapping="Wrap" FontSize="11">
-                                                • Excellent (&lt; 15%)&#10;• Good (15–30%)&#10;• Unstable (&gt; 30%)
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </ToolTip>
-                                </TextBlock.ToolTip>
-                            </TextBlock>
-                        </StackPanel>
-                        <TextBlock x:Name="TxtTabStability" Text="N/A"
-                                   Foreground="#3FB950" FontSize="22" FontWeight="Light" Margin="0,0,0,10" />
+                        <Border Height="1" Background="#21262D" Margin="0,0,0,8" />
 
-                        <Border Background="#161B22" BorderBrush="#21262D" BorderThickness="0,1,0,0"
-                                Padding="0,8,0,0" Margin="0,2,0,0">
+                        <!-- Stability + Min/Max -->
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Cursor="Help">
+                                    <StackPanel.ToolTip>
+                                        <ToolTip Style="{StaticResource StatsHelpToolTipStyle}">
+                                            <StackPanel Width="320">
+                                                <TextBlock Text="Stability (CV)" FontSize="12" FontWeight="SemiBold" Foreground="#E6EDF3" Margin="0,0,0,5" />
+                                                <TextBlock TextWrapping="Wrap" Text="Shows variability of PLC↔MES response times (communication jitter). Lower values mean more stable and predictable exchange cycles." />
+                                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#8B949E"
+                                                           Text="Interpretation: Excellent &lt; 15%, Good 15-30%, Critical &gt; 30%.&#10;Example: CV = 38% -> Critical, high cycle-time jitter in PLC/MES communication." />
+                                            </StackPanel>
+                                        </ToolTip>
+                                    </StackPanel.ToolTip>
+                                    <TextBlock Text="STABILITY" Foreground="#6E7681" FontSize="10"
+                                               FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <TextBlock Text="  ?" Foreground="#388E3C" FontSize="8" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock x:Name="TxtTabStability" Text="N/A"
+                                           Foreground="#3FB950" FontSize="11" FontWeight="SemiBold" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,2">
+                                    <TextBlock Text="▼ " Foreground="#3FB950" FontSize="8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtTabMin" Text="Min Time: 0 ms" Foreground="#6E7681" FontSize="10" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <TextBlock Text="▲ " Foreground="#F85149" FontSize="8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtTabMax" Text="Max Time: 0 ms" Foreground="#6E7681" FontSize="10" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Slowest records -->
+                        <Border x:Name="SlowestSection" Visibility="Collapsed"
+                                BorderBrush="#21262D" BorderThickness="0,1,0,0"
+                                Padding="0,8,0,0" Margin="0,8,0,0">
                             <StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                    <Border Width="8" Height="8" CornerRadius="2" Background="#3FB950" Margin="0,0,6,0"
-                                            VerticalAlignment="Center" />
-                                    <TextBlock x:Name="TxtTabMin" Text="Min Time: 0 ms" Foreground="#8B949E"
-                                               FontSize="11" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <Border Width="8" Height="8" CornerRadius="2" Background="#F85149" Margin="0,0,6,0"
-                                            VerticalAlignment="Center" />
-                                    <TextBlock x:Name="TxtTabMax" Text="Max Time: 0 ms" Foreground="#8B949E"
-                                               FontSize="11" />
-                                </StackPanel>
-                                <Border x:Name="PassFailSection" Visibility="Collapsed"
-                                        Background="#161B22" BorderBrush="#21262D" BorderThickness="0,1,0,0"
-                                        Padding="0,8,0,0" Margin="0,2,0,0">
-                                    <StackPanel>
-                                        <TextBlock Text="Pass / Fail Rate" Foreground="#6E7681" FontSize="10" Margin="0,0,0,8" />
-                                        <lvc:PieChart x:Name="PassFailPieChart"
-                                                      Height="120"
-                                                      LegendLocation="Bottom"
-                                                      Hoverable="False"
-                                                      DisableAnimations="True"
-                                                      Margin="0,0,0,6" />
-                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                            <Border Width="8" Height="8" CornerRadius="2" Background="#3FB950" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                            <TextBlock x:Name="TxtPassRate" Text="Pass: —" Foreground="#8B949E" FontSize="11" />
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                            <Border Width="8" Height="8" CornerRadius="2" Background="#F85149" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                            <TextBlock x:Name="TxtFailRate" Text="Fail: —" Foreground="#8B949E" FontSize="11" />
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
+                                <TextBlock Text="SLOWEST RECORDS" FontSize="8" FontWeight="SemiBold"
+                                           Foreground="#6E7681" Margin="0,0,0,6" />
+                                <StackPanel x:Name="SlowestRecordsHost" />
                             </StackPanel>
                         </Border>
+
+                        <!-- Quality -->
+                        <Border x:Name="PassFailSection" Visibility="Collapsed"
+                                BorderBrush="#21262D" BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0" Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock x:Name="PassFailSectionLabel" Text="QUALITY"
+                                           FontSize="8" FontWeight="SemiBold"
+                                           Foreground="#6E7681" Margin="0,0,0,8" />
+                                <ContentControl x:Name="PassFailChartHost" />
+                            </StackPanel>
+                        </Border>
+
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <Border Grid.Row="1" Background="#161B22"
+                <Border Grid.Row="1" x:Name="SelectedDayPanel"
+                        Background="#161B22"
                         BorderBrush="#21262D" BorderThickness="1"
-                        Padding="12" CornerRadius="6" Margin="0,0,0,6">
+                        Padding="0" CornerRadius="6" Margin="0,0,0,6"
+                        Visibility="Visible">
                     <StackPanel>
-                        <TextBlock Text="FILTERS" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="#388E3C" Margin="0,0,0,10" />
-                        <TextBlock Text="Date From" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <Grid Margin="0,0,0,8">
+
+                        <!-- Header with orange left accent -->
+                        <Grid Margin="0,0,0,0">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="3" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="52" />
                             </Grid.ColumnDefinitions>
-                            <DatePicker x:Name="DatePickerFrom" FontSize="11" />
-                            <TextBox x:Name="TxtTimeFrom" Grid.Column="1" Text="00:00" Margin="4,0,0,0"
-                                     VerticalContentAlignment="Center" />
+                            <Border Grid.Column="0" Background="#F78166" CornerRadius="6,0,0,0" />
+                            <TextBlock x:Name="TxtSelectedDayHeader" Grid.Column="1" Text="STATS FOR —"
+                                       FontSize="9" FontWeight="Bold"
+                                       Foreground="#F78166" Margin="10,8,10,6" />
                         </Grid>
 
-                        <TextBlock Text="Date To" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="52" />
-                            </Grid.ColumnDefinitions>
-                            <DatePicker x:Name="DatePickerTo" FontSize="11" />
-                            <TextBox x:Name="TxtTimeTo" Grid.Column="1" Text="23:59" Margin="4,0,0,0"
-                                     VerticalContentAlignment="Center" />
-                        </Grid>
+                        <StackPanel Margin="12,4,12,12">
 
-                        <TextBlock Text="UID" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <TextBox x:Name="TxtFilterUid" Margin="0,0,0,8" />
+                        <Border x:Name="SelectedDayPlaceholder" Padding="0,8,0,8">
+                            <TextBlock Text="Click a day in the trend chart"
+                                       FontSize="10" Foreground="#30363D"
+                                       HorizontalAlignment="Center" FontStyle="Italic" />
+                        </Border>
 
-                        <TextBlock Text="UID In" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <TextBox x:Name="TxtFilterUidIn" Margin="0,0,0,8" />
+                        <StackPanel x:Name="SelectedDayContent" Visibility="Collapsed">
 
-                        <TextBlock Text="UID Out" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <TextBox x:Name="TxtFilterUidOut" Margin="0,0,0,8" />
+                            <TextBlock x:Name="TxtDayRecords" Text="Records: —"
+                                       FontSize="11" Foreground="#8B949E" Margin="0,0,0,8" />
 
-                        <TextBlock Text="Material" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <TextBox x:Name="TxtFilterMaterial" Margin="0,0,0,8" />
+                            <Border Height="1" Background="#21262D" Margin="0,0,0,8" />
 
-                        <TextBlock Text="Carrier ID" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <TextBox x:Name="TxtFilterCarrierId" Margin="0,0,0,8" />
+                            <!-- Avg + Guaranteed speed -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,1" Cursor="Help">
+                                        <StackPanel.ToolTip>
+                                            <ToolTip Style="{StaticResource StatsHelpToolTipStyle}">
+                                                <StackPanel Width="290">
+                                                    <TextBlock Text="AVG Response" FontSize="12" FontWeight="SemiBold" Foreground="#E6EDF3" Margin="0,0,0,5" />
+                                                    <TextBlock TextWrapping="Wrap" Text="Average PLC↔MES response time across all messages in the selected day." />
+                                                    <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#8B949E"
+                                                               Text="Note: this is a coarse mean. It can hide short latency spikes, retries, and timeout bursts in PLC/MES communication." />
+                                                </StackPanel>
+                                            </ToolTip>
+                                        </StackPanel.ToolTip>
+                                        <TextBlock Text="AVG Response" Foreground="#6E7681" FontSize="12"
+                                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Text="  ?" Foreground="#388E3C" FontSize="8" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtDayAvg" Text="— ms"
+                                               Foreground="#4FC3F7" FontSize="24" FontWeight="Thin" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="8,0,0,0">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,1" HorizontalAlignment="Right" Cursor="Help">
+                                        <StackPanel.ToolTip>
+                                            <ToolTip Style="{StaticResource StatsHelpToolTipStyle}">
+                                                <StackPanel Width="310">
+                                                    <TextBlock Text="Guaranteed speed (P⁹⁵)" FontSize="11" FontWeight="SemiBold" Foreground="#E6EDF3" Margin="0,0,0,5" />
+                                                    <TextBlock TextWrapping="Wrap" Text="The response-time threshold that 95% of PLC↔MES messages stay under. This is a practical guaranteed speed indicator for line communication." />
+                                                    <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#8B949E"
+                                                               Text="Example: if P⁹⁵ = 420 ms, then 95% of PLC/MES telegrams complete in &lt;= 420 ms." />
+                                                </StackPanel>
+                                            </ToolTip>
+                                        </StackPanel.ToolTip>
+                                        <TextBlock Text="Guaranteed speed (P⁹⁵)" Foreground="#6E7681" FontSize="11"
+                                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Text="  ?" Foreground="#388E3C" FontSize="8" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtDayP95" Text="— ms"
+                                               Foreground="#A5D6A7" FontSize="24" FontWeight="Thin"
+                                               HorizontalAlignment="Right" />
+                                </StackPanel>
+                            </Grid>
 
-                        <TextBlock Text="Result" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <ComboBox x:Name="CmbFilterResult" Margin="0,0,0,8">
-                            <ComboBoxItem Content="All" IsSelected="True" />
-                            <ComboBoxItem Content="P" />
-                            <ComboBoxItem Content="F" />
-                        </ComboBox>
+                            <!-- Min / Max -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                                    <TextBlock Text="▼ " Foreground="#3FB950" FontSize="8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtDayMin" Text="Min: —" Foreground="#6E7681" FontSize="10" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="▲ " Foreground="#F85149" FontSize="8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtDayMax" Text="Max: —" Foreground="#6E7681" FontSize="10" />
+                                </StackPanel>
+                            </StackPanel>
 
-                        <TextBlock Text="Message Type" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <ComboBox x:Name="CmbFilterMessageType" Margin="0,0,0,12"
-                                  SelectionChanged="CmbFilterMessageType_SelectionChanged">
-                            <ComboBoxItem Content="All" IsSelected="True" />
-                            <ComboBoxItem Content="Unit Info" Tag="UNIT_INFO" />
-                            <ComboBoxItem Content="Next Operation" Tag="NEXT_OPERATION" />
-                            <ComboBoxItem Content="Unit Checkin" Tag="UNIT_CHECKIN" />
-                            <ComboBoxItem Content="Unit Result" Tag="UNIT_RESULT" />
-                            <ComboBoxItem Content="Load Material" Tag="LOAD_MATERIAL" />
-                            <ComboBoxItem Content="Request Material Info" Tag="REQ_MATERIAL_INFO" />
-                            <ComboBoxItem Content="Request Setup Change" Tag="REQ_SETUP_CHANGE2" />
-                        </ComboBox>
+                            <!-- Day quality -->
+                            <Border x:Name="DayPassFailSection" Visibility="Collapsed"
+                                    BorderBrush="#21262D" BorderThickness="0,1,0,0"
+                                    Padding="0,10,0,0" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="QUALITY" FontSize="8" FontWeight="SemiBold"
+                                               Foreground="#6E7681" Margin="0,0,0,8" />
+                                    <ContentControl x:Name="DayPassFailChartHost" />
+                                </StackPanel>
+                            </Border>
 
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0" Content="Apply Filters" Click="BtnApplyFilter_Click"
-                                    Padding="0,7" Background="#1A8F4F" Foreground="White"
-                                    FontWeight="SemiBold" FontSize="11"
-                                    BorderThickness="1" BorderBrush="#238636" Cursor="Hand" />
-                            <Button Grid.Column="2" Content="↺ Reset" Click="BtnResetFilter_Click"
-                                    Padding="10,7" Background="#21262D" Foreground="#8B949E"
-                                    FontWeight="SemiBold" FontSize="11"
-                                    BorderThickness="1" BorderBrush="#30363D" Cursor="Hand" />
-                        </Grid>
+                        </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <Border Grid.Row="2" Background="#161B22"
-                        BorderBrush="#21262D" BorderThickness="1"
-                        Padding="12" CornerRadius="6" Margin="0,0,0,6">
-                    <StackPanel>
-                        <TextBlock Text="SUBSET HISTORY" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="#388E3C" Margin="0,0,0,8" />
-                        <TextBlock Text="UID" FontSize="10" Foreground="#6E7681" Margin="0,0,0,3" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="TxtSubsetUid"
-                                     FontFamily="Consolas"
-                                     KeyDown="TxtSubsetUid_KeyDown" />
-                            <Button Grid.Column="1"
-                                    Content="🔍"
-                                    Click="BtnSubsetSearch_Click"
-                                    Padding="8,4" Margin="4,0,0,0"
-                                    Background="#0D1117" Foreground="#3FB950"
-                                    BorderBrush="#30363D" BorderThickness="1"
-                                    FontSize="11" Cursor="Hand" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
 
-                <Border Grid.Row="3" Background="#161B22"
-                        BorderBrush="#21262D" BorderThickness="1" CornerRadius="6">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="RECORDS" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="#388E3C" Margin="12,10,12,8" />
-                        <DataGrid x:Name="GridRecords" Grid.Row="1"
-                                  AutoGenerateColumns="False" IsReadOnly="True" FontSize="11">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="120" />
-                                <DataGridTextColumn Header="UID" Binding="{Binding Uid}" Width="*" />
-                                <DataGridTextColumn Header="RT (ms)" Binding="{Binding ResponseTime}" Width="50" />
-                                <DataGridTextColumn Header="R" Binding="{Binding Result}" Width="25" />
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </Grid>
-                </Border>
             </Grid>
 
             <TabControl x:Name="MainTabControl" Grid.Column="1"
@@ -626,17 +816,29 @@
                         <StackPanel x:Name="PanelReqSetupChange2" />
                     </ScrollViewer>
                 </TabItem>
+                <TabItem Header="PANEL CHECKIN" Tag="PANEL_CHECKIN" DockPanel.Dock="Left">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
+                        <StackPanel x:Name="PanelPanelCheckin" />
+                    </ScrollViewer>
+                </TabItem>
+                <TabItem Header="PANEL RESULT" Tag="PANEL_RESULT" DockPanel.Dock="Left">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
+                        <StackPanel x:Name="PanelPanelResult" />
+                    </ScrollViewer>
+                </TabItem>
                 <TabItem Header="SEMI VALIDATION 2" Tag="SEMI_VALIDATION2" DockPanel.Dock="Left">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelSemiValidation2" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="ALL RECORDS" Tag="ALL" DockPanel.Dock="Right" Margin="0,0,4,0" Style="{StaticResource AllTabStyle}">
+                <TabItem Header="ALL RECORDS" Tag="ALL" DockPanel.Dock="Right" Margin="0,0,4,0"
+                         Style="{StaticResource AllTabStyle}">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0D1117">
                         <StackPanel x:Name="PanelAll" />
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="🔗 ASSEMBLY" Tag="ASSEMBLY" DockPanel.Dock="Right" Style="{StaticResource AssemblyTabStyle}">
+                <TabItem Header="🔗 ASSEMBLY" Tag="ASSEMBLY" DockPanel.Dock="Right"
+                         Style="{StaticResource AssemblyTabStyle}">
                     <Grid x:Name="PanelAssembly" Background="#0D1117" />
                 </TabItem>
             </TabControl>
@@ -665,14 +867,14 @@
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
                                     Margin="0,0,6,0">
                             <Button Content="—" Click="BtnMinimizeLoadingOverlay_Click"
-                                    Width="24" Height="24" Padding="0" Margin="0,0,2,0"
+                                    Width="32" Height="32" Padding="0" Margin="0,0,2,0"
                                     Background="Transparent" Foreground="#4E5A4E"
-                                    BorderThickness="0" FontSize="14" Cursor="Hand"
+                                    BorderThickness="0" FontSize="18" Cursor="Hand"
                                     ToolTip="Minimize — continue loading in background" />
                             <Button Content="✕" Click="BtnCloseLoadingOverlay_Click"
-                                    Width="24" Height="24" Padding="0"
+                                    Width="32" Height="32" Padding="0"
                                     Background="Transparent" Foreground="#4E5A4E"
-                                    BorderThickness="0" FontSize="11" Cursor="Hand" />
+                                    BorderThickness="0" FontSize="14" Cursor="Hand" />
                         </StackPanel>
                     </Grid>
 
@@ -696,20 +898,188 @@
                                     <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Rectangle Grid.Column="0" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="1" Fill="#145A29" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.08"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="2" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.16"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="3" Fill="#238636" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.24"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="4" Fill="#2EA043" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.32"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="5" Fill="#3FB950" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.40"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="6" Fill="#56D364" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.48"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="7" Fill="#56D364" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.56"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="8" Fill="#3FB950" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.64"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="9" Fill="#2EA043" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.72"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="10" Fill="#238636" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.80"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="11" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.88"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="12" Fill="#145A29" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.96"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
-                                <Rectangle Grid.Column="13" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6" Margin="2,0"><Rectangle.Triggers><EventTrigger RoutedEvent="Rectangle.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" BeginTime="0:0:1.04"><DoubleAnimation Storyboard.TargetProperty="Height" From="6" To="44" Duration="0:0:0.65" AutoReverse="True" /></Storyboard></BeginStoryboard></EventTrigger></Rectangle.Triggers></Rectangle>
+                                <Rectangle Grid.Column="0" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="1" Fill="#145A29" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.08">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="2" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.16">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="3" Fill="#238636" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.24">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="4" Fill="#2EA043" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.32">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="5" Fill="#3FB950" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.40">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="6" Fill="#56D364" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.48">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="7" Fill="#56D364" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.56">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="8" Fill="#3FB950" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.64">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="9" Fill="#2EA043" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.72">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="10" Fill="#238636" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.80">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="11" Fill="#1A6B32" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.88">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="12" Fill="#145A29" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:0.96">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Grid.Column="13" Fill="#0D4F1C" VerticalAlignment="Bottom" Height="6"
+                                           Margin="2,0">
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Rectangle.Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" BeginTime="0:0:1.04">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Height" From="6"
+                                                                     To="44" Duration="0:0:0.65" AutoReverse="True" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
                             </Grid>
 
                             <TextBlock x:Name="LoadingStatus" Text=""
@@ -729,22 +1099,31 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Background="#161B22" CornerRadius="4" Margin="0,0,4,0" Padding="10,7">
+                                <Border Grid.Column="0" Background="#161B22" CornerRadius="4" Margin="0,0,4,0"
+                                        Padding="10,7">
                                     <StackPanel>
-                                        <TextBlock Text="FILES" FontSize="9" Foreground="#3FB950" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,2" />
-                                        <TextBlock x:Name="LoadingFileCount" Text="—" FontSize="20" FontWeight="Bold" Foreground="#C9D1D9" HorizontalAlignment="Center" />
+                                        <TextBlock Text="FILES" FontSize="9" Foreground="#3FB950" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <TextBlock x:Name="LoadingFileCount" Text="—" FontSize="20" FontWeight="Bold"
+                                                   Foreground="#C9D1D9" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="1" Background="#161B22" CornerRadius="4" Margin="4,0,4,0" Padding="10,7">
+                                <Border Grid.Column="1" Background="#161B22" CornerRadius="4" Margin="4,0,4,0"
+                                        Padding="10,7">
                                     <StackPanel>
-                                        <TextBlock Text="RECORDS" FontSize="9" Foreground="#3FB950" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,2" />
-                                        <TextBlock x:Name="LoadingRecordCount" Text="—" FontSize="20" FontWeight="Bold" Foreground="#C9D1D9" HorizontalAlignment="Center" />
+                                        <TextBlock Text="RECORDS" FontSize="9" Foreground="#3FB950" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <TextBlock x:Name="LoadingRecordCount" Text="—" FontSize="20" FontWeight="Bold"
+                                                   Foreground="#C9D1D9" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="2" Background="#161B22" CornerRadius="4" Margin="4,0,0,0" Padding="10,7">
+                                <Border Grid.Column="2" Background="#161B22" CornerRadius="4" Margin="4,0,0,0"
+                                        Padding="10,7">
                                     <StackPanel>
-                                        <TextBlock Text="STATIONS" FontSize="9" Foreground="#3FB950" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,2" />
-                                        <TextBlock x:Name="LoadingTypeCount" Text="—" FontSize="20" FontWeight="Bold" Foreground="#C9D1D9" HorizontalAlignment="Center" />
+                                        <TextBlock Text="STATIONS" FontSize="9" Foreground="#3FB950" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <TextBlock x:Name="LoadingTypeCount" Text="—" FontSize="20" FontWeight="Bold"
+                                                   Foreground="#C9D1D9" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -808,4 +1187,5 @@
             </Border>
         </Grid>
     </Grid>
+    </Border>
 </Window>

@@ -113,6 +113,8 @@
             <DependentUpon>App.xaml</DependentUpon>
             <SubType>Code</SubType>
         </Compile>
+        <Compile Include="BugReportDialog.cs" />
+        <Compile Include="BugReportPanel.cs" />
         <Compile Include="Charts\Builders\ChartCalculator.cs"/>
         <Compile Include="Charts\Builders\HistogramChart.cs"/>
         <Compile Include="Charts\Builders\ScottPlotTrendChart.cs" />
@@ -143,9 +145,11 @@
         <Compile Include="UI\AssemblyNodeViewModel.cs" />
         <Compile Include="UI\AssemblyTreePanel.cs" />
         <Compile Include="UI\DayRecordsPanelBuilder.cs"/>
+        <Compile Include="UI\HexagonPieChart.cs" />
         <Compile Include="UI\SubsetHistoryTab.cs" />
         <Compile Include="UI\SubsetHistoryWindow.cs" />
         <Compile Include="WindowAnimations.cs" />
+        <Compile Include="Windowresizer.cs" />
     </ItemGroup>
     <ItemGroup>
         <Compile Include="Core\StatsCalculator.cs"/>

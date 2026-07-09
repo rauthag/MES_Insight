@@ -10,12 +10,58 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Interop;
+using System.Runtime.InteropServices;
 using MESInsight.Core;
 
 namespace MESInsight
 {
     public class StartupWindow : Window
     {
+        private const int WM_GETMINMAXINFO = 0x0024;
+        private const int MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private class MONITORINFO
+        {
+            public int cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public int dwFlags;
+        }
+
+        [DllImport("user32")]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, MONITORINFO lpmi);
+
+        [DllImport("user32")]
+        private static extern IntPtr MonitorFromWindow(IntPtr handle, int flags);
+
         public string SelectedPath { get; private set; }
         public List<string> SelectedPaths { get; private set; } = new List<string>();
         public StartupMode Mode { get; private set; }
@@ -39,7 +85,9 @@ namespace MESInsight
 
         private Canvas _canvas;
         private Grid _expandedPanel;
+        private Border _rootBorder;
         private bool _isExpanded = false;
+        private BugReportPanel _bugReportPanel;
 
 
         public StartupWindow()
@@ -47,16 +95,108 @@ namespace MESInsight
             Title = "MES Insight";
             Width = 1100;
             Height = 980;
-            ResizeMode = ResizeMode.CanResize;
+            MinWidth = 900;
+            MinHeight = 700;
+            ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = new SolidColorBrush(BgColor);
+            WindowStyle = WindowStyle.None;
+            AllowsTransparency = true;
+            Background = Brushes.Transparent;
             FontFamily = new FontFamily(new Uri("pack://application:,,,/"), "./Fonts/#Inter 18pt");
             Content = BuildLayout();
+            StateChanged += (s, e) => UpdateRootBorderForWindowState();
+            SourceInitialized += (s, e) => UpdateRootBorderForWindowState();
+        }
+
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            HwndSource source = HwndSource.FromHwnd(hwnd);
+            source?.AddHook(WindowProc);
+        }
+
+        internal void ShowBugReportPanel(Exception ex = null)
+        {
+            if (_bugReportPanel != null)
+            {
+                _expandedPanel.Children.Remove(_bugReportPanel);
+            }
+
+            _bugReportPanel = new BugReportPanel(ex);
+            _bugReportPanel.RequestClose += CloseBugReportPanel;
+            _expandedPanel.Children.Add(_bugReportPanel);
+
+            _canvas.Visibility = Visibility.Collapsed;
+            _expandedPanel.Visibility = Visibility.Visible;
+            _isExpanded = true;
+        }
+
+        private void CloseBugReportPanel()
+        {
+            if (_bugReportPanel != null)
+            {
+                _bugReportPanel.RequestClose -= CloseBugReportPanel;
+                _expandedPanel.Children.Remove(_bugReportPanel);
+                _bugReportPanel = null;
+            }
+
+            _expandedPanel.Visibility = Visibility.Collapsed;
+            _canvas.Visibility = Visibility.Visible;
+            _isExpanded = false;
+        }
+
+        private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_GETMINMAXINFO)
+            {
+                WmGetMinMaxInfo(hwnd, lParam);
+                handled = true;
+            }
+
+            return IntPtr.Zero;
+        }
+
+        private static void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
+        {
+            if (lParam == IntPtr.Zero) return;
+
+            MINMAXINFO mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
+            if (monitor != IntPtr.Zero)
+            {
+                MONITORINFO monitorInfo = new MONITORINFO();
+                if (GetMonitorInfo(monitor, monitorInfo))
+                {
+                    RECT rcWorkArea = monitorInfo.rcWork;
+                    RECT rcMonitorArea = monitorInfo.rcMonitor;
+
+                    mmi.ptMaxPosition.x = Math.Abs(rcWorkArea.left - rcMonitorArea.left);
+                    mmi.ptMaxPosition.y = Math.Abs(rcWorkArea.top - rcMonitorArea.top);
+                    mmi.ptMaxSize.x = Math.Abs(rcWorkArea.right - rcWorkArea.left);
+                    mmi.ptMaxSize.y = Math.Abs(rcWorkArea.bottom - rcWorkArea.top);
+                }
+            }
+
+            Marshal.StructureToPtr(mmi, lParam, true);
         }
 
 
         private UIElement BuildLayout()
         {
+            var outer = new Grid();
+
+            _rootBorder = new Border
+            {
+                Background = new SolidColorBrush(BgColor),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(26, 58, 32)),
+                BorderThickness = new Thickness(1),
+                SnapsToDevicePixels = true
+            };
+
             var root = new Grid();
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(60) });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -83,7 +223,9 @@ namespace MESInsight
             Grid.SetRow(footer, 2);
             root.Children.Add(footer);
 
-            return root;
+            _rootBorder.Child = root;
+            outer.Children.Add(_rootBorder);
+            return outer;
         }
 
         private Border BuildHeader()
@@ -92,8 +234,16 @@ namespace MESInsight
             {
                 Background = new SolidColorBrush(Color.FromRgb(14, 55, 28)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(180, 80, 10)),
-                BorderThickness = new Thickness(0, 0, 0, 5)
+                BorderThickness = new Thickness(0, 0, 0, 5),
+                Cursor = Cursors.SizeAll
             };
+
+            header.MouseLeftButtonDown += TitleBar_MouseLeftButtonDown;
+
+            var headerGrid = new Grid();
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
             var hStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -125,8 +275,106 @@ namespace MESInsight
                 Margin = new Thickness(0, 1, 0, 0)
             });
             hStack.Children.Add(ts);
-            header.Child = hStack;
+
+            Grid.SetColumn(hStack, 0);
+            headerGrid.Children.Add(hStack);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 0, 10, 0)
+            };
+            buttons.Children.Add(CreateWindowControlButton("🐛︎", 16,
+                Color.FromRgb(201, 209, 217), Color.FromRgb(233, 242, 236), Color.FromRgb(26, 42, 50),
+                () => ShowBugReportPanel(null)));
+            buttons.Children.Add(CreateWindowControlButton("—", 18,
+                Color.FromRgb(139, 148, 158), Color.FromRgb(201, 209, 217), Color.FromRgb(26, 42, 33),
+                BtnMinimize_Click));
+            buttons.Children.Add(CreateWindowControlButton("✕", 14,
+                Color.FromRgb(224, 82, 82), Color.FromRgb(255, 179, 184), Color.FromRgb(58, 31, 36),
+                BtnClose_Click));
+
+            Grid.SetColumn(buttons, 1);
+            headerGrid.Children.Add(buttons);
+
+            header.Child = headerGrid;
             return header;
+        }
+
+        private Border CreateWindowControlButton(
+            string glyph,
+            double fontSize,
+            Color normalForeground,
+            Color hoverForeground,
+            Color hoverBackground,
+            Action onClick)
+        {
+            var glyphText = new TextBlock
+            {
+                Text = glyph,
+                FontSize = fontSize,
+                Foreground = new SolidColorBrush(normalForeground),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center
+            };
+            if (glyph.Contains("🐛"))
+                glyphText.FontFamily = new FontFamily("Segoe UI Symbol");
+
+            var button = new Border
+            {
+                Width = 40,
+                Height = 40,
+                Background = Brushes.Transparent,
+                CornerRadius = new CornerRadius(4),
+                Cursor = Cursors.Hand,
+                Margin = new Thickness(2, 0, 0, 0),
+                Child = glyphText
+            };
+
+            button.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            button.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                onClick();
+            };
+            button.MouseEnter += (s, e) =>
+            {
+                button.Background = new SolidColorBrush(hoverBackground);
+                glyphText.Foreground = new SolidColorBrush(hoverForeground);
+            };
+            button.MouseLeave += (s, e) =>
+            {
+                button.Background = Brushes.Transparent;
+                glyphText.Foreground = new SolidColorBrush(normalForeground);
+            };
+
+            return button;
+        }
+
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+
+            WindowResizer.DragMove(this);
+        }
+
+        private void BtnMinimize_Click()
+        {
+            SystemCommands.MinimizeWindow(this);
+        }
+
+        private void BtnClose_Click()
+        {
+            SystemCommands.CloseWindow(this);
+        }
+
+        private void UpdateRootBorderForWindowState()
+        {
+            if (_rootBorder == null) return;
+            _rootBorder.BorderThickness = WindowState == WindowState.Maximized ? new Thickness(0) : new Thickness(1);
         }
 
         private Border BuildFooter()
@@ -191,7 +439,7 @@ namespace MESInsight
             AddHex(canvas, W, H, r, "\U0001F9EA", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
                 2 * stepX, 0, !sampleOk);
             AddHex(canvas, W, H, r, "\u21BB", "RECENT DATA", "Last loaded stations", rowOff, stepY, false);
-            AddHex(canvas, W, H, r, "\u2715", "EXIT", "Close application", rowOff + stepX, stepY, false, isExit: true);
+            AddHex(canvas, W, H, r, "🐛︎", "REPORT BUG", "Send feedback / report issue", rowOff + stepX, stepY, false, isBugReport: true);
 
             return canvas;
         }
@@ -200,7 +448,7 @@ namespace MESInsight
             double W, double H, double r,
             string icon, string title, string sub,
             double left, double top,
-            bool disabled, bool isExit = false)
+            bool disabled, bool isExit = false, bool isBugReport = false)
         {
             var grid = new Grid
             {
@@ -235,7 +483,8 @@ namespace MESInsight
             stack.Children.Add(new TextBlock
             {
                 Text = icon, FontSize = 32, HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = new SolidColorBrush(TextLight), Margin = new Thickness(0, 0, 0, 6)
+                Foreground = new SolidColorBrush(TextLight), Margin = new Thickness(0, 0, 0, 6),
+                FontFamily = icon.Contains("🐛") ? new FontFamily("Segoe UI Symbol") : FontFamily
             });
             stack.Children.Add(new TextBlock
             {
@@ -263,7 +512,7 @@ namespace MESInsight
                     inner.Fill = new SolidColorBrush(HexFill);
                     outer.Fill = new SolidColorBrush(HexFill);
                 };
-                grid.MouseLeftButtonUp += (s, e) => HandleClick(title, isExit);
+                grid.MouseLeftButtonUp += (s, e) => HandleClick(title, isExit, isBugReport);
             }
 
             Canvas.SetLeft(grid, left);
@@ -272,11 +521,17 @@ namespace MESInsight
         }
 
 
-        private void HandleClick(string title, bool isExit)
+        private void HandleClick(string title, bool isExit, bool isBugReport = false)
         {
             if (isExit)
             {
                 Application.Current.Shutdown();
+                return;
+            }
+
+            if (isBugReport)
+            {
+                ShowBugReportPanel(null);
                 return;
             }
 
@@ -1937,13 +2192,79 @@ namespace MESInsight
                 SizeToContent = SizeToContent.Height;
                 ResizeMode = ResizeMode.NoResize;
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
-                var root = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
-                root.Children.Add(new TextBlock
+                WindowStyle = WindowStyle.None;
+                AllowsTransparency = true;
+                Background = Brushes.Transparent;
+
+                var root = new Grid();
+                root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                var frame = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(8, 14, 10)),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(26, 70, 44)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8)
+                };
+
+                var contentGrid = new Grid();
+                contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                var titleBar = new Grid
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(14, 55, 28)),
+                    Height = 38
+                };
+                titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                titleBar.MouseLeftButtonDown += (s, e) => WindowResizer.DragMove(this);
+
+                titleBar.Children.Add(new TextBlock
                 {
                     Text = "Recent Data", FontSize = 13, FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)), Margin = new Thickness(0, 0, 0, 12)
+                    Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)),
+                    Margin = new Thickness(16, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
                 });
+
+                var btnClose = new Border
+                {
+                    Width = 34,
+                    Height = 34,
+                    Background = Brushes.Transparent,
+                    CornerRadius = new CornerRadius(4),
+                    Cursor = Cursors.Hand,
+                    Margin = new Thickness(0, 2, 6, 2),
+                    Child = new TextBlock
+                    {
+                        Text = "✕",
+                        FontSize = 13,
+                        Foreground = new SolidColorBrush(Color.FromRgb(224, 82, 82)),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextAlignment = TextAlignment.Center
+                    }
+                };
+                btnClose.MouseEnter += (s, e) =>
+                {
+                    btnClose.Background = new SolidColorBrush(Color.FromRgb(58, 31, 36));
+                    ((TextBlock)btnClose.Child).Foreground = new SolidColorBrush(Color.FromRgb(255, 179, 184));
+                };
+                btnClose.MouseLeave += (s, e) =>
+                {
+                    btnClose.Background = Brushes.Transparent;
+                    ((TextBlock)btnClose.Child).Foreground = new SolidColorBrush(Color.FromRgb(224, 82, 82));
+                };
+                btnClose.MouseLeftButtonUp += (s, e) => SystemCommands.CloseWindow(this);
+                Grid.SetColumn(btnClose, 1);
+                titleBar.Children.Add(btnClose);
+
+                Grid.SetRow(titleBar, 0);
+                contentGrid.Children.Add(titleBar);
+
+                var body = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
                 foreach (string path in paths)
                 {
                     string captured = path;
@@ -1988,7 +2309,7 @@ namespace MESInsight
                         };
                     }
 
-                    root.Children.Add(row);
+                    body.Children.Add(row);
                 }
 
                 var btnCancel = new Button
@@ -2001,7 +2322,12 @@ namespace MESInsight
                     Cursor = Cursors.Hand
                 };
                 btnCancel.Click += (s, e) => { DialogResult = false; };
-                root.Children.Add(btnCancel);
+                body.Children.Add(btnCancel);
+
+                Grid.SetRow(body, 1);
+                contentGrid.Children.Add(body);
+                frame.Child = contentGrid;
+                root.Children.Add(frame);
                 Content = root;
             }
         }
@@ -2018,14 +2344,81 @@ namespace MESInsight
                 Height = 260;
                 ResizeMode = ResizeMode.NoResize;
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                Background = new SolidColorBrush(Color.FromRgb(8, 14, 10));
-                var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
-                root.Children.Add(new TextBlock
+                WindowStyle = WindowStyle.None;
+                AllowsTransparency = true;
+                Background = Brushes.Transparent;
+
+                var root = new Grid();
+                var frame = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(8, 14, 10)),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(26, 70, 44)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8)
+                };
+
+                var contentGrid = new Grid();
+                contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                contentGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+                var titleBar = new Grid
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(14, 55, 28)),
+                    Height = 38
+                };
+                titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                titleBar.MouseLeftButtonDown += (s, e) => WindowResizer.DragMove(this);
+                titleBar.Children.Add(new TextBlock
+                {
+                    Text = "Station Types Found", FontSize = 13, FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)),
+                    Margin = new Thickness(16, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                var btnClose = new Border
+                {
+                    Width = 34,
+                    Height = 34,
+                    Background = Brushes.Transparent,
+                    CornerRadius = new CornerRadius(4),
+                    Cursor = Cursors.Hand,
+                    Margin = new Thickness(0, 2, 6, 2),
+                    Child = new TextBlock
+                    {
+                        Text = "✕",
+                        FontSize = 13,
+                        Foreground = new SolidColorBrush(Color.FromRgb(224, 82, 82)),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextAlignment = TextAlignment.Center
+                    }
+                };
+                btnClose.MouseEnter += (s, e) =>
+                {
+                    btnClose.Background = new SolidColorBrush(Color.FromRgb(58, 31, 36));
+                    ((TextBlock)btnClose.Child).Foreground = new SolidColorBrush(Color.FromRgb(255, 179, 184));
+                };
+                btnClose.MouseLeave += (s, e) =>
+                {
+                    btnClose.Background = Brushes.Transparent;
+                    ((TextBlock)btnClose.Child).Foreground = new SolidColorBrush(Color.FromRgb(224, 82, 82));
+                };
+                btnClose.MouseLeftButtonUp += (s, e) => SystemCommands.CloseWindow(this);
+                Grid.SetColumn(btnClose, 1);
+                titleBar.Children.Add(btnClose);
+
+                Grid.SetRow(titleBar, 0);
+                contentGrid.Children.Add(titleBar);
+
+                var body = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
+                body.Children.Add(new TextBlock
                 {
                     Text = "Additional station types detected", FontSize = 13, FontWeight = FontWeights.SemiBold,
                     Foreground = new SolidColorBrush(Color.FromRgb(210, 245, 220)), Margin = new Thickness(0, 0, 0, 6)
                 });
-                root.Children.Add(new TextBlock
+                body.Children.Add(new TextBlock
                 {
                     Text = "Select which types to include in the analysis:", FontSize = 10,
                     Foreground = new SolidColorBrush(Color.FromRgb(110, 160, 125)), Margin = new Thickness(0, 0, 0, 18),
@@ -2043,8 +2436,8 @@ namespace MESInsight
                     FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(180, 225, 195)),
                     IsEnabled = backflushCount > 0, IsChecked = false, Margin = new Thickness(0, 0, 0, 24)
                 };
-                root.Children.Add(cbLcs);
-                root.Children.Add(cbBackflush);
+                body.Children.Add(cbLcs);
+                body.Children.Add(cbBackflush);
                 var btnRow = new StackPanel
                     { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
                 var btnConfirm = new Button
@@ -2062,7 +2455,12 @@ namespace MESInsight
                     WindowAnimations.FadeOutAndClose(this, true);
                 };
                 btnRow.Children.Add(btnConfirm);
-                root.Children.Add(btnRow);
+                body.Children.Add(btnRow);
+
+                Grid.SetRow(body, 1);
+                contentGrid.Children.Add(body);
+                frame.Child = contentGrid;
+                root.Children.Add(frame);
                 Content = root;
             }
         }

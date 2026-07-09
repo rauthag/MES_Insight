@@ -37,6 +37,8 @@ namespace MESInsight.Core
         public string MeasValuesRaw { get; set; }
         public string ProductLine { get; set; }
         public string EquipId { get; set; }
+        
+        public string PanelId { get; set; }
     }
 
     public class ChartSeries
@@ -127,6 +129,8 @@ namespace MESInsight.Core
         REQ_SETUP_CHANGE2,
         SEMI_VALIDATION2,
         SEMI_VALIDATION,
+        PANEL_CHECKIN,
+        PANEL_RESULT,
         OTHER,
         ALL
     }

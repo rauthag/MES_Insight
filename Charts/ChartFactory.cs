@@ -18,7 +18,7 @@ namespace MESInsight.Charts
     public class ChartFactory
     {
         private readonly List<IChartDataBuilder> _builders;
-        private readonly List<IChartRenderer>    _renderers;
+        private readonly List<IChartRenderer> _renderers;
         private readonly ScottPlotTrendChartRenderer _scottPlotRenderer;
 
         public ChartFactory(
@@ -30,11 +30,11 @@ namespace MESInsight.Charts
             Dictionary<MessageType, (Border container, StackPanel panel)> timelineContainerByMessageType,
             Dictionary<DateTime, List<ResponseRecord>> recordsGroupedByDay,
             List<ResponseRecord> filteredRecords,
-            Action<MessageType> onShowAllRecordsRequested)
+            Action<MessageType> onShowAllRecordsRequested,
+            Action<DateTime, List<ResponseRecord>, MessageType> onDaySelected = null)
         {
             _builders = new List<IChartDataBuilder>
             {
-                //new TrendChart(),
                 new ScottPlotTrendChart(),
                 new HistogramChart(),
                 new TimelineChart()
@@ -48,20 +48,12 @@ namespace MESInsight.Charts
                 this,
                 recordsGroupedByDay,
                 filteredRecords,
-                onShowAllRecordsRequested);
+                onShowAllRecordsRequested,
+                onDaySelected
+            );
 
             _renderers = new List<IChartRenderer>
             {
-                /*new TrendChartRenderer(
-                    dayRecordsPanelBuilder,
-                    dayRecordsPanelByMessageType,
-                    trendChartByMessageType,
-                    selectedDayHighlightByMessageType,
-                    timelineContainerByMessageType,
-                    this,
-                    recordsGroupedByDay,
-                    filteredRecords,
-                    onShowAllRecordsRequested),*/
                 new ScottPlotTrendChartRenderer(
                     dayRecordsPanelBuilder,
                     dayRecordsPanelByMessageType,
@@ -70,7 +62,8 @@ namespace MESInsight.Charts
                     this,
                     recordsGroupedByDay,
                     filteredRecords,
-                    onShowAllRecordsRequested),
+                    onShowAllRecordsRequested,
+                    onDaySelected),
                 new HistogramChartRenderer(dayRecordsPanelBuilder),
                 new TimelineChartRenderer()
             };
@@ -107,26 +100,26 @@ namespace MESInsight.Charts
         private static ChartInputData PrepareInput(List<ResponseRecord> records, MessageType messageType,
             Dictionary<DateTime, List<ResponseRecord>> precomputedGroupedByDay = null)
         {
-            double avg    = records.Average(r => (double)r.ResponseTime);
+            double avg = records.Average(r => (double)r.ResponseTime);
             double stdDev = Math.Sqrt(records.Average(r => Math.Pow(r.ResponseTime - avg, 2)));
 
             var sorted = records.Select(r => r.ResponseTime).OrderBy(x => x).ToList();
-            int p95    = sorted[(int)(sorted.Count * 0.95)];
-            int p99    = sorted[(int)(sorted.Count * 0.99)];
+            int p95 = sorted[(int)(sorted.Count * 0.95)];
+            int p99 = sorted[(int)(sorted.Count * 0.99)];
 
             var groupedByDay = precomputedGroupedByDay
-                ?? records
-                    .GroupBy(r => r.TimestampParsed.Date)
-                    .ToDictionary(g => g.Key, g => g.ToList());
+                               ?? records
+                                   .GroupBy(r => r.TimestampParsed.Date)
+                                   .ToDictionary(g => g.Key, g => g.ToList());
 
             return new ChartInputData
             {
-                Records      = records,
-                MessageType  = messageType,
-                Average      = avg,
-                StdDev       = stdDev,
-                P95          = p95,
-                P99          = p99,
+                Records = records,
+                MessageType = messageType,
+                Average = avg,
+                StdDev = stdDev,
+                P95 = p95,
+                P99 = p99,
                 GroupedByDay = groupedByDay
             };
         }
@@ -171,7 +164,7 @@ namespace MESInsight.Charts
                 .Where(r => r.Type == messageType && r.TimestampParsed != DateTime.MinValue)
                 .ToList();
         }
-        
+
         public ChartData BuildSingleScottPlot(ChartInputData input)
         {
             var builder = new ScottPlotTrendChart();

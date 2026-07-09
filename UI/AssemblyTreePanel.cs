@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using MESInsight.Assembly;
 using MESInsight.Core;
+using MESInsight;
 
 namespace MESInsight.UI
 {

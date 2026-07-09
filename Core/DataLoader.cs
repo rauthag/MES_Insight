@@ -188,7 +188,7 @@ namespace MESInsight.Core
             return RxPlaceholder.IsMatch(t) || RxGenericLine.IsMatch(t);
         }
 
-        public static List<ResponseRecord> ScanForUid(string path, string uid)
+        public static List<ResponseRecord> ScanForUid(string path, string uid, Action<string> onFile = null)
         {
             if (!Directory.Exists(path) || string.IsNullOrEmpty(uid))
                 return new List<ResponseRecord>();
@@ -201,22 +201,37 @@ namespace MESInsight.Core
                 "uid_assy=\"" + uid + "\""
             };
 
-            var bag  = new ConcurrentBag<ResponseRecord>();
+            var bag = new ConcurrentBag<ResponseRecord>();
             var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+            long[] lastTick = new long[1];
 
             var opts = new ParallelOptions
                 { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
 
             Parallel.ForEach(files, opts, file =>
             {
+                if (onFile != null)
+                {
+                    long now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                    long prev = Interlocked.Read(ref lastTick[0]);
+                    if (now - prev >= 220 && Interlocked.CompareExchange(ref lastTick[0], now, prev) == prev)
+                        onFile(Path.GetFileName(file));
+                }
+
                 string fileName = Path.GetFileName(file);
-                string ext      = Path.GetExtension(file).ToLower();
+                string ext = Path.GetExtension(file).ToLower();
+
+                if (ext == ".zip")
+                {
+                    if (ZipIsInDateRange(file, null))
+                        ScanZipForUid(file, uid, patterns, bag);
+                    return;
+                }
 
                 if (!ShouldProcessFile(fileName)) return;
 
                 try
                 {
-                    // Rýchla kontrola či súbor vôbec obsahuje UID
                     bool fileContainsUid = false;
                     using (var fs = File.OpenRead(file))
                     using (var reader = new StreamReader(fs))
@@ -226,7 +241,11 @@ namespace MESInsight.Core
                         {
                             foreach (var p in patterns)
                                 if (line.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)
-                                    { fileContainsUid = true; break; }
+                                {
+                                    fileContainsUid = true;
+                                    break;
+                                }
+
                             if (fileContainsUid) break;
                         }
                     }
@@ -256,13 +275,16 @@ namespace MESInsight.Core
                             bag.Add(r);
                     }
                 }
-                catch { }
+                catch
+                {
+                }
             });
 
             return bag.OrderBy(r => r.TimestampParsed).ToList();
         }
 
-        private static void ScanZipForUid(string zipFile, string uid, string[] patterns, ConcurrentBag<ResponseRecord> bag)
+        private static void ScanZipForUid(string zipFile, string uid, string[] patterns,
+            ConcurrentBag<ResponseRecord> bag)
         {
             try
             {
@@ -281,15 +303,19 @@ namespace MESInsight.Core
                                     bool hit = false;
                                     foreach (var p in patterns)
                                         if (line.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)
-                                            { hit = true; break; }
+                                        {
+                                            hit = true;
+                                            break;
+                                        }
+
                                     if (!hit) continue;
 
                                     var local = new DataLoadResult();
                                     var ms = new System.IO.MemoryStream(
                                         System.Text.Encoding.UTF8.GetBytes(line));
                                     bool isGhp = line.IndexOf("<STX>", StringComparison.OrdinalIgnoreCase) >= 0
-                                              || line.IndexOf("<ETX>", StringComparison.OrdinalIgnoreCase) >= 0
-                                              || IsGhpLogFile(entry.Name);
+                                                 || line.IndexOf("<ETX>", StringComparison.OrdinalIgnoreCase) >= 0
+                                                 || IsGhpLogFile(entry.Name);
                                     if (isGhp)
                                         ReadGhpFormatLines(ms, entry.Name, local, null);
                                     else
@@ -298,10 +324,14 @@ namespace MESInsight.Core
                                 }
                             }
                         }
-                        catch { }
+                        catch
+                        {
+                        }
                     }
             }
-            catch { }
+            catch
+            {
+            }
         }
 
         public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null)
@@ -854,10 +884,10 @@ namespace MESInsight.Core
             DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
         {
             long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
-            long readBytes  = 0;
-            int  lineNum    = 0;
-            int  recCount   = 0;
-            string plcLine  = null;
+            long readBytes = 0;
+            int lineNum = 0;
+            int recCount = 0;
+            string plcLine = null;
 
             using (StreamReader reader = new StreamReader(dataStream))
             {
@@ -878,6 +908,7 @@ namespace MESInsight.Core
                             TryParseRequestOnlyRecord(plcLine, sourceName, result, cutoff);
                             if (result.Records.Count > before) recCount++;
                         }
+
                         plcLine = line;
                         continue;
                     }
@@ -923,18 +954,18 @@ namespace MESInsight.Core
 
             result.Records.Add(new ResponseRecord
             {
-                Timestamp       = cols[0],
+                Timestamp = cols[0],
                 TimestampParsed = ts,
-                ResponseTime    = 0,
-                FileName        = sourceName,
-                Type            = type,
-                Uid             = Attr(content, "uid=\""),
-                UidIn           = Attr(content, "uid_in=\""),
-                UidOut          = Attr(content, "uid_out=\""),
-                UidAssy         = Attr(content, "uid_assy=\""),
-                UidType         = Attr(content, "uid_type=\""),
-                Material        = Attr(content, "material=\""),
-                Result          = null
+                ResponseTime = 0,
+                FileName = sourceName,
+                Type = type,
+                Uid = Attr(content, "uid=\""),
+                UidIn = Attr(content, "uid_in=\""),
+                UidOut = Attr(content, "uid_out=\""),
+                UidAssy = Attr(content, "uid_assy=\""),
+                UidType = Attr(content, "uid_type=\""),
+                Material = Attr(content, "material=\""),
+                Result = null
             });
         }
 
@@ -956,26 +987,26 @@ namespace MESInsight.Core
 
             string[] cols = line.Split('\t');
             if (cols.Length < 2) return;
-            if (!int.TryParse(cols[cols.Length - 1], out int rt)) return;
+            if (!int.TryParse(cols[cols.Length - 1].Trim(), out int rt)) return;
 
             string mes = cols.Length >= 4 ? cols[3] : line;
             string plc = plcLine ?? "";
 
             TryParseTimestampFlexible(cols[0], out DateTime ts);
             if (cutoff.HasValue && ts != DateTime.MinValue && ts < cutoff.Value) return;
-            
+
             bool isError = mes.Contains(",ERROR,")
-                        || mes.Contains("ERROR,<Error")
-                        || mes.IndexOf(",ERR,",  StringComparison.OrdinalIgnoreCase) >= 0
-                        || mes.IndexOf(",ERR ",  StringComparison.OrdinalIgnoreCase) >= 0
-                        || mes.Contains("result=\"[ERR")
-                        || mes.Contains("result=\"ERR")
-                        || (mes.Contains("Error") && mes.Contains("Exception"));
+                           || mes.Contains("ERROR,<Error")
+                           || mes.IndexOf(",ERR,", StringComparison.OrdinalIgnoreCase) >= 0
+                           || mes.IndexOf(",ERR ", StringComparison.OrdinalIgnoreCase) >= 0
+                           || mes.Contains("result=\"[ERR")
+                           || mes.Contains("result=\"ERR")
+                           || (mes.Contains("Error") && mes.Contains("Exception"));
             string errorText = null;
             if (isError)
             {
                 int textStart = mes.IndexOf("text=\"", StringComparison.Ordinal);
-                int textEnd   = textStart >= 0 ? mes.IndexOf("\"", textStart + 6) : -1;
+                int textEnd = textStart >= 0 ? mes.IndexOf("\"", textStart + 6) : -1;
                 if (textStart >= 0 && textEnd > textStart)
                     errorText = mes.Substring(textStart + 6, textEnd - textStart - 6);
             }
@@ -986,52 +1017,80 @@ namespace MESInsight.Core
         private static ResponseRecord BuildOldRecord(string rawTs, DateTime ts, int rt,
             string source, string mes, string plc, bool isError = false, string errorText = null)
         {
+            string merged = mes + " " + plc;
+            var msgType = ParseMessageType(mes);
+
+            // For PANEL types — extract positional result values
+            string panelResult = null;
+            if (!isError)
+            {
+                if (msgType == MessageType.PANEL_CHECKIN)
+                    panelResult = ExtractPanelPositionalValue(merged, "processdir_")
+                               ?? Attr(merged, "processdir=");
+                else if (msgType == MessageType.PANEL_RESULT)
+                    panelResult = ExtractPanelPositionalValue(merged, "result_");
+            }
+
             return new ResponseRecord
             {
-                Timestamp       = rawTs,
+                Timestamp = rawTs,
                 TimestampParsed = ts,
-                ResponseTime    = rt,
-                FileName        = source,
-                Type            = ParseMessageType(mes),
-                Uid             = Attr(mes, "uid=")            ?? Attr(plc, "uid="),
-                UidIn           = Attr(mes, "uid_in=")         ?? Attr(plc, "uid_in="),
-                UidOut          = Attr(mes, "uid_out=")        ?? Attr(plc, "uid_out="),
-                UidType         = Attr(mes, "uid_type=")       ?? Attr(plc, "uid_type="),
-                Result          = isError
+                ResponseTime = rt,
+                FileName = source,
+                Type = msgType,
+                Uid = Attr(mes, "uid_1=") ?? Attr(mes, "uid=") ?? Attr(plc, "uid="),
+                UidIn = Attr(mes, "uid_in=") ?? Attr(plc, "uid_in="),
+                UidOut = Attr(mes, "uid_out=") ?? Attr(plc, "uid_out="),
+                UidType = Attr(mes, "uid_type=") ?? Attr(plc, "uid_type="),
+                Result = isError
                     ? (errorText ?? "ERROR")
-                    : Attr(mes, "result=") ?? Attr(plc, "result="),
-                CarrierId       = Attr(mes, "Carrier_ID_val=") ?? Attr(plc, "Carrier_ID_val="),
-                Material        = Attr(mes, "material=")       ?? Attr(plc, "material="),
-                Setup           = Attr(mes, "setup=")          ?? Attr(plc, "setup="),
+                    : panelResult ?? Attr(mes, "result=") ?? Attr(plc, "result="),
+                PanelId = Attr(merged, "pid="),
+                CarrierId = Attr(mes, "Carrier_ID_val=") ?? Attr(plc, "Carrier_ID_val="),
+                Material = Attr(mes, "material=") ?? Attr(plc, "material="),
+                Setup = Attr(mes, "setup=") ?? Attr(plc, "setup="),
                 UidAssyUnitResult = Attr(mes, "uid_assy_1=") ?? Attr(plc, "uid_assy_1="),
-                AssyUids          = ExtractAssyUids(mes + " " + plc),
-                CarrierIdCid      = Attr(mes, "cid=")         ?? Attr(plc, "cid="),
-                Workcenter        = Attr(mes, "workcenter=")  ?? Attr(plc, "workcenter="),
-                Operation         = Attr(mes, "operation=")   ?? Attr(plc, "operation="),
-                NextWorkcenter1   = Attr(mes, "workcenter_1=") ?? Attr(plc, "workcenter_1="),
-                NextOperation1    = Attr(mes, "operation_1=") ?? Attr(plc, "operation_1="),
-                NextWorkcenter2   = Attr(mes, "workcenter_2=") ?? Attr(plc, "workcenter_2="),
-                NextOperation2    = Attr(mes, "operation_2=") ?? Attr(plc, "operation_2="),
-                MatPartNr         = Attr(mes, "mat_part_nr_1=") ?? Attr(plc, "mat_part_nr_1="),
-                MeasValuesRaw     = ExtractMeasValuesRaw(mes + " " + plc),
-                ProductLine       = Attr(mes, "productline=") ?? Attr(plc, "productline=")
+                AssyUids = ExtractAssyUids(merged),
+                CarrierIdCid = Attr(mes, "cid=") ?? Attr(plc, "cid="),
+                Workcenter = Attr(mes, "workcenter=") ?? Attr(plc, "workcenter="),
+                Operation = Attr(mes, "operation=") ?? Attr(plc, "operation="),
+                NextWorkcenter1 = Attr(mes, "workcenter_1=") ?? Attr(plc, "workcenter_1="),
+                NextOperation1 = Attr(mes, "operation_1=") ?? Attr(plc, "operation_1="),
+                NextWorkcenter2 = Attr(mes, "workcenter_2=") ?? Attr(plc, "workcenter_2="),
+                NextOperation2 = Attr(mes, "operation_2=") ?? Attr(plc, "operation_2="),
+                MatPartNr = Attr(mes, "mat_part_nr_1=") ?? Attr(plc, "mat_part_nr_1="),
+                MeasValuesRaw = msgType == MessageType.PANEL_RESULT
+                    ? Attr(merged, "tfile=")
+                    : ExtractMeasValuesRaw(merged),
+                ProductLine = Attr(mes, "productline=") ?? Attr(plc, "productline="),
+                EquipId = ExtractEquipId(mes)
             };
         }
 
+        private static string ExtractPanelPositionalValue(string merged, string prefix)
+        {
+            for (int i = 1; i <= 20; i++)
+            {
+                string val = Attr(merged, prefix + i + "=");
+                if (val != null) return val;
+            }
+            return null;
+        }
+
         #endregion
-        
+
         #region GHP Format Parsing
 
         private static void ReadGhpFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
             DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
         {
-            Dictionary<string, string> pendingRequests = new Dictionary<string, string>();
+            var pendingRequests = new Dictionary<string, string>();
             long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
             long readBytes = 0;
             int lineNum = 0;
             int recCount = 0;
 
-            using (StreamReader reader = new StreamReader(dataStream))
+            using (var reader = new StreamReader(dataStream))
             {
                 string line;
                 while ((line = reader.ReadLine()) != null)
@@ -1039,112 +1098,22 @@ namespace MESInsight.Core
                     lineNum++;
                     readBytes += line.Length + 2;
 
-                    if (line.Contains("productline=\"") && string.IsNullOrEmpty(result.StationName))
+                    TryExtractGhpStationName(line, result);
+
+                    if (!IsGhpRequestOrResponseLine(line)) continue;
+
+                    var parsed = ParseGhpLine(line);
+                    if (parsed == null) continue;
+
+                    if (parsed.IsRequest)
                     {
-                        int ps = line.IndexOf("productline=\"", StringComparison.Ordinal) + 13;
-                        int pe = line.IndexOf("\"", ps, StringComparison.Ordinal);
-                        if (pe > ps)
-                            result.StationName = line.Substring(ps, pe - ps).Replace("_", " ");
-                    }
-
-                    bool isRequest = line.Contains("=>[VitescoComcell]");
-                    bool isResponse = line.Contains("<=[VitescoComcell]");
-
-                    if (!isRequest && !isResponse) continue;
-
-                    int stxPos = line.IndexOf('\x02');
-                    int etxPos = line.LastIndexOf('\x03');
-
-                    if (stxPos < 0 || etxPos <= stxPos) continue;
-
-                    string body = line.Substring(stxPos + 1, etxPos - stxPos - 1);
-                    string pairKey = ExtractGhpPairKey(body);
-
-                    if (pairKey == null) continue;
-
-                    if (isRequest)
-                    {
-                        pendingRequests[pairKey] = body;
+                        pendingRequests[parsed.PairKey] = parsed.Body;
                         continue;
                     }
 
-                    string afterEtx = line.Substring(etxPos + 1).TrimStart(',').Trim();
+                    ProcessGhpResponse(parsed, pendingRequests, sourceName, cutoff, result);
 
-                    bool isError = afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase)
-                                   || body.Contains(",ERROR,")
-                                   || body.Contains("ERROR,<")
-                                   || body.IndexOf(",ERR,",  StringComparison.OrdinalIgnoreCase) >= 0
-                                   || body.IndexOf(",ERR ",  StringComparison.OrdinalIgnoreCase) >= 0
-                                   || afterEtx.StartsWith("ERR,", StringComparison.OrdinalIgnoreCase)
-                                   || body.Contains("result=\"[ERR")
-                                   || body.Contains("result=\"ERR");
-
-                    int responseTime = 0;
-                    if (isError && afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string rtPart = afterEtx.Substring(afterEtx.LastIndexOf(',') + 1).Trim();
-                        int.TryParse(rtPart, out responseTime);
-                    }
-                    else if (!int.TryParse(afterEtx, out responseTime))
-                        continue;
-
-                    string errorText = null;
-                    if (isError)
-                    {
-                        string searchIn = body.Contains("text=\"") ? body : afterEtx;
-                        int textStart   = searchIn.IndexOf("text=\"", StringComparison.Ordinal);
-                        int textEnd     = textStart >= 0 ? searchIn.IndexOf("\"", textStart + 6) : -1;
-                        if (textStart >= 0 && textEnd > textStart)
-                            errorText = searchIn.Substring(textStart + 6, textEnd - textStart - 6);
-                    }
-                    
-
-                    string timestampRaw = line.Length >= 23 ? line.Substring(0, 23) : "";
-                    string timestampNormalized = timestampRaw.Replace(',', '.');
-                    DateTimeHelper.TryParseTimestamp(timestampNormalized, out DateTime parsedTimestamp);
-
-                    if (cutoff.HasValue && parsedTimestamp != DateTime.MinValue && parsedTimestamp < cutoff.Value)
-                        continue;
-
-                    pendingRequests.TryGetValue(pairKey, out string reqBody);
-                    string mergedBody = (reqBody ?? "") + " " + body;
-
-                    result.Records.Add(new ResponseRecord
-                    {
-                        Timestamp         = timestampRaw,
-                        TimestampParsed   = parsedTimestamp,
-                        ResponseTime      = responseTime,
-                        FileName          = sourceName,
-                        Type              = ParseGhpMessageType(body),
-                        Uid               = ExtractAttribute(mergedBody, "uid="),
-                        UidIn             = ExtractAttribute(mergedBody, "uid_in="),
-                        UidOut            = ExtractAttribute(mergedBody, "uid_out="),
-                        UidType           = ExtractAttribute(mergedBody, "uid_type="),
-                        Result            = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result="),
-                        CarrierId         = ExtractAttribute(mergedBody, "Carrier_ID_val="),
-                        Material          = ExtractAttribute(mergedBody, "material="),
-                        Setup             = ExtractAttribute(mergedBody, "setup="),
-                        UidAssy           = ExtractAttribute(mergedBody, "uid_assy="),
-                        UidAssyType       = ExtractAttribute(mergedBody, "uid_assy_type="),
-                        ProcDirAssy       = ExtractAttribute(mergedBody, "procdir_assy="),
-                        UidAssyUnitResult = ExtractAttribute(mergedBody, "uid_assy_1="),
-                        AssyUids          = ExtractAssyUids(mergedBody),
-                        CarrierIdCid      = ExtractAttribute(mergedBody, "cid="),
-                        Workcenter        = ExtractAttribute(mergedBody, "workcenter="),
-                        Operation         = ExtractAttribute(mergedBody, "operation="),
-                        NextWorkcenter1   = ExtractAttribute(mergedBody, "workcenter_1="),
-                        NextOperation1    = ExtractAttribute(mergedBody, "operation_1="),
-                        NextWorkcenter2   = ExtractAttribute(mergedBody, "workcenter_2="),
-                        NextOperation2    = ExtractAttribute(mergedBody, "operation_2="),
-                        MatPartNr         = ExtractAttribute(mergedBody, "mat_part_nr_1="),
-                        MeasValuesRaw     = ExtractMeasValuesRaw(mergedBody),
-                        ProductLine       = ExtractAttribute(mergedBody, "productline="),
-                        EquipId           = ExtractEquipId(body)
-                    });
-
-                    pendingRequests.Remove(pairKey);
                     recCount++;
-
                     if (lineNum % 1000 == 0)
                     {
                         int pct = totalBytes > 0 ? (int)(readBytes * 100 / totalBytes) : 0;
@@ -1153,11 +1122,230 @@ namespace MESInsight.Core
                 }
             }
         }
-        
+
+        private static void TryExtractGhpStationName(string line, DataLoadResult result)
+        {
+            if (!line.Contains("productline=\"") || !string.IsNullOrEmpty(result.StationName)) return;
+
+            int ps = line.IndexOf("productline=\"", StringComparison.Ordinal) + 13;
+            int pe = line.IndexOf("\"", ps, StringComparison.Ordinal);
+            if (pe > ps)
+                result.StationName = line.Substring(ps, pe - ps).Replace("_", " ");
+        }
+
+        private static bool IsGhpRequestOrResponseLine(string line)
+        {
+            return line.Contains("=>[VitescoComcell]") || line.Contains("<=[VitescoComcell]");
+        }
+
+        private class GhpParsedLine
+        {
+            public bool IsRequest;
+            public string Body;
+            public string PairKey;
+            public string AfterEtx;
+            public string TimestampRaw;
+            public DateTime TimestampParsed;
+        }
+
+        private static GhpParsedLine ParseGhpLine(string line)
+        {
+            int stxPos = line.IndexOf('\x02');
+            int etxPos = line.LastIndexOf('\x03');
+            if (stxPos < 0 || etxPos <= stxPos) return null;
+
+            string body = line.Substring(stxPos + 1, etxPos - stxPos - 1);
+            string pairKey = ExtractGhpPairKey(body);
+            if (pairKey == null) return null;
+
+            bool isRequest = line.Contains("=>[VitescoComcell]");
+
+            string timestampRaw = line.Length >= 23 ? line.Substring(0, 23) : "";
+            string timestampNormalized = timestampRaw.Replace(',', '.');
+            DateTimeHelper.TryParseTimestamp(timestampNormalized, out DateTime parsedTimestamp);
+
+            return new GhpParsedLine
+            {
+                IsRequest = isRequest,
+                Body = body,
+                PairKey = pairKey,
+                AfterEtx = isRequest ? null : line.Substring(etxPos + 1).TrimStart(',').Trim(),
+                TimestampRaw = timestampRaw,
+                TimestampParsed = parsedTimestamp
+            };
+        }
+
+        private static void ProcessGhpResponse(GhpParsedLine parsed, Dictionary<string, string> pendingRequests,
+            string sourceName, DateTime? cutoff, DataLoadResult result)
+        {
+            string body = parsed.Body;
+            string afterEtx = parsed.AfterEtx;
+
+            bool isError = IsGhpErrorResponse(afterEtx, body);
+
+            int responseTime;
+            if (!TryExtractGhpResponseTime(afterEtx, isError, out responseTime))
+                return;
+
+            string errorText = isError ? ExtractGhpErrorText(body, afterEtx) : null;
+
+            if (cutoff.HasValue && parsed.TimestampParsed != DateTime.MinValue && parsed.TimestampParsed < cutoff.Value)
+            {
+                pendingRequests.Remove(parsed.PairKey);
+                return;
+            }
+
+            pendingRequests.TryGetValue(parsed.PairKey, out string reqBody);
+            string mergedBody = (reqBody ?? "") + " " + body;
+            MessageType msgType = ParseGhpMessageType(body);
+
+            if (msgType == MessageType.PANEL_CHECKIN || msgType == MessageType.PANEL_RESULT)
+                AddPanelPositionRecords(result, msgType, mergedBody, parsed.TimestampRaw, parsed.TimestampParsed,
+                    responseTime, sourceName, isError, errorText, body);
+            else
+                result.Records.Add(BuildGhpRecord(msgType, mergedBody, parsed.TimestampRaw, parsed.TimestampParsed,
+                    responseTime, sourceName, isError, errorText, body));
+
+            pendingRequests.Remove(parsed.PairKey);
+        }
+
+        private static bool IsGhpErrorResponse(string afterEtx, string body)
+        {
+            return afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase)
+                   || body.Contains(",ERROR,")
+                   || body.Contains("ERROR,<")
+                   || body.IndexOf(",ERR,", StringComparison.OrdinalIgnoreCase) >= 0
+                   || body.IndexOf(",ERR ", StringComparison.OrdinalIgnoreCase) >= 0
+                   || afterEtx.StartsWith("ERR,", StringComparison.OrdinalIgnoreCase)
+                   || body.Contains("result=\"[ERR")
+                   || body.Contains("result=\"ERR");
+        }
+
+        private static bool TryExtractGhpResponseTime(string afterEtx, bool isError, out int responseTime)
+        {
+            responseTime = 0;
+
+            if (isError && afterEtx.StartsWith("ERROR,", StringComparison.OrdinalIgnoreCase))
+            {
+                string rtPart = afterEtx.Substring(afterEtx.LastIndexOf(',') + 1).Trim();
+                int.TryParse(rtPart, out responseTime);
+                return true;
+            }
+
+            return int.TryParse(afterEtx, out responseTime);
+        }
+
+        private static string ExtractGhpErrorText(string body, string afterEtx)
+        {
+            string searchIn = body.Contains("text=\"") ? body : afterEtx;
+            int textStart = searchIn.IndexOf("text=\"", StringComparison.Ordinal);
+            int textEnd = textStart >= 0 ? searchIn.IndexOf("\"", textStart + 6) : -1;
+            return textStart >= 0 && textEnd > textStart
+                ? searchIn.Substring(textStart + 6, textEnd - textStart - 6)
+                : null;
+        }
+
+        private static ResponseRecord BuildGhpRecord(MessageType msgType, string mergedBody, string timestampRaw,
+            DateTime parsedTimestamp, int responseTime, string sourceName, bool isError, string errorText, string body)
+        {
+            return new ResponseRecord
+            {
+                Timestamp = timestampRaw,
+                TimestampParsed = parsedTimestamp,
+                ResponseTime = responseTime,
+                FileName = sourceName,
+                Type = msgType,
+                Uid = ExtractAttribute(mergedBody, "uid="),
+                UidIn = ExtractAttribute(mergedBody, "uid_in="),
+                UidOut = ExtractAttribute(mergedBody, "uid_out="),
+                UidType = ExtractAttribute(mergedBody, "uid_type="),
+                Result = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result=") ?? ExtractAttribute(mergedBody, "processdirective="),
+                CarrierId = ExtractAttribute(mergedBody, "Carrier_ID_val="),
+                Material = ExtractAttribute(mergedBody, "material="),
+                Setup = ExtractAttribute(mergedBody, "setup="),
+                UidAssy = ExtractAttribute(mergedBody, "uid_assy="),
+                UidAssyType = ExtractAttribute(mergedBody, "uid_assy_type="),
+                ProcDirAssy = ExtractAttribute(mergedBody, "procdir_assy="),
+                UidAssyUnitResult = ExtractAttribute(mergedBody, "uid_assy_1="),
+                AssyUids = ExtractAssyUids(mergedBody),
+                CarrierIdCid = ExtractAttribute(mergedBody, "cid="),
+                Workcenter = ExtractAttribute(mergedBody, "workcenter="),
+                Operation = ExtractAttribute(mergedBody, "operation="),
+                NextWorkcenter1 = ExtractAttribute(mergedBody, "workcenter_1="),
+                NextOperation1 = ExtractAttribute(mergedBody, "operation_1="),
+                NextWorkcenter2 = ExtractAttribute(mergedBody, "workcenter_2="),
+                NextOperation2 = ExtractAttribute(mergedBody, "operation_2="),
+                MatPartNr = ExtractAttribute(mergedBody, "mat_part_nr_1="),
+                MeasValuesRaw = ExtractMeasValuesRaw(mergedBody),
+                ProductLine = ExtractAttribute(mergedBody, "productline="),
+                EquipId = ExtractEquipId(body)
+            };
+        }
+
+        private static void AddPanelPositionRecords(DataLoadResult result, MessageType msgType, string mergedBody,
+            string timestampRaw, DateTime parsedTimestamp, int responseTime, string sourceName,
+            bool isError, string errorText, string body)
+        {
+            string pid = ExtractAttribute(mergedBody, "pid=");
+            string equipId = ExtractEquipId(body);
+            string tfile = msgType == MessageType.PANEL_RESULT ? ExtractAttribute(mergedBody, "tfile=") : null;
+
+            foreach (int i in FindPanelPositionIndices(mergedBody))
+            {
+                string suffix = i == 0 ? "" : "_" + i;
+                string posUid = ExtractAttribute(mergedBody, "uid" + suffix + "=");
+                if (posUid == null) continue;
+
+                result.Records.Add(BuildPanelPositionRecord(msgType, mergedBody, timestampRaw, parsedTimestamp,
+                    responseTime, sourceName, isError, errorText, pid, equipId, tfile, suffix, posUid));
+            }
+        }
+
+        private static List<int> FindPanelPositionIndices(string mergedBody)
+        {
+            var positions = new List<int>();
+
+            for (int i = 1; i <= 20; i++)
+            {
+                if (ExtractAttribute(mergedBody, "uid_" + i + "=") == null) break;
+                positions.Add(i);
+            }
+
+            if (positions.Count == 0 && ExtractAttribute(mergedBody, "uid=") != null)
+                positions.Add(0);
+
+            return positions;
+        }
+
+        private static ResponseRecord BuildPanelPositionRecord(MessageType msgType, string mergedBody,
+            string timestampRaw, DateTime parsedTimestamp, int responseTime, string sourceName,
+            bool isError, string errorText, string pid, string equipId, string tfile, string suffix, string posUid)
+        {
+            string result = isError
+                ? (errorText ?? "ERROR")
+                : msgType == MessageType.PANEL_RESULT
+                    ? ExtractAttribute(mergedBody, "result" + suffix + "=")
+                    : ExtractAttribute(mergedBody, "processdir" + suffix + "=");
+
+            return new ResponseRecord
+            {
+                Timestamp       = timestampRaw,
+                TimestampParsed = parsedTimestamp,
+                ResponseTime    = responseTime,
+                FileName        = sourceName,
+                Type            = msgType,
+                Uid             = posUid,
+                Result          = result,
+                PanelId         = pid,
+                EquipId         = equipId,
+                MeasValuesRaw   = msgType == MessageType.PANEL_RESULT ? tfile : null
+            };
+        }
+
         private static string ExtractAssyUids(string body)
         {
             if (!body.Contains("uid_assy_")) return null;
-            
+
             var uids = new List<string>();
             for (int i = 1; i <= 20; i++)
             {
@@ -1165,6 +1353,7 @@ namespace MESInsight.Core
                 if (val == null) break;
                 uids.Add(val);
             }
+
             return uids.Count > 0 ? string.Join(",", uids) : null;
         }
 
@@ -1241,7 +1430,7 @@ namespace MESInsight.Core
             int comma = body.IndexOf(',');
             return MapMessageTypeName(comma > 0 ? body.Substring(0, comma).Trim() : body.Trim());
         }
-        
+
 
         private static MessageType MapMessageTypeName(string name)
         {
@@ -1258,6 +1447,8 @@ namespace MESInsight.Core
                 case "REQ_SETUP_CHANGE2": return MessageType.REQ_SETUP_CHANGE2;
                 case "SEMI_VALIDATION2": return MessageType.SEMI_VALIDATION2;
                 case "SEMI_VALIDATION": return MessageType.SEMI_VALIDATION;
+                case "PANEL_CHECKIN": return MessageType.PANEL_CHECKIN;
+                case "PANEL_RESULT": return MessageType.PANEL_RESULT;
                 default: return MessageType.OTHER;
             }
         }
