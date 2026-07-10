@@ -227,8 +227,6 @@ namespace MESInsight
             var hwnd = new WindowInteropHelper(this).Handle;
             var source = HwndSource.FromHwnd(hwnd);
             source?.AddHook(WindowProc);
-
-
         }
 
         private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -1362,7 +1360,6 @@ namespace MESInsight
             TxtDayMin.Text = "Min: " + sorted[0] + " ms";
             TxtDayMax.Text = "Max: " + sorted[sorted.Count - 1] + " ms";
 
-            // Pass/Fail pre deň
             UpdateDayPassFailSection(relevant, messageType);
         }
 
@@ -1371,29 +1368,23 @@ namespace MESInsight
             if (DayPassFailSection == null) return;
 
             var sourceType = messageType == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : messageType;
+            var dayRecords = records.Where(r => r.Type == sourceType).ToList();
 
-            string GetResultField(ResponseRecord r)
-            {
-                if (r.Type == MessageType.SEMI_VALIDATION2 || r.Type == MessageType.SEMI_VALIDATION)
-                    return r.ProcDirAssy;
-                return r.Result;
-            }
-
-            var withResult = records
-                .Where(r => PassFailSupportedTypes.Contains(r.Type))
-                .Where(r => !string.IsNullOrEmpty(GetResultField(r)))
-                .ToList();
-
-            if (withResult.Count == 0)
+            if (dayRecords.Count < 2)
             {
                 DayPassFailSection.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            var slices = MESInsight.UI.HexagonPieChart.BuildSlicesFromResults(
-                withResult.Select(r => GetResultField(r)), sourceType);
+            var stats = _statsCalculator.Calculate(dayRecords, sourceType);
+            if (stats == null)
+            {
+                DayPassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
 
-            DayPassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildQualityWidget(slices, chartSize: 110);
+            DayPassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildResponseTimeWidget(
+                dayRecords, stats.Average, stats.P95, chartSize: 120);
             DayPassFailSection.Visibility = Visibility.Visible;
         }
 
@@ -1442,7 +1433,6 @@ namespace MESInsight
             NewSessionButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
             TrackUidInputHost.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
-            // Report Bug button
             ReportBugButton.MouseEnter += (s, e) =>
             {
                 ReportBugIcon.Foreground = new SolidColorBrush(Color.FromRgb(255, 85, 85));
@@ -1462,7 +1452,6 @@ namespace MESInsight
                 dlg.ShowDialog();
             };
 
-            // Track UID button — hover
             TrackUidButton.MouseEnter += (s, e) =>
             {
                 TrackUidIcon.Foreground = new SolidColorBrush(Color.FromRgb(56, 182, 255));
@@ -1480,7 +1469,6 @@ namespace MESInsight
                 ToggleTrackUidExpand();
             };
 
-            // New Session button — hover
             NewSessionButton.MouseEnter += (s, e) =>
             {
                 foreach (var tb in FindVisualChildren<TextBlock>(NewSessionButton))
@@ -1502,7 +1490,6 @@ namespace MESInsight
                     await LoadAllStationsFromRoot(startup.SelectedPath);
             };
 
-            // Ctrl+K
             KeyDown += (s, e) =>
             {
                 if (e.Key == System.Windows.Input.Key.K &&
@@ -1655,7 +1642,12 @@ namespace MESInsight
 
         private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (e.ClickCount == 2) { ToggleMaximize(); return; }
+            if (e.ClickCount == 2)
+            {
+                ToggleMaximize();
+                return;
+            }
+
             WindowResizer.DragMove(this);
         }
 
@@ -1677,14 +1669,29 @@ namespace MESInsight
             }
         }
 
-        private void ResizeLeft_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeLeft(this);
-        private void ResizeRight_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeRight(this);
-        private void ResizeTop_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeTop(this);
-        private void ResizeBottom_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeBottom(this);
-        private void ResizeTL_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeTopLeft(this);
-        private void ResizeTR_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeTopRight(this);
-        private void ResizeBL_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeBottomLeft(this);
-        private void ResizeBR_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) => WindowResizer.ResizeBottomRight(this);
+        private void ResizeLeft_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeLeft(this);
+
+        private void ResizeRight_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeRight(this);
+
+        private void ResizeTop_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeTop(this);
+
+        private void ResizeBottom_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeBottom(this);
+
+        private void ResizeTL_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeTopLeft(this);
+
+        private void ResizeTR_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeTopRight(this);
+
+        private void ResizeBL_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeBottomLeft(this);
+
+        private void ResizeBR_Down(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+            WindowResizer.ResizeBottomRight(this);
 
         #endregion
 
@@ -2449,7 +2456,6 @@ namespace MESInsight
             MessageType type = parsedType.Value;
             StatsResult stats = _statsCalculator.Calculate(_filteredRecords, type);
 
-
             if (stats == null)
             {
                 ClearSidebarStats();
@@ -2575,7 +2581,8 @@ namespace MESInsight
                     row.MouseLeave += (s, e) =>
                     {
                         if (info.Children.Count > 0)
-                            ((TextBlock)info.Children[0]).Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129));
+                            ((TextBlock)info.Children[0]).Foreground =
+                                new SolidColorBrush(Color.FromRgb(110, 118, 129));
                         if (info.Children.Count > 1)
                             ((TextBlock)info.Children[1]).Foreground = new SolidColorBrush(Color.FromRgb(88, 166, 255));
                     };
@@ -2600,7 +2607,6 @@ namespace MESInsight
         private void UpdatePassFailChart(MessageType type)
         {
             if (PassFailSection == null) return;
-
             PassFailChartHost.Content = null;
 
             if (type == MessageType.ALL)
@@ -2609,36 +2615,25 @@ namespace MESInsight
                 return;
             }
 
-            if (!PassFailSupportedTypes.Contains(type))
-            {
-                PassFailSection.Visibility = Visibility.Collapsed;
-                return;
-            }
-
             var sourceType = type == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : type;
-
-            string GetResultField(ResponseRecord r)
-            {
-                if (r.Type == MessageType.SEMI_VALIDATION2 || r.Type == MessageType.SEMI_VALIDATION)
-                    return r.ProcDirAssy;
-                return r.Result;
-            }
-
             var records = _filteredRecords.Where(r => r.Type == sourceType).ToList();
-            var withResult = records.Where(r => !string.IsNullOrEmpty(GetResultField(r))).ToList();
 
-            if (withResult.Count == 0)
+            if (records.Count < 2)
             {
                 PassFailSection.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            PassFailSectionLabel.Text = type == MessageType.UNIT_INFO ? "QUALITY  (from Unit Result)" : "QUALITY";
+            var stats = _statsCalculator.Calculate(_filteredRecords, type);
+            if (stats == null)
+            {
+                PassFailSection.Visibility = Visibility.Collapsed;
+                return;
+            }
 
-            var slices = MESInsight.UI.HexagonPieChart.BuildSlicesFromResults(
-                withResult.Select(r => GetResultField(r)), sourceType);
-
-            PassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildQualityWidget(slices, chartSize: 130);
+            PassFailSectionLabel.Text = "RESPONSE TIME";
+            PassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildResponseTimeWidget(
+                records, stats.Average, stats.P95, chartSize: 140);
             PassFailSection.Visibility = Visibility.Visible;
         }
 
@@ -3468,6 +3463,15 @@ namespace MESInsight
         {
             HideLoadingOverlay();
         }
+        
+        private void SidebarScroll_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            var sv = sender as System.Windows.Controls.ScrollViewer;
+            if (sv == null) return;
+            sv.ScrollToVerticalOffset(sv.VerticalOffset - e.Delta / 3.0);
+            e.Handled = true;
+        }
+
 
         #endregion
     }
@@ -3568,7 +3572,5 @@ namespace MESInsight
             outer.Child = root;
             Content = outer;
         }
-
-
     }
 }

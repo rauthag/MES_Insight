@@ -18,9 +18,8 @@ namespace MESInsight.UI
 
     public static class HexagonPieChart
     {
-        private const double GapDeg = 2.2;
+        private const double GapDeg = 1.2;
 
-        // ── Main chart builder ────────────────────────────────────────────────
         public static UIElement Build(List<HexagonPieSlice> slices, double size = 140,
             string centerText = null, string centerSubtext = null)
         {
@@ -32,23 +31,21 @@ namespace MESInsight.UI
 
             double cx = size / 2;
             double cy = size / 2;
-            double outerR = size / 2 - 5;
-            double innerR = outerR * 0.50;
+            double outerR = size / 2 - 2;
+            double innerR = outerR * 0.40;
 
             var root = new Grid { Width = size, Height = size };
             var canvas = new Canvas { Width = size, Height = size };
 
-            // Subtle hex glow background
-            var hexPts = BuildHexagonPoints(cx, cy, outerR + 3);
+            var hexPts = BuildHexagonPoints(cx, cy, outerR + 2);
             canvas.Children.Add(new Polygon
             {
                 Points = new PointCollection(hexPts),
-                Fill = new SolidColorBrush(Color.FromArgb(12, 63, 185, 80)),
-                Stroke = new SolidColorBrush(Color.FromArgb(35, 63, 185, 80)),
-                StrokeThickness = 1.0
+                Fill = new SolidColorBrush(Color.FromArgb(8, 63, 185, 80)),
+                Stroke = new SolidColorBrush(Color.FromArgb(25, 63, 185, 80)),
+                StrokeThickness = 0.8
             });
 
-            // Slices clipped to hexagon
             var clipGeo = BuildHexPathGeometry(hexPts);
             var sliceCanvas = new Canvas { Width = size, Height = size, Clip = clipGeo };
 
@@ -73,26 +70,27 @@ namespace MESInsight.UI
 
             canvas.Children.Add(sliceCanvas);
 
-            // Hex outline
             canvas.Children.Add(new Polygon
             {
                 Points = new PointCollection(hexPts),
-                Stroke = new SolidColorBrush(Color.FromRgb(48, 54, 61)),
-                StrokeThickness = 1.5,
+                Stroke = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+                StrokeThickness = 0.8,
                 Fill = Brushes.Transparent
             });
 
-            // Center hole (donut effect)
-            var hole = new Ellipse
+            var holeR = innerR * 0.82;
+            var holePts = BuildHexagonPoints(cx, cy, holeR);
+            
+            var hole = new Polygon
             {
-                Width = innerR * 2, Height = innerR * 2,
-                Fill = new SolidColorBrush(Color.FromRgb(22, 27, 34))
+                Points = new PointCollection(holePts),
+                Fill = new SolidColorBrush(Color.FromRgb(22, 27, 34)),
+                Stroke = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+                StrokeThickness = 0.8
             };
-            Canvas.SetLeft(hole, cx - innerR);
-            Canvas.SetTop(hole, cy - innerR);
+            
             canvas.Children.Add(hole);
 
-            // Center text
             if (!string.IsNullOrEmpty(centerText))
             {
                 var stack = new StackPanel
@@ -103,7 +101,7 @@ namespace MESInsight.UI
                 stack.Children.Add(new TextBlock
                 {
                     Text = centerText,
-                    FontSize = size * 0.148,
+                    FontSize = size * 0.125,
                     FontWeight = FontWeights.SemiBold,
                     Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217)),
                     HorizontalAlignment = HorizontalAlignment.Center
@@ -112,7 +110,7 @@ namespace MESInsight.UI
                     stack.Children.Add(new TextBlock
                     {
                         Text = centerSubtext,
-                        FontSize = size * 0.072,
+                        FontSize = size * 0.060,
                         Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129)),
                         HorizontalAlignment = HorizontalAlignment.Center
                     });
@@ -129,7 +127,6 @@ namespace MESInsight.UI
             return root;
         }
 
-        // ── Full quality widget: chart + legend ───────────────────────────────
         public static UIElement BuildQualityWidget(List<HexagonPieSlice> slices, double chartSize = 130)
         {
             if (slices == null || slices.Count == 0) return new Canvas();
@@ -145,12 +142,10 @@ namespace MESInsight.UI
 
             var root = new StackPanel();
 
-            // Chart
             var chartHost = new Grid { HorizontalAlignment = HorizontalAlignment.Center };
             chartHost.Children.Add(Build(slices, chartSize, centerPct, centerLbl));
             root.Children.Add(chartHost);
 
-            // Legend rows
             var legend = new StackPanel { Margin = new Thickness(2, 8, 2, 0) };
             const double barW = 50;
 
@@ -164,7 +159,6 @@ namespace MESInsight.UI
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-                // Dot
                 var dot = new Ellipse
                 {
                     Width = 6, Height = 6,
@@ -173,7 +167,6 @@ namespace MESInsight.UI
                 };
                 Grid.SetColumn(dot, 0);
 
-                // Label
                 var lbl = new TextBlock
                 {
                     Text = slice.Label,
@@ -184,19 +177,18 @@ namespace MESInsight.UI
                 };
                 Grid.SetColumn(lbl, 1);
 
-                // Bar + percentage
                 Color barColor = pct >= 85
                     ? Color.FromRgb(46, 160, 67)
                     : pct >= 60
                         ? Color.FromRgb(210, 153, 34)
                         : Color.FromRgb(248, 81, 73);
 
-                // override with slice color if it's a "good" value (pass/process/ok)
                 bool isGoodValue = slice.Color == ColorForValue("P") || slice.Color == ColorForValue("Y")
-                    || slice.Color == ColorForValue("G");
+                                                                     || slice.Color == ColorForValue("G");
                 Color pctColor = isGoodValue ? barColor : Color.FromRgb(248, 81, 73);
 
-                var barContainer = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                var barContainer = new StackPanel
+                    { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
                 var barBg = new Grid { Width = barW, Margin = new Thickness(6, 0, 5, 0) };
                 barBg.Children.Add(new Border
@@ -236,22 +228,21 @@ namespace MESInsight.UI
             return root;
         }
 
-        // ── Static color / label helpers ──────────────────────────────────────
         public static Color ColorForValue(string value)
         {
             switch (value?.ToUpper())
             {
-                case "P":  return Color.FromRgb(46,  160,  67);   // Pass / Pass through
-                case "F":  return Color.FromRgb(248,  81,  73);   // Fail
-                case "Y":  return Color.FromRgb(56,  139, 253);   // Process
-                case "N":  return Color.FromRgb(210,  70,  55);   // Reject
-                case "G":  return Color.FromRgb(187, 128,   9);   // Golden sample
-                case "R":  return Color.FromRgb(219, 109,  40);   // Rework
-                case "T":  return Color.FromRgb(130,  80, 220);   // Transient
-                case "B":  return Color.FromRgb(155,  89, 182);   // Lock
-                case "S":  return Color.FromRgb(100,  60,  30);   // Scrap
-                case "-":  return Color.FromRgb( 78,  86,  97);   // Do not process
-                default:   return Color.FromRgb(110, 118, 129);
+                case "P": return Color.FromRgb(46, 160, 67);
+                case "F": return Color.FromRgb(248, 81, 73);
+                case "Y": return Color.FromRgb(56, 139, 253);
+                case "N": return Color.FromRgb(210, 70, 55);
+                case "G": return Color.FromRgb(187, 128, 9);
+                case "R": return Color.FromRgb(219, 109, 40);
+                case "T": return Color.FromRgb(130, 80, 220);
+                case "B": return Color.FromRgb(155, 89, 182);
+                case "S": return Color.FromRgb(100, 60, 30);
+                case "-": return Color.FromRgb(78, 86, 97);
+                default: return Color.FromRgb(110, 118, 129);
             }
         }
 
@@ -271,8 +262,84 @@ namespace MESInsight.UI
                 case "B": return "Lock";
                 case "S": return "Scrap";
                 case "-": return "Do not process";
-                default:  return value ?? "Unknown";
+                default: return value ?? "Unknown";
             }
+        }
+
+        public static List<HexagonPieSlice> BuildSlicesFromResponseTime(
+            IEnumerable<ResponseRecord> records, double avgMs, double p95Ms)
+        {
+            int fast = 0, normal = 0, slow = 0, critical = 0;
+
+            foreach (var r in records)
+            {
+                double rt = r.ResponseTime;
+                if (rt <= avgMs * 0.75) fast++;
+                else if (rt <= avgMs) normal++;
+                else if (rt <= p95Ms) slow++;
+                else critical++;
+            }
+
+            var result = new List<HexagonPieSlice>();
+            if (fast > 0)
+                result.Add(new HexagonPieSlice { Label = "Fast", Value = fast, Color = Color.FromRgb(46, 160, 67) });
+            if (normal > 0)
+                result.Add(new HexagonPieSlice
+                    { Label = "Normal", Value = normal, Color = Color.FromRgb(56, 139, 253) });
+            if (slow > 0)
+                result.Add(new HexagonPieSlice { Label = "Slow", Value = slow, Color = Color.FromRgb(210, 153, 34) });
+            if (critical > 0)
+                result.Add(new HexagonPieSlice
+                    { Label = "Critical", Value = critical, Color = Color.FromRgb(248, 81, 73) });
+            return result;
+        }
+
+        public static UIElement BuildResponseTimeWidget(
+            IEnumerable<ResponseRecord> records, double avgMs, double p95Ms, double chartSize = 130)
+        {
+            var slices = BuildSlicesFromResponseTime(records, avgMs, p95Ms);
+            if (slices == null || slices.Count == 0) return new Canvas();
+
+            int total = (int)slices.Sum(s => s.Value);
+            int critical = (int)(slices.FirstOrDefault(s => s.Label == "Critical")?.Value ?? 0);
+            int fast = (int)(slices.FirstOrDefault(s => s.Label == "Fast")?.Value ?? 0);
+
+            string centerText = critical > 0
+                ? Math.Round(critical * 100.0 / total) + "%"
+                : Math.Round(fast * 100.0 / total) + "%";
+
+            string centerSub = critical > 0 ? "CRIT" : "FAST";
+
+            var chart = Build(slices, chartSize,
+                centerText: centerText,
+                centerSubtext: centerSub);
+
+            var legend = new WrapPanel { Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
+            foreach (var s in slices)
+            {
+                int pct = (int)Math.Round(s.Value / total * 100);
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 8, 2) };
+                row.Children.Add(new Border
+                {
+                    Width = 7, Height = 7,
+                    Background = new SolidColorBrush(s.Color),
+                    CornerRadius = new CornerRadius(1),
+                    Margin = new Thickness(0, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = s.Label + " " + pct + "%",
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158))
+                });
+                legend.Children.Add(row);
+            }
+
+            var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            panel.Children.Add(chart);
+            panel.Children.Add(legend);
+            return panel;
         }
 
         public static List<HexagonPieSlice> BuildSlicesFromResults(
@@ -284,7 +351,12 @@ namespace MESInsight.UI
             foreach (var v in resultValues)
             {
                 if (string.IsNullOrEmpty(v)) continue;
-                if (IsErrorValue(v)) { errorCount++; continue; }
+                if (IsErrorValue(v))
+                {
+                    errorCount++;
+                    continue;
+                }
+
                 var key = v.ToUpper();
                 if (!counts.ContainsKey(key)) counts[key] = 0;
                 counts[key]++;
@@ -292,7 +364,11 @@ namespace MESInsight.UI
 
             var order = new[] { "P", "Y", "G", "T", "R", "N", "F", "-" };
             var slices = counts
-                .OrderBy(kv => { int i = Array.IndexOf(order, kv.Key); return i < 0 ? 99 : i; })
+                .OrderBy(kv =>
+                {
+                    int i = Array.IndexOf(order, kv.Key);
+                    return i < 0 ? 99 : i;
+                })
                 .Select(kv => new HexagonPieSlice
                 {
                     Label = LabelForValue(kv.Key, msgType),
@@ -321,7 +397,6 @@ namespace MESInsight.UI
             return !KnownResultValues.Contains(v);
         }
 
-        // ── Geometry helpers ──────────────────────────────────────────────────
         private static Geometry BuildDonutSlicePath(double cx, double cy, double outerR, double innerR,
             double startDeg, double endDeg)
         {
@@ -335,7 +410,7 @@ namespace MESInsight.UI
             }
 
             double sRad = startDeg * Math.PI / 180;
-            double eRad = endDeg   * Math.PI / 180;
+            double eRad = endDeg * Math.PI / 180;
             var oS = new Point(cx + outerR * Math.Cos(sRad), cy + outerR * Math.Sin(sRad));
             var oE = new Point(cx + outerR * Math.Cos(eRad), cy + outerR * Math.Sin(eRad));
             var iS = new Point(cx + innerR * Math.Cos(sRad), cy + innerR * Math.Sin(sRad));
@@ -345,7 +420,8 @@ namespace MESInsight.UI
             var fig = new PathFigure { StartPoint = oS, IsClosed = true };
             fig.Segments.Add(new ArcSegment(oE, new Size(outerR, outerR), 0, large, SweepDirection.Clockwise, true));
             fig.Segments.Add(new LineSegment(iE, true));
-            fig.Segments.Add(new ArcSegment(iS, new Size(innerR, innerR), 0, large, SweepDirection.Counterclockwise, true));
+            fig.Segments.Add(new ArcSegment(iS, new Size(innerR, innerR), 0, large, SweepDirection.Counterclockwise,
+                true));
 
             var geo = new PathGeometry();
             geo.Figures.Add(fig);
@@ -360,6 +436,7 @@ namespace MESInsight.UI
                 double a = Math.PI / 180 * (60 * i - 90);
                 pts.Add(new Point(cx + r * Math.Cos(a), cy + r * Math.Sin(a)));
             }
+
             return pts;
         }
 

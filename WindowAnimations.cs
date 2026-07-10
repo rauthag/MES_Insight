@@ -30,7 +30,8 @@ namespace MESInsight
                 if (alpha >= 255)
                 {
                     timer.Stop();
-                    window.DialogResult = dialogResult;
+                    try { window.DialogResult = dialogResult; }
+                    catch { window.Close(); }
                 }
             };
             timer.Start();

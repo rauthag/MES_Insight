@@ -1,21 +1,18 @@
 ﻿using System;
 using System.Diagnostics;
-using System.IO;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using Microsoft.Win32;
 
 namespace MESInsight
 {
     public class BugReportPanel : UserControl
     {
         private const string ReportEmail = "lukas.paucin@mail.schaeffler.com";
+
 
         private static readonly Color ColBg = Color.FromRgb(10, 16, 13);
         private static readonly Color ColPanel = Color.FromRgb(17, 24, 20);
@@ -31,10 +28,6 @@ namespace MESInsight
 
         private readonly TextBox _descriptionBox;
         private readonly TextBox _stackTraceBox;
-        private readonly Image _imagePreview;
-        private readonly TextBlock _imageNameLabel;
-        private readonly Border _imagePreviewBorder;
-        private string _attachedImagePath;
 
         public event Action RequestClose;
 
@@ -111,57 +104,6 @@ namespace MESInsight
             body.Children.Add(_descriptionBox);
             body.Children.Add(new Border { Height = 14 });
 
-            body.Children.Add(FieldLabel("Attach a screenshot (optional)"));
-
-            var attachRow = new Grid();
-            attachRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            attachRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            _imageNameLabel = new TextBlock
-            {
-                Text = "No image selected",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(ColTextDim),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 12, 0),
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            attachRow.Children.Add(_imageNameLabel);
-
-            var attachButton = MakeAttachButton();
-            attachButton.MouseLeftButtonUp += (s, e) => BrowseForImage();
-            Grid.SetColumn(attachButton, 1);
-            attachRow.Children.Add(attachButton);
-
-            body.Children.Add(attachRow);
-            body.Children.Add(new TextBlock
-            {
-                Text =
-                    "Outlook desktop can attach the screenshot automatically. Web mail options open a draft and let you attach the image manually.",
-                FontSize = 10,
-                Foreground = new SolidColorBrush(ColTextDim),
-                Margin = new Thickness(0, 7, 0, 0),
-                TextWrapping = TextWrapping.Wrap
-            });
-
-            _imagePreviewBorder = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(9, 18, 13)),
-                BorderBrush = new SolidColorBrush(ColBorder),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(7),
-                Margin = new Thickness(0, 8, 0, 0),
-                MaxHeight = 190,
-                Visibility = Visibility.Collapsed
-            };
-            _imagePreview = new Image
-            {
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(6)
-            };
-            _imagePreviewBorder.Child = _imagePreview;
-            body.Children.Add(_imagePreviewBorder);
 
             if (!string.IsNullOrEmpty(prefilledTrace))
             {
@@ -230,31 +172,26 @@ namespace MESInsight
 
             var optionGrid = new UniformGrid
             {
-                Columns = 5,
+                Columns = 4,
                 Rows = 1
             };
             Grid.SetRow(optionGrid, 1);
-
-            var outlookDesktopTile = MakeSendTile(CreateOutlookDesktopIcon(), "Outlook app",
-                "Opens a draft in Outlook desktop and attaches your screenshot.", true);
-            outlookDesktopTile.MouseLeftButtonUp += (s, e) => Send(SendMode.OutlookDesktop);
 
             var mailAppTile = MakeSendTile(CreateMailAppIcon(), "Mail app",
                 "Opens your default desktop mail application.", false);
             mailAppTile.MouseLeftButtonUp += (s, e) => Send(SendMode.DefaultApp);
 
             var outlookWebTile = MakeSendTile(CreateOutlookWebIcon(), "Outlook Web",
-                "Opens Outlook on the web in your browser.", false);
+                "Recommended: opens web compose. Attachment must be added manually.", false);
             outlookWebTile.MouseLeftButtonUp += (s, e) => Send(SendMode.OutlookWeb);
 
-            var gmailTile = MakeSendTile(CreateGmailIcon(), "Gmail", "Opens Gmail compose in your browser.", false);
+            var gmailTile = MakeSendTile(CreateGmailIcon(), "Gmail", "Opens Gmail compose. Attachment must be added manually.", false);
             gmailTile.MouseLeftButtonUp += (s, e) => Send(SendMode.Gmail);
 
             var copyTile = MakeSendTile(CreateClipboardIcon(), "Copy report",
                 "Copies the report text and screenshot to the clipboard.", false);
             copyTile.MouseLeftButtonUp += (s, e) => CopyToClipboard();
 
-            optionGrid.Children.Add(outlookDesktopTile);
             optionGrid.Children.Add(mailAppTile);
             optionGrid.Children.Add(outlookWebTile);
             optionGrid.Children.Add(gmailTile);
@@ -272,7 +209,6 @@ namespace MESInsight
 
         private enum SendMode
         {
-            OutlookDesktop,
             DefaultApp,
             OutlookWeb,
             Gmail
@@ -280,12 +216,6 @@ namespace MESInsight
 
         private void Send(SendMode mode)
         {
-            if (mode == SendMode.OutlookDesktop)
-            {
-                SendViaOutlookDesktop();
-                return;
-            }
-
             string text = BuildReportText();
             string subject = Uri.EscapeDataString("Bug Report — MES Insight");
             string body = Uri.EscapeDataString(TruncateForUrl(text));
@@ -294,11 +224,13 @@ namespace MESInsight
             switch (mode)
             {
                 case SendMode.OutlookWeb:
+                    TryCopyReportToClipboardSilently();
                     url = "https://outlook.office.com/mail/deeplink/compose"
                           + $"?to={Uri.EscapeDataString(ReportEmail)}"
                           + $"&subject={subject}&body={body}";
                     break;
                 case SendMode.Gmail:
+                    TryCopyReportToClipboardSilently();
                     url = "https://mail.google.com/mail/?view=cm"
                           + $"&to={Uri.EscapeDataString(ReportEmail)}"
                           + $"&su={subject}&body={body}";
@@ -311,11 +243,6 @@ namespace MESInsight
             try
             {
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                MessageBox.Show(
-                    "Your bug report has been sent successfully to:\n" + ReportEmail,
-                    "Report Sent",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
                 RequestClose?.Invoke();
             }
             catch (Exception ex)
@@ -331,6 +258,19 @@ namespace MESInsight
             }
         }
 
+        private void TryCopyReportToClipboardSilently()
+        {
+            try
+            {
+                var data = new DataObject();
+                data.SetText(BuildReportText());
+                Clipboard.SetDataObject(data, true);
+            }
+            catch
+            {
+            }
+        }
+
         private void CopyToClipboard()
         {
             try
@@ -338,18 +278,11 @@ namespace MESInsight
                 var data = new DataObject();
                 data.SetText(BuildReportText());
 
-                bool imageCopied = TryLoadAttachedImage(out var bitmap);
-                if (imageCopied)
-                    data.SetImage(bitmap);
-
                 Clipboard.SetDataObject(data, true);
 
                 MessageBox.Show(
-                    imageCopied
-                        ? "The report text and screenshot were copied to the clipboard.\n\nPaste them into an email and send it to:\n" +
-                          ReportEmail
-                        : "The report text was copied to the clipboard.\n\nPaste it into an email and send it to:\n" +
-                          ReportEmail,
+                    "The report text was copied to the clipboard.\n\nPaste it into an email and send it to:\n" +
+                    ReportEmail,
                     "Copied",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -362,123 +295,6 @@ namespace MESInsight
                     "MES Insight",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
-            }
-        }
-
-        private void BrowseForImage()
-        {
-            var dialog = new OpenFileDialog
-            {
-                Title = "Select a screenshot or image",
-                Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff|All files|*.*"
-            };
-
-            if (dialog.ShowDialog() != true)
-                return;
-
-            try
-            {
-                _attachedImagePath = dialog.FileName;
-                _imageNameLabel.Text = System.IO.Path.GetFileName(_attachedImagePath);
-                _imageNameLabel.Foreground = new SolidColorBrush(ColTextSec);
-
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = new Uri(_attachedImagePath);
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                bitmap.EndInit();
-                bitmap.Freeze();
-
-                _imagePreview.Source = bitmap;
-                _imagePreviewBorder.Visibility = Visibility.Visible;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    "The image could not be loaded.\n\n" + ex.Message,
-                    "MES Insight",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-        }
-
-        private void SendViaOutlookDesktop()
-        {
-            object outlook = null;
-            object mailItem = null;
-
-            try
-            {
-                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
-                if (outlookType == null)
-                    throw new InvalidOperationException("Outlook desktop is not installed.");
-
-                outlook = Activator.CreateInstance(outlookType);
-                mailItem = outlookType.InvokeMember(
-                    "CreateItem",
-                    System.Reflection.BindingFlags.InvokeMethod,
-                    null,
-                    outlook,
-                    new object[] { 0 });
-
-                var mailType = mailItem.GetType();
-                mailType.InvokeMember("To", System.Reflection.BindingFlags.SetProperty, null, mailItem,
-                    new object[] { ReportEmail });
-                mailType.InvokeMember("Subject", System.Reflection.BindingFlags.SetProperty, null, mailItem,
-                    new object[] { "Bug Report — MES Insight" });
-                mailType.InvokeMember("Body", System.Reflection.BindingFlags.SetProperty, null, mailItem,
-                    new object[] { BuildReportText() });
-
-                if (!string.IsNullOrWhiteSpace(_attachedImagePath) && File.Exists(_attachedImagePath))
-                {
-                    var attachments = mailType.InvokeMember(
-                        "Attachments",
-                        System.Reflection.BindingFlags.GetProperty,
-                        null,
-                        mailItem,
-                        null);
-
-                    attachments.GetType().InvokeMember(
-                        "Add",
-                        System.Reflection.BindingFlags.InvokeMethod,
-                        null,
-                        attachments,
-                        new object[] { _attachedImagePath });
-
-                    ReleaseComObjectIfNeeded(attachments);
-                }
-
-                mailType.InvokeMember(
-                    "Display",
-                    System.Reflection.BindingFlags.InvokeMethod,
-                    null,
-                    mailItem,
-                    new object[] { true });
-
-                MessageBox.Show(
-                    "Your bug report draft has been opened in Outlook.\n\nPlease review and send the email manually to:\n" +
-                    ReportEmail,
-                    "Draft Ready",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-
-                RequestClose?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    "Outlook desktop could not be opened with the bug report draft.\n\n"
-                    + ex.Message
-                    + "\n\nPlease choose another send option if Outlook is not available.",
-                    "MES Insight — Outlook",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-            finally
-            {
-                ReleaseComObjectIfNeeded(mailItem);
-                ReleaseComObjectIfNeeded(outlook);
             }
         }
 
@@ -508,53 +324,10 @@ namespace MESInsight
             builder.AppendLine($"Machine     : {Environment.MachineName}");
             builder.AppendLine($"User        : {Environment.UserName}");
 
-            if (!string.IsNullOrEmpty(_attachedImagePath))
-            {
-                builder.AppendLine();
-                builder.AppendLine("--- Selected Screenshot ---");
-                builder.AppendLine(_attachedImagePath);
-                builder.AppendLine(
-                    "Outlook desktop can attach this file automatically. Web mail options require a manual attachment.");
-            }
 
             return builder.ToString();
         }
 
-        private static bool TryLoadAttachedImage(string path, out BitmapSource bitmap)
-        {
-            bitmap = null;
-
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                return false;
-
-            try
-            {
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.UriSource = new Uri(path);
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                image.EndInit();
-                image.Freeze();
-                bitmap = image;
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private bool TryLoadAttachedImage(out BitmapSource bitmap)
-        {
-            return TryLoadAttachedImage(_attachedImagePath, out bitmap);
-        }
-
-        private static void ReleaseComObjectIfNeeded(object value)
-        {
-            if (value != null && Marshal.IsComObject(value))
-                Marshal.FinalReleaseComObject(value);
-        }
 
         private static string TruncateForUrl(string text, int maxChars = 900)
         {
@@ -598,87 +371,6 @@ namespace MESInsight
             return box;
         }
 
-        private Border MakeAttachButton()
-        {
-            var title = new TextBlock
-            {
-                Text = "Attach image",
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(ColTextPri)
-            };
-
-            var subtitle = new TextBlock
-            {
-                Text = "Open file picker",
-                FontSize = 9,
-                Foreground = new SolidColorBrush(ColTextDim),
-                Margin = new Thickness(0, 1, 0, 0)
-            };
-
-            var symbol = new Border
-            {
-                Width = 24,
-                Height = 24,
-                CornerRadius = new CornerRadius(12),
-                Background = new SolidColorBrush(Color.FromArgb(60, ColGreen.R, ColGreen.G, ColGreen.B)),
-                Child = new TextBlock
-                {
-                    Text = "+",
-                    FontSize = 15,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(ColGreenSoft),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextAlignment = TextAlignment.Center
-                }
-            };
-
-            var textStack = new StackPanel
-            {
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0, 0, 0)
-            };
-            textStack.Children.Add(title);
-            textStack.Children.Add(subtitle);
-
-            var content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            content.Children.Add(symbol);
-            content.Children.Add(textStack);
-
-            var normalBg = new SolidColorBrush(Color.FromRgb(18, 34, 24));
-            var hoverBg = new SolidColorBrush(Color.FromRgb(23, 43, 30));
-            var normalBorder = new SolidColorBrush(ColBorderAlt);
-            var hoverBorder = new SolidColorBrush(ColGreenSoft);
-
-            var button = new Border
-            {
-                Background = normalBg,
-                BorderBrush = normalBorder,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(9),
-                Padding = new Thickness(12, 8, 14, 8),
-                Cursor = Cursors.Hand,
-                Child = content
-            };
-
-            button.MouseEnter += (s, e) =>
-            {
-                button.Background = hoverBg;
-                button.BorderBrush = hoverBorder;
-            };
-            button.MouseLeave += (s, e) =>
-            {
-                button.Background = normalBg;
-                button.BorderBrush = normalBorder;
-            };
-
-            return button;
-        }
 
         private static Border MakeSendTile(FrameworkElement icon, string title, string subtitle, bool recommended)
         {
@@ -756,51 +448,36 @@ namespace MESInsight
             return tile;
         }
 
-        private static FrameworkElement CreateOutlookDesktopIcon()
+        private static FrameworkElement CreateMailAppIcon()
         {
-            var grid = new Grid { Width = 48, Height = 48 };
-            var mailSheet = new Border
+            var icon = new Grid { Width = 48, Height = 48 };
+            icon.Children.Add(new Border
             {
-                Width = 31,
-                Height = 38,
-                CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(Color.FromRgb(87, 165, 255)),
-                HorizontalAlignment = HorizontalAlignment.Right,
+                Background = new SolidColorBrush(Color.FromRgb(27, 114, 214)),
+                CornerRadius = new CornerRadius(10)
+            });
+
+            var envelope = new Canvas
+            {
+                Width = 32,
+                Height = 22,
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            grid.Children.Add(mailSheet);
-            grid.Children.Add(new TextBlock
+            envelope.Children.Add(new Rectangle
             {
-                Text = "✉",
-                FontSize = 17,
-                Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
+                Width = 32,
+                Height = 22,
+                RadiusX = 4,
+                RadiusY = 4,
+                Stroke = Brushes.White,
+                StrokeThickness = 2
             });
-            var front = new Border
-            {
-                Width = 28,
-                Height = 36,
-                CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(Color.FromRgb(0, 89, 179)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
-                BorderThickness = new Thickness(1),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock
-                {
-                    Text = "O",
-                    FontSize = 20,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = Brushes.White,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextAlignment = TextAlignment.Center
-                }
-            };
-            grid.Children.Add(front);
-            return grid;
+            envelope.Children.Add(new Line { X1 = 2, Y1 = 3, X2 = 16, Y2 = 13, Stroke = Brushes.White, StrokeThickness = 2 });
+            envelope.Children.Add(new Line { X1 = 30, Y1 = 3, X2 = 16, Y2 = 13, Stroke = Brushes.White, StrokeThickness = 2 });
+            icon.Children.Add(envelope);
+
+            return icon;
         }
 
         private static FrameworkElement CreateOutlookWebIcon()
@@ -816,17 +493,20 @@ namespace MESInsight
                 VerticalAlignment = VerticalAlignment.Center
             };
             root.Children.Add(back);
+
             var globe = new Grid
             {
-                Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 2, 2)
+                Width = 18,
+                Height = 18,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 2, 2)
             };
             globe.Children.Add(new Ellipse { Stroke = Brushes.White, StrokeThickness = 1.4 });
-            globe.Children.Add(
-                new Line { X1 = 9, Y1 = 2, X2 = 9, Y2 = 16, Stroke = Brushes.White, StrokeThickness = 1 });
-            globe.Children.Add(
-                new Line { X1 = 3, Y1 = 9, X2 = 15, Y2 = 9, Stroke = Brushes.White, StrokeThickness = 1 });
+            globe.Children.Add(new Line { X1 = 9, Y1 = 2, X2 = 9, Y2 = 16, Stroke = Brushes.White, StrokeThickness = 1 });
+            globe.Children.Add(new Line { X1 = 3, Y1 = 9, X2 = 15, Y2 = 9, Stroke = Brushes.White, StrokeThickness = 1 });
             root.Children.Add(globe);
+
             var front = new Border
             {
                 Width = 28,
@@ -852,29 +532,6 @@ namespace MESInsight
             return root;
         }
 
-        private static FrameworkElement CreateMailAppIcon()
-        {
-            var icon = new Grid { Width = 48, Height = 48 };
-            icon.Children.Add(new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(27, 114, 214)),
-                CornerRadius = new CornerRadius(10)
-            });
-            var envelope = new Canvas
-            {
-                Width = 32, Height = 22, HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            envelope.Children.Add(new Rectangle
-                { Width = 32, Height = 22, RadiusX = 4, RadiusY = 4, Stroke = Brushes.White, StrokeThickness = 2 });
-            envelope.Children.Add(new Line
-                { X1 = 2, Y1 = 3, X2 = 16, Y2 = 13, Stroke = Brushes.White, StrokeThickness = 2 });
-            envelope.Children.Add(new Line
-                { X1 = 30, Y1 = 3, X2 = 16, Y2 = 13, Stroke = Brushes.White, StrokeThickness = 2 });
-            icon.Children.Add(envelope);
-            return icon;
-        }
-
         private static FrameworkElement CreateGmailIcon()
         {
             var root = new Grid { Width = 48, Height = 48 };
@@ -885,41 +542,20 @@ namespace MESInsight
                 BorderBrush = new SolidColorBrush(Color.FromRgb(223, 228, 234)),
                 BorderThickness = new Thickness(1)
             });
+
             var canvas = new Canvas
             {
-                Width = 34, Height = 24, HorizontalAlignment = HorizontalAlignment.Center,
+                Width = 34,
+                Height = 24,
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            canvas.Children.Add(new Line
-            {
-                X1 = 2, Y1 = 20, X2 = 2, Y2 = 4, Stroke = new SolidColorBrush(Color.FromRgb(66, 133, 244)),
-                StrokeThickness = 3
-            });
-            canvas.Children.Add(new Line
-            {
-                X1 = 32, Y1 = 20, X2 = 32, Y2 = 4, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)),
-                StrokeThickness = 3
-            });
-            canvas.Children.Add(new Line
-            {
-                X1 = 2, Y1 = 4, X2 = 17, Y2 = 15, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)),
-                StrokeThickness = 3
-            });
-            canvas.Children.Add(new Line
-            {
-                X1 = 32, Y1 = 4, X2 = 17, Y2 = 15, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)),
-                StrokeThickness = 3
-            });
-            canvas.Children.Add(new Line
-            {
-                X1 = 2, Y1 = 20, X2 = 12, Y2 = 12, Stroke = new SolidColorBrush(Color.FromRgb(52, 168, 83)),
-                StrokeThickness = 3
-            });
-            canvas.Children.Add(new Line
-            {
-                X1 = 32, Y1 = 20, X2 = 22, Y2 = 12, Stroke = new SolidColorBrush(Color.FromRgb(251, 188, 5)),
-                StrokeThickness = 3
-            });
+            canvas.Children.Add(new Line { X1 = 2, Y1 = 20, X2 = 2, Y2 = 4, Stroke = new SolidColorBrush(Color.FromRgb(66, 133, 244)), StrokeThickness = 3 });
+            canvas.Children.Add(new Line { X1 = 32, Y1 = 20, X2 = 32, Y2 = 4, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)), StrokeThickness = 3 });
+            canvas.Children.Add(new Line { X1 = 2, Y1 = 4, X2 = 17, Y2 = 15, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)), StrokeThickness = 3 });
+            canvas.Children.Add(new Line { X1 = 32, Y1 = 4, X2 = 17, Y2 = 15, Stroke = new SolidColorBrush(Color.FromRgb(234, 67, 53)), StrokeThickness = 3 });
+            canvas.Children.Add(new Line { X1 = 2, Y1 = 20, X2 = 12, Y2 = 12, Stroke = new SolidColorBrush(Color.FromRgb(52, 168, 83)), StrokeThickness = 3 });
+            canvas.Children.Add(new Line { X1 = 32, Y1 = 20, X2 = 22, Y2 = 12, Stroke = new SolidColorBrush(Color.FromRgb(251, 188, 5)), StrokeThickness = 3 });
             root.Children.Add(canvas);
             return root;
         }

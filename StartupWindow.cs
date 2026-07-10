@@ -433,13 +433,13 @@ namespace MESInsight
                 Height = stepY + H
             };
 
-            AddHex(canvas, W, H, r, "\U0001F4C2", "LOCAL FOLDER", "Local or network path", 0 * stepX, 0, false);
-            AddHex(canvas, W, H, r, "\U0001F310", "REMOTE BACKUP LOGS", "MES Backup disc access needed", 1 * stepX, 0,
+            AddHex(canvas, W, H, r, "", "LOCAL FOLDER", "Local or network path", 0 * stepX, 0, false);
+            AddHex(canvas, W, H, r, "", "REMOTE BACKUP LOGS", "MES Backup disc access needed", 1 * stepX, 0,
                 false);
-            AddHex(canvas, W, H, r, "\U0001F9EA", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
+            AddHex(canvas, W, H, r, "", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
                 2 * stepX, 0, !sampleOk);
-            AddHex(canvas, W, H, r, "\u21BB", "RECENT DATA", "Last loaded stations", rowOff, stepY, false);
-            AddHex(canvas, W, H, r, "🐛︎", "REPORT BUG", "Send feedback / report issue", rowOff + stepX, stepY, false, isBugReport: true);
+            AddHex(canvas, W, H, r, "", "RECENT DATA", "Last loaded stations", rowOff, stepY, false);
+            AddHex(canvas, W, H, r, "", "REPORT BUG", "Send feedback / report issue", rowOff + stepX, stepY, false, isBugReport: true);
 
             return canvas;
         }
@@ -484,7 +484,7 @@ namespace MESInsight
             {
                 Text = icon, FontSize = 32, HorizontalAlignment = HorizontalAlignment.Center,
                 Foreground = new SolidColorBrush(TextLight), Margin = new Thickness(0, 0, 0, 6),
-                FontFamily = icon.Contains("🐛") ? new FontFamily("Segoe UI Symbol") : FontFamily
+                FontFamily = new FontFamily("Segoe MDL2 Assets")
             });
             stack.Children.Add(new TextBlock
             {
@@ -506,11 +506,21 @@ namespace MESInsight
                 {
                     inner.Fill = new SolidColorBrush(HexHover);
                     outer.Fill = new SolidColorBrush(HexHover);
+                    outer.Stroke = new SolidColorBrush(Color.FromRgb(255, 180, 60));
+                    outer.StrokeThickness = 2.5;
+                    outer.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                    { Color = Color.FromRgb(230, 140, 30), BlurRadius = 30, ShadowDepth = 0, Opacity = 0.8 };
+                    inner.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                    { Color = Color.FromRgb(230, 140, 30), BlurRadius = 20, ShadowDepth = 0, Opacity = 0.5 };
                 };
                 grid.MouseLeave += (s, e) =>
                 {
                     inner.Fill = new SolidColorBrush(HexFill);
                     outer.Fill = new SolidColorBrush(HexFill);
+                    outer.Stroke = new SolidColorBrush(HexStroke);
+                    outer.StrokeThickness = 1.5;
+                    outer.Effect = null;
+                    inner.Effect = null;
                 };
                 grid.MouseLeftButtonUp += (s, e) => HandleClick(title, isExit, isBugReport);
             }

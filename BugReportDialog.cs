@@ -1,15 +1,11 @@
 ﻿using System;
 using System.Diagnostics;
-using System.IO;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using Microsoft.Win32;
 
 namespace MESInsight
 {
@@ -33,10 +29,6 @@ namespace MESInsight
 
         private readonly TextBox _descriptionBox;
         private readonly TextBox _stackTraceBox;
-        private readonly Image _imagePreview;
-        private readonly TextBlock _imageNameLabel;
-        private readonly Border _imagePreviewBorder;
-        private string _attachedImagePath;
 
         public BugReportDialog(Exception ex = null)
         {
@@ -130,57 +122,6 @@ namespace MESInsight
             body.Children.Add(_descriptionBox);
             body.Children.Add(new Border { Height = 14 });
 
-            body.Children.Add(FieldLabel("Attach a screenshot (optional)"));
-
-            var attachRow = new Grid();
-            attachRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            attachRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            _imageNameLabel = new TextBlock
-            {
-                Text = "No image selected",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(ColTextDim),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 12, 0),
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            attachRow.Children.Add(_imageNameLabel);
-
-            var attachButton = MakeAttachButton();
-            attachButton.MouseLeftButtonUp += (s, e) => BrowseForImage();
-            Grid.SetColumn(attachButton, 1);
-            attachRow.Children.Add(attachButton);
-
-            body.Children.Add(attachRow);
-            body.Children.Add(new TextBlock
-            {
-                Text =
-                    "Outlook desktop can attach the screenshot automatically. Web mail options open a draft and let you attach the image manually.",
-                FontSize = 10,
-                Foreground = new SolidColorBrush(ColTextDim),
-                Margin = new Thickness(0, 7, 0, 0),
-                TextWrapping = TextWrapping.Wrap
-            });
-
-            _imagePreviewBorder = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(9, 18, 13)),
-                BorderBrush = new SolidColorBrush(ColBorder),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(7),
-                Margin = new Thickness(0, 8, 0, 0),
-                MaxHeight = 190,
-                Visibility = Visibility.Collapsed
-            };
-            _imagePreview = new Image
-            {
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(6)
-            };
-            _imagePreviewBorder.Child = _imagePreview;
-            body.Children.Add(_imagePreviewBorder);
 
             if (!string.IsNullOrEmpty(prefilledTrace))
             {
@@ -250,31 +191,26 @@ namespace MESInsight
 
             var optionGrid = new UniformGrid
             {
-                Columns = 5,
+                Columns = 4,
                 Rows = 1
             };
             Grid.SetRow(optionGrid, 1);
-
-            var outlookDesktopTile = MakeSendTile(CreateOutlookDesktopIcon(), "Outlook app",
-                "Opens a draft in Outlook desktop and attaches your screenshot.", true);
-            outlookDesktopTile.MouseLeftButtonUp += (s, e) => Send(SendMode.OutlookDesktop);
 
             var mailAppTile = MakeSendTile(CreateMailAppIcon(), "Mail app",
                 "Opens your default desktop mail application.", false);
             mailAppTile.MouseLeftButtonUp += (s, e) => Send(SendMode.DefaultApp);
 
             var outlookWebTile = MakeSendTile(CreateOutlookWebIcon(), "Outlook Web",
-                "Opens Outlook on the web in your browser.", false);
+                "Recommended: opens web compose. Attachment must be added manually.", false);
             outlookWebTile.MouseLeftButtonUp += (s, e) => Send(SendMode.OutlookWeb);
 
-            var gmailTile = MakeSendTile(CreateGmailIcon(), "Gmail", "Opens Gmail compose in your browser.", false);
+            var gmailTile = MakeSendTile(CreateGmailIcon(), "Gmail", "Opens Gmail compose. Attachment must be added manually.", false);
             gmailTile.MouseLeftButtonUp += (s, e) => Send(SendMode.Gmail);
 
             var copyTile = MakeSendTile(CreateClipboardIcon(), "Copy report",
                 "Copies the report text and screenshot to the clipboard.", false);
             copyTile.MouseLeftButtonUp += (s, e) => CopyToClipboard();
 
-            optionGrid.Children.Add(outlookDesktopTile);
             optionGrid.Children.Add(mailAppTile);
             optionGrid.Children.Add(outlookWebTile);
             optionGrid.Children.Add(gmailTile);
@@ -292,7 +228,6 @@ namespace MESInsight
 
         private enum SendMode
         {
-            OutlookDesktop,
             DefaultApp,
             OutlookWeb,
             Gmail
@@ -300,12 +235,6 @@ namespace MESInsight
 
         private void Send(SendMode mode)
         {
-            if (mode == SendMode.OutlookDesktop)
-            {
-                SendViaOutlookDesktop();
-                return;
-            }
-
             string text = BuildReportText();
             string subject = Uri.EscapeDataString("Bug Report — MES Insight");
             string body = Uri.EscapeDataString(TruncateForUrl(text));
@@ -314,11 +243,13 @@ namespace MESInsight
             switch (mode)
             {
                 case SendMode.OutlookWeb:
+                    TryCopyReportToClipboardSilently();
                     url = "https://outlook.office.com/mail/deeplink/compose"
                           + $"?to={Uri.EscapeDataString(ReportEmail)}"
                           + $"&subject={subject}&body={body}";
                     break;
                 case SendMode.Gmail:
+                    TryCopyReportToClipboardSilently();
                     url = "https://mail.google.com/mail/?view=cm"
                           + $"&to={Uri.EscapeDataString(ReportEmail)}"
                           + $"&su={subject}&body={body}";
@@ -353,18 +284,11 @@ namespace MESInsight
                 var data = new DataObject();
                 data.SetText(BuildReportText());
 
-                bool imageCopied = TryLoadAttachedImage(out var bitmap);
-                if (imageCopied)
-                    data.SetImage(bitmap);
-
                 Clipboard.SetDataObject(data, true);
 
                 MessageBox.Show(
-                    imageCopied
-                        ? "The report text and screenshot were copied to the clipboard.\n\nPaste them into an email and send it to:\n" +
-                          ReportEmail
-                        : "The report text was copied to the clipboard.\n\nPaste it into an email and send it to:\n" +
-                          ReportEmail,
+                    "The report text was copied to the clipboard.\n\nPaste it into an email and send it to:\n" +
+                    ReportEmail,
                     "Copied",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -380,122 +304,20 @@ namespace MESInsight
             }
         }
 
-        private void BrowseForImage()
+        private void TryCopyReportToClipboardSilently()
         {
-            var dialog = new OpenFileDialog
-            {
-                Title = "Select a screenshot or image",
-                Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff|All files|*.*"
-            };
-
-            if (dialog.ShowDialog() != true)
-                return;
-
             try
             {
-                _attachedImagePath = dialog.FileName;
-                _imageNameLabel.Text = System.IO.Path.GetFileName(_attachedImagePath);
-                _imageNameLabel.Foreground = new SolidColorBrush(ColTextSec);
+                var data = new DataObject();
+                data.SetText(BuildReportText());
 
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = new Uri(_attachedImagePath);
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                bitmap.EndInit();
-                bitmap.Freeze();
-
-                _imagePreview.Source = bitmap;
-                _imagePreviewBorder.Visibility = Visibility.Visible;
+                Clipboard.SetDataObject(data, true);
             }
-            catch (Exception ex)
+            catch
             {
-                MessageBox.Show(
-                    "The image could not be loaded.\n\n" + ex.Message,
-                    "MES Insight",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
             }
         }
 
-        private void SendViaOutlookDesktop()
-        {
-            object outlook = null;
-            object mailItem = null;
-
-            try
-            {
-                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
-                if (outlookType == null)
-                    throw new InvalidOperationException("Outlook desktop is not installed.");
-
-                outlook = Activator.CreateInstance(outlookType);
-                mailItem = outlookType.InvokeMember(
-                    "CreateItem",
-                    System.Reflection.BindingFlags.InvokeMethod,
-                    null,
-                    outlook,
-                    new object[] { 0 });
-
-                var mailType = mailItem.GetType();
-                mailType.InvokeMember("To", System.Reflection.BindingFlags.SetProperty, null, mailItem,
-                    new object[] { ReportEmail });
-                mailType.InvokeMember("Subject", System.Reflection.BindingFlags.SetProperty, null, mailItem,
-                    new object[] { "Bug Report — MES Insight" });
-                mailType.InvokeMember("Body", System.Reflection.BindingFlags.SetProperty, null, mailItem,
-                    new object[] { BuildReportText() });
-
-                if (!string.IsNullOrWhiteSpace(_attachedImagePath) && File.Exists(_attachedImagePath))
-                {
-                    var attachments = mailType.InvokeMember(
-                        "Attachments",
-                        System.Reflection.BindingFlags.GetProperty,
-                        null,
-                        mailItem,
-                        null);
-
-                    attachments.GetType().InvokeMember(
-                        "Add",
-                        System.Reflection.BindingFlags.InvokeMethod,
-                        null,
-                        attachments,
-                        new object[] { _attachedImagePath });
-
-                    ReleaseComObjectIfNeeded(attachments);
-                }
-
-                mailType.InvokeMember(
-                    "Display",
-                    System.Reflection.BindingFlags.InvokeMethod,
-                    null,
-                    mailItem,
-                    new object[] { false });
-
-                MessageBox.Show(
-                    "Your bug report draft has been opened in Outlook.\n\nPlease review and send the email manually to:\n" +
-                    ReportEmail,
-                    "Draft Ready",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-
-                Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    "The email could not be sent through Outlook desktop.\n\n"
-                    + ex.Message
-                    + "\n\nPlease choose another send option if Outlook is not available.",
-                    "MES Insight — Outlook",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-            finally
-            {
-                ReleaseComObjectIfNeeded(mailItem);
-                ReleaseComObjectIfNeeded(outlook);
-            }
-        }
 
         private string BuildReportText()
         {
@@ -523,53 +345,10 @@ namespace MESInsight
             builder.AppendLine($"Machine     : {Environment.MachineName}");
             builder.AppendLine($"User        : {Environment.UserName}");
 
-            if (!string.IsNullOrEmpty(_attachedImagePath))
-            {
-                builder.AppendLine();
-                builder.AppendLine("--- Selected Screenshot ---");
-                builder.AppendLine(_attachedImagePath);
-                builder.AppendLine(
-                    "Outlook desktop can attach this file automatically. Web mail options require a manual attachment.");
-            }
 
             return builder.ToString();
         }
 
-        private static bool TryLoadAttachedImage(string path, out BitmapSource bitmap)
-        {
-            bitmap = null;
-
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                return false;
-
-            try
-            {
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.UriSource = new Uri(path);
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                image.EndInit();
-                image.Freeze();
-                bitmap = image;
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private bool TryLoadAttachedImage(out BitmapSource bitmap)
-        {
-            return TryLoadAttachedImage(_attachedImagePath, out bitmap);
-        }
-
-        private static void ReleaseComObjectIfNeeded(object value)
-        {
-            if (value != null && Marshal.IsComObject(value))
-                Marshal.FinalReleaseComObject(value);
-        }
 
         private static string TruncateForUrl(string text, int maxChars = 900)
         {
@@ -613,87 +392,6 @@ namespace MESInsight
             return box;
         }
 
-        private Border MakeAttachButton()
-        {
-            var title = new TextBlock
-            {
-                Text = "Attach image",
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(ColTextPri)
-            };
-
-            var subtitle = new TextBlock
-            {
-                Text = "Open file picker",
-                FontSize = 9,
-                Foreground = new SolidColorBrush(ColTextDim),
-                Margin = new Thickness(0, 1, 0, 0)
-            };
-
-            var symbol = new Border
-            {
-                Width = 24,
-                Height = 24,
-                CornerRadius = new CornerRadius(12),
-                Background = new SolidColorBrush(Color.FromArgb(60, ColGreen.R, ColGreen.G, ColGreen.B)),
-                Child = new TextBlock
-                {
-                    Text = "+",
-                    FontSize = 15,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(ColGreenSoft),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextAlignment = TextAlignment.Center
-                }
-            };
-
-            var textStack = new StackPanel
-            {
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0, 0, 0)
-            };
-            textStack.Children.Add(title);
-            textStack.Children.Add(subtitle);
-
-            var content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            content.Children.Add(symbol);
-            content.Children.Add(textStack);
-
-            var normalBg = new SolidColorBrush(Color.FromRgb(18, 34, 24));
-            var hoverBg = new SolidColorBrush(Color.FromRgb(23, 43, 30));
-            var normalBorder = new SolidColorBrush(ColBorderAlt);
-            var hoverBorder = new SolidColorBrush(ColGreenSoft);
-
-            var button = new Border
-            {
-                Background = normalBg,
-                BorderBrush = normalBorder,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(9),
-                Padding = new Thickness(12, 8, 14, 8),
-                Cursor = Cursors.Hand,
-                Child = content
-            };
-
-            button.MouseEnter += (s, e) =>
-            {
-                button.Background = hoverBg;
-                button.BorderBrush = hoverBorder;
-            };
-            button.MouseLeave += (s, e) =>
-            {
-                button.Background = normalBg;
-                button.BorderBrush = normalBorder;
-            };
-
-            return button;
-        }
 
         private static Border MakeSendTile(FrameworkElement icon, string title, string subtitle, bool recommended)
         {
