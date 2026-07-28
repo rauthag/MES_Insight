@@ -3,6 +3,135 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <DrawingImage x:Key="MesAppIcon">
+            <DrawingImage.Drawing>
+                <DrawingGroup>
+                    <DrawingGroup
+                        ClipGeometry="M34.3,233.1 L125.7,62.9 Q138,40 164,40 L348,40 Q374,40 386.3,62.9 L477.7,233.1 Q490,256 477.7,278.9 L386.3,449.1 Q374,472 348,472 L164,472 Q138,472 125.7,449.1 L34.3,278.9 Q22,256 34.3,233.1 Z">
+                        <GeometryDrawing Brush="#D9701E">
+                            <GeometryDrawing.Geometry>
+                                <RectangleGeometry Rect="0,0,512,512" />
+                            </GeometryDrawing.Geometry>
+                        </GeometryDrawing>
+
+                        <GeometryDrawing Brush="#3FB950">
+                            <GeometryDrawing.Geometry>
+                                <PathGeometry Figures="M0,95 C180,45 250,220 512,140 L512,0 L0,0 Z" />
+                            </GeometryDrawing.Geometry>
+                        </GeometryDrawing>
+
+                        <GeometryDrawing Brush="#58A6FF">
+                            <GeometryDrawing.Geometry>
+                                <PathGeometry Figures="M0,405 C200,455 300,325 512,395 L512,512 L0,512 Z" />
+                            </GeometryDrawing.Geometry>
+                        </GeometryDrawing>
+                    </DrawingGroup>
+
+                    <GeometryDrawing Brush="#8C000000">
+                        <GeometryDrawing.Geometry>
+                            <PathGeometry
+                                Figures="M125,397 L125,127 L173,127 L220,249 L267,127 L315,127 L315,397 L271,397 L271,253 L235,336 L205,336 L169,253 L169,397 Z" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#8C000000">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="347,127,48,48" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#8C000000">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="347,213,48,184" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Geometry>
+                            <PathGeometry
+                                Figures="M120,390 L120,120 L168,120 L215,242 L262,120 L310,120 L310,390 L266,390 L266,246 L230,329 L200,329 L164,246 L164,390 Z" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="342,120,48,48" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="342,206,48,184" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingImage.Drawing>
+        </DrawingImage>
+
+        <DrawingImage x:Key="MesAppIconSmall">
+            <DrawingImage.Drawing>
+                <DrawingGroup>
+                    <DrawingGroup
+                        ClipGeometry="M34.3,233.1 L125.7,62.9 Q138,40 164,40 L348,40 Q374,40 386.3,62.9 L477.7,233.1 Q490,256 477.7,278.9 L386.3,449.1 Q374,472 348,472 L164,472 Q138,472 125.7,449.1 L34.3,278.9 Q22,256 34.3,233.1 Z">
+                        <GeometryDrawing Brush="#D9701E">
+                            <GeometryDrawing.Geometry>
+                                <RectangleGeometry Rect="0,0,512,512" />
+                            </GeometryDrawing.Geometry>
+                        </GeometryDrawing>
+
+                        <GeometryDrawing Brush="#3FB950">
+                            <GeometryDrawing.Geometry>
+                                <PathGeometry Figures="M0,95 C180,45 250,220 512,140 L512,0 L0,0 Z" />
+                            </GeometryDrawing.Geometry>
+                        </GeometryDrawing>
+
+                        <GeometryDrawing Brush="#58A6FF">
+                            <GeometryDrawing.Geometry>
+                                <PathGeometry Figures="M0,405 C200,455 300,325 512,395 L512,512 L0,512 Z" />
+                            </GeometryDrawing.Geometry>
+                        </GeometryDrawing>
+                    </DrawingGroup>
+
+                    <GeometryDrawing Brush="#73000000">
+                        <GeometryDrawing.Geometry>
+                            <PathGeometry
+                                Figures="M125,397 L125,127 L173,127 L220,249 L267,127 L315,127 L315,397 L271,397 L271,253 L235,336 L205,336 L169,253 L169,397 Z" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#73000000">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="347,127,48,48" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#73000000">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="347,213,48,184" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Geometry>
+                            <PathGeometry
+                                Figures="M120,390 L120,120 L168,120 L215,242 L262,120 L310,120 L310,390 L266,390 L266,246 L230,329 L200,329 L164,246 L164,390 Z" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="342,120,48,48" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="342,206,48,184" RadiusX="8" RadiusY="8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingImage.Drawing>
+        </DrawingImage>
         <FontFamily x:Key="InterFont">pack://application:,,,/Fonts/#Inter 18pt</FontFamily>
         <FontFamily x:Key="InterThin">pack://application:,,,/Fonts/#Inter 18pt Thin</FontFamily>
         <FontFamily x:Key="InterLight">pack://application:,,,/Fonts/#Inter 18pt Light</FontFamily>
@@ -51,6 +180,63 @@
                                 </Track.Thumb>
                             </Track>
                         </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="MesRangeSliderThumb" TargetType="Thumb">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Ellipse Fill="#3FB950" Stroke="#0A1F0F" StrokeThickness="2">
+                            <Ellipse.Effect>
+                                <DropShadowEffect Color="#3FB950" BlurRadius="10" ShadowDepth="0" Opacity="0.55" />
+                            </Ellipse.Effect>
+                        </Ellipse>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="MesRangeSlider" TargetType="Slider">
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border Height="3"
+                                    Background="#12331A"
+                                    CornerRadius="1.5"
+                                    VerticalAlignment="Center" />
+                            <Border x:Name="PART_FillTrack"
+                                    Height="3"
+                                    Background="#3FB950"
+                                    CornerRadius="1.5"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Width="0" />
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Background="Transparent"
+                                                  BorderThickness="0"
+                                                  Focusable="False"
+                                                  Command="Slider.DecreaseLarge" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Background="Transparent"
+                                                  BorderThickness="0"
+                                                  Focusable="False"
+                                                  Command="Slider.IncreaseLarge" />
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource MesRangeSliderThumb}" />
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>

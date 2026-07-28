@@ -194,6 +194,7 @@ namespace MESInsight.UI
                     Margin = new Thickness(8, 4, 0, 0)
                 });
         }
+        
 
         private static UIElement BuildPageButton(string label, Action onClick)
         {

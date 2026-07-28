@@ -88,6 +88,7 @@ namespace MESInsight
         private Border _rootBorder;
         private bool _isExpanded = false;
         private BugReportPanel _bugReportPanel;
+        private int _expandedPanelTransitionVersion;
 
 
         public StartupWindow()
@@ -98,14 +99,16 @@ namespace MESInsight
             MinWidth = 900;
             MinHeight = 700;
             ResizeMode = ResizeMode.NoResize;
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            WindowStartupLocation = WindowStartupLocation.Manual;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
             Background = Brushes.Transparent;
             FontFamily = new FontFamily(new Uri("pack://application:,,,/"), "./Fonts/#Inter 18pt");
             Content = BuildLayout();
+            Icon = TryFindResource("MesAppIcon") as ImageSource;
             StateChanged += (s, e) => UpdateRootBorderForWindowState();
             SourceInitialized += (s, e) => UpdateRootBorderForWindowState();
+            Loaded += (s, e) => FitAndCenterToMonitor();
         }
 
 
@@ -118,18 +121,75 @@ namespace MESInsight
             source?.AddHook(WindowProc);
         }
 
+        private void FitAndCenterToMonitor()
+        {
+            IntPtr anchorHwnd = IntPtr.Zero;
+
+            if (Owner != null)
+            {
+                anchorHwnd = new WindowInteropHelper(Owner).Handle;
+            }
+
+            if (anchorHwnd == IntPtr.Zero)
+            {
+                anchorHwnd = new WindowInteropHelper(this).Handle;
+            }
+
+            if (anchorHwnd == IntPtr.Zero) return;
+
+            IntPtr monitor = MonitorFromWindow(anchorHwnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return;
+
+            MONITORINFO monitorInfo = new MONITORINFO();
+            if (!GetMonitorInfo(monitor, monitorInfo)) return;
+
+            double scaleX = 1.0;
+            double scaleY = 1.0;
+            PresentationSource source = PresentationSource.FromVisual(this);
+            if (source?.CompositionTarget != null)
+            {
+                Matrix transformFromDevice = source.CompositionTarget.TransformFromDevice;
+                scaleX = transformFromDevice.M11;
+                scaleY = transformFromDevice.M22;
+            }
+
+            double workLeft = monitorInfo.rcWork.left * scaleX;
+            double workTop = monitorInfo.rcWork.top * scaleY;
+            double workWidth = (monitorInfo.rcWork.right - monitorInfo.rcWork.left) * scaleX;
+            double workHeight = (monitorInfo.rcWork.bottom - monitorInfo.rcWork.top) * scaleY;
+
+            const double marginDip = 24;
+            double maxWidth = Math.Max(480, workWidth - (marginDip * 2));
+            double maxHeight = Math.Max(360, workHeight - (marginDip * 2));
+
+            MinWidth = Math.Min(MinWidth, maxWidth);
+            MinHeight = Math.Min(MinHeight, maxHeight);
+            Width = Math.Min(Width, maxWidth);
+            Height = Math.Min(Height, maxHeight);
+
+            Left = workLeft + (workWidth - Width) / 2.0;
+            Top = workTop + (workHeight - Height) / 2.0;
+        }
+
         internal void ShowBugReportPanel(Exception ex = null)
         {
+            int version = BeginExpandedPanelTransition();
+
             if (_bugReportPanel != null)
             {
+                _bugReportPanel.RequestClose -= CloseBugReportPanel;
                 _expandedPanel.Children.Remove(_bugReportPanel);
             }
 
             _bugReportPanel = new BugReportPanel(ex);
             _bugReportPanel.RequestClose += CloseBugReportPanel;
+            if (version != _expandedPanelTransitionVersion) return;
+
+            _expandedPanel.Children.Clear();
             _expandedPanel.Children.Add(_bugReportPanel);
 
             _canvas.Visibility = Visibility.Collapsed;
+            _expandedPanel.Opacity = 1;
             _expandedPanel.Visibility = Visibility.Visible;
             _isExpanded = true;
         }
@@ -250,15 +310,7 @@ namespace MESInsight
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(28, 0, 0, 0)
             };
-            hStack.Children.Add(new TextBlock
-            {
-                Text = "\U0001F4CA",
-                FontSize = 32,
-                Foreground = new SolidColorBrush(HexFill),
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 10, 0)
-            });
+            hStack.Children.Add(BuildAppLogo(34, new Thickness(0, 3, 12, 3)));
             var ts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             ts.Children.Add(new TextBlock
             {
@@ -301,6 +353,23 @@ namespace MESInsight
 
             header.Child = headerGrid;
             return header;
+        }
+
+        private Image BuildAppLogo(double size, Thickness margin)
+        {
+            ImageSource appLogo = TryFindResource("MesAppIconSmall") as ImageSource
+                                  ?? TryFindResource("MesAppIcon") as ImageSource;
+
+            return new Image
+            {
+                Source = appLogo,
+                Width = size,
+                Height = size,
+                Margin = margin,
+                Stretch = Stretch.Uniform,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
         }
 
         private Border CreateWindowControlButton(
@@ -433,13 +502,14 @@ namespace MESInsight
                 Height = stepY + H
             };
 
-            AddHex(canvas, W, H, r, "", "LOCAL FOLDER", "Local or network path", 0 * stepX, 0, false);
-            AddHex(canvas, W, H, r, "", "REMOTE BACKUP LOGS", "MES Backup disc access needed", 1 * stepX, 0,
+            AddHex(canvas, W, H, r, "📁", "LOCAL FOLDER", "Local or network path", 0 * stepX, 0, false);
+            AddHex(canvas, W, H, r, "🌐", "REMOTE BACKUP LOGS", "MES Backup disc access needed", 1 * stepX, 0,
                 false);
-            AddHex(canvas, W, H, r, "", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
+            AddHex(canvas, W, H, r, "📊", "SAMPLE DATA", sampleOk ? "Demo data ready" : "Not available",
                 2 * stepX, 0, !sampleOk);
-            AddHex(canvas, W, H, r, "", "RECENT DATA", "Last loaded stations", rowOff, stepY, false);
-            AddHex(canvas, W, H, r, "", "REPORT BUG", "Send feedback / report issue", rowOff + stepX, stepY, false, isBugReport: true);
+            AddHex(canvas, W, H, r, "🕒", "RECENT DATA", "Last loaded stations", rowOff, stepY, false);
+            AddHex(canvas, W, H, r, "🐛", "REPORT BUG", "Send feedback / report issue", rowOff + stepX, stepY, false,
+                isBugReport: true);
 
             return canvas;
         }
@@ -462,18 +532,23 @@ namespace MESInsight
             double cx = W / 2;
             double cy = H / 2;
 
-            var outer = new Polygon
-                { Fill = new SolidColorBrush(HexFill), Stroke = new SolidColorBrush(HexFill), StrokeThickness = 0.3 };
-            var inner = new Polygon
-                { Fill = new SolidColorBrush(HexFill), Stroke = new SolidColorBrush(HexStroke), StrokeThickness = 5 };
+            const double cornerRadius = 10;
+            const double startAngleDeg = -90;
 
-            for (int i = 0; i < 6; i++)
+            var outer = new System.Windows.Shapes.Path
             {
-                double angle = Math.PI / 180.0 * (60 * i - 90);
-                double rIn = r * 0.93;
-                outer.Points.Add(new Point(cx + r * Math.Cos(angle), cy + r * Math.Sin(angle)));
-                inner.Points.Add(new Point(cx + rIn * Math.Cos(angle), cy + rIn * Math.Sin(angle)));
-            }
+                Fill = new SolidColorBrush(HexFill),
+                Stroke = new SolidColorBrush(HexFill),
+                StrokeThickness = 0.3,
+                Data = CreateRoundedHexagon(cx, cy, r, cornerRadius, startAngleDeg)
+            };
+            var inner = new System.Windows.Shapes.Path
+            {
+                Fill = new SolidColorBrush(HexFill),
+                Stroke = new SolidColorBrush(HexStroke),
+                StrokeThickness = 5,
+                Data = CreateRoundedHexagon(cx, cy, r * 0.93, cornerRadius * 0.93, startAngleDeg)
+            };
 
             grid.Children.Add(outer);
             grid.Children.Add(inner);
@@ -484,7 +559,7 @@ namespace MESInsight
             {
                 Text = icon, FontSize = 32, HorizontalAlignment = HorizontalAlignment.Center,
                 Foreground = new SolidColorBrush(TextLight), Margin = new Thickness(0, 0, 0, 6),
-                FontFamily = new FontFamily("Segoe MDL2 Assets")
+                FontFamily = new FontFamily("Segoe UI Symbol")
             });
             stack.Children.Add(new TextBlock
             {
@@ -509,9 +584,9 @@ namespace MESInsight
                     outer.Stroke = new SolidColorBrush(Color.FromRgb(255, 180, 60));
                     outer.StrokeThickness = 2.5;
                     outer.Effect = new System.Windows.Media.Effects.DropShadowEffect
-                    { Color = Color.FromRgb(230, 140, 30), BlurRadius = 30, ShadowDepth = 0, Opacity = 0.8 };
+                        { Color = Color.FromRgb(230, 140, 30), BlurRadius = 30, ShadowDepth = 0, Opacity = 0.8 };
                     inner.Effect = new System.Windows.Media.Effects.DropShadowEffect
-                    { Color = Color.FromRgb(230, 140, 30), BlurRadius = 20, ShadowDepth = 0, Opacity = 0.5 };
+                        { Color = Color.FromRgb(230, 140, 30), BlurRadius = 20, ShadowDepth = 0, Opacity = 0.5 };
                 };
                 grid.MouseLeave += (s, e) =>
                 {
@@ -528,6 +603,48 @@ namespace MESInsight
             Canvas.SetLeft(grid, left);
             Canvas.SetTop(grid, top);
             canvas.Children.Add(grid);
+        }
+
+        private static Geometry CreateRoundedHexagon(double cx, double cy, double r, double cornerRadius,
+            double startAngleDeg)
+        {
+            var pts = new Point[6];
+            for (int i = 0; i < 6; i++)
+            {
+                double angle = Math.PI / 180.0 * (startAngleDeg + 60 * i);
+                pts[i] = new Point(cx + r * Math.Cos(angle), cy + r * Math.Sin(angle));
+            }
+
+            var before = new Point[6];
+            var after = new Point[6];
+            for (int i = 0; i < 6; i++)
+            {
+                Point prev = pts[(i + 5) % 6];
+                Point curr = pts[i];
+                Point next = pts[(i + 1) % 6];
+
+                Vector inDir = curr - prev;
+                inDir.Normalize();
+                Vector outDir = next - curr;
+                outDir.Normalize();
+
+                before[i] = curr - inDir * cornerRadius;
+                after[i] = curr + outDir * cornerRadius;
+            }
+
+            var figure = new PathFigure { StartPoint = before[0], IsClosed = true, IsFilled = true };
+            for (int i = 0; i < 6; i++)
+            {
+                figure.Segments.Add(new QuadraticBezierSegment(pts[i], after[i], true));
+                int nextIdx = (i + 1) % 6;
+                if (nextIdx != 0)
+                    figure.Segments.Add(new LineSegment(before[nextIdx], true));
+            }
+
+            var geo = new PathGeometry();
+            geo.Figures.Add(figure);
+            geo.Freeze();
+            return geo;
         }
 
 
@@ -563,6 +680,7 @@ namespace MESInsight
         {
             if (_isExpanded) return;
             _isExpanded = true;
+            int version = BeginExpandedPanelTransition();
 
             foreach (UIElement child in _canvas.Children)
                 if (child is Grid g && g.Tag?.ToString() != title)
@@ -594,7 +712,6 @@ namespace MESInsight
             };
             spinnerPanel.Children.Add(loadingText);
             spinnerPanel.Children.Add(dotsLabel);
-            _expandedPanel.Children.Clear();
             _expandedPanel.Children.Add(spinnerPanel);
             _expandedPanel.Opacity = 0;
             _expandedPanel.Visibility = Visibility.Visible;
@@ -612,8 +729,17 @@ namespace MESInsight
 
             await Task.Delay(300);
 
+            if (version != _expandedPanelTransitionVersion)
+            {
+                timer.Stop();
+                return;
+            }
+
             timer.Stop();
             var content = buildContent();
+
+            if (version != _expandedPanelTransitionVersion) return;
+
             _expandedPanel.Children.Clear();
             _expandedPanel.Children.Add(content);
         }
@@ -623,10 +749,14 @@ namespace MESInsight
         {
             if (!_isExpanded) return;
 
+            int version = ++_expandedPanelTransitionVersion;
+
             AnimateOpacity(_expandedPanel, 1, 0, 200, () =>
             {
+                if (version != _expandedPanelTransitionVersion) return;
                 _expandedPanel.Visibility = Visibility.Collapsed;
                 _expandedPanel.Children.Clear();
+                _expandedPanel.Opacity = 1;
             });
 
             foreach (UIElement child in _canvas.Children)
@@ -634,6 +764,16 @@ namespace MESInsight
                     AnimateOpacity(g, g.Opacity, 1.0, 250);
 
             _isExpanded = false;
+        }
+
+        private int BeginExpandedPanelTransition()
+        {
+            int version = ++_expandedPanelTransitionVersion;
+            _expandedPanel.BeginAnimation(UIElement.OpacityProperty, null);
+            _expandedPanel.Children.Clear();
+            _expandedPanel.Opacity = 1;
+            _expandedPanel.Visibility = Visibility.Visible;
+            return version;
         }
 
         private static void AnimateOpacity(UIElement el, double from, double to, int ms, Action onComplete = null)

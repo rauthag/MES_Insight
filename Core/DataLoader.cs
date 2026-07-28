@@ -155,6 +155,26 @@ namespace MESInsight.Core
             return result;
         }
 
+        public static Dictionary<int, MonthFileInfo> DeriveGlobalCounts(
+            Dictionary<string, Dictionary<int, MonthFileInfo>> perStationCounts, int[] days)
+        {
+            Dictionary<int, MonthFileInfo> globalResult = InitMonthResult(days);
+
+            foreach (Dictionary<int, MonthFileInfo> stationCounts in perStationCounts.Values)
+            foreach (int d in days)
+            {
+                if (!stationCounts.TryGetValue(d, out MonthFileInfo stationBucket)) continue;
+
+                MonthFileInfo globalBucket = globalResult[d];
+                globalBucket.FileCount += stationBucket.FileCount;
+                globalBucket.SizeBytes += stationBucket.SizeBytes;
+                if (stationBucket.MinDate < globalBucket.MinDate) globalBucket.MinDate = stationBucket.MinDate;
+                if (stationBucket.MaxDate > globalBucket.MaxDate) globalBucket.MaxDate = stationBucket.MaxDate;
+            }
+
+            return globalResult;
+        }
+
         public static List<StationInfo> FindStations(string rootPath)
         {
             List<StationInfo> stations = new List<StationInfo>();
@@ -252,7 +272,6 @@ namespace MESInsight.Core
 
                     if (!fileContainsUid) return;
 
-                    // Parsuj celý súbor normálne
                     var loader = new DataLoader { DateFilter = null };
                     var result = new DataLoadResult();
 
@@ -264,7 +283,6 @@ namespace MESInsight.Core
                             ReadOldFormatLines(fs, fileName, result, null);
                     }
 
-                    // Filtruj len záznamy s daným UID
                     foreach (var r in result.Records)
                     {
                         if (r.Uid == uid || r.UidIn == uid || r.UidOut == uid ||
@@ -479,7 +497,6 @@ namespace MESInsight.Core
 
             string name = GetRealStationNameFromPath(stationPath);
 
-            //string          name     = ExtractStationNameFromFolderName(Path.GetFileName(stationPath));
             string line = ExtractLineName(allParts);
             string computer = ExtractComputerName(allParts);
             StationCategory category = DetermineCategory(stationPath, name);
@@ -488,7 +505,6 @@ namespace MESInsight.Core
             {
                 name = computer;
             }
-            //
 
             return new StationInfo
             {
@@ -557,27 +573,30 @@ namespace MESInsight.Core
         public static Dictionary<string, Dictionary<int, MonthFileInfo>> CountFilesByStationAndDays(
             List<StationInfo> stations, int[] days)
         {
-            Dictionary<string, Dictionary<int, MonthFileInfo>> result =
-                new Dictionary<string, Dictionary<int, MonthFileInfo>>();
+            ConcurrentDictionary<string, Dictionary<int, MonthFileInfo>> result =
+                new ConcurrentDictionary<string, Dictionary<int, MonthFileInfo>>();
 
-            foreach (StationInfo station in stations)
+            ParallelOptions parallelOptions = new ParallelOptions
+                { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+
+            Parallel.ForEach(stations, parallelOptions, station =>
             {
                 Dictionary<int, MonthFileInfo> stationResult = InitMonthResult(days);
 
                 try
                 {
                     List<string> files = GetCountableFiles(station.FolderPath);
-
-                    foreach (string file in files) AccumulateFileIntoMonthBuckets(file, days, stationResult);
+                    foreach (string file in files)
+                        AccumulateFileIntoMonthBuckets(file, days, stationResult);
                 }
                 catch
                 {
                 }
 
                 result[station.FolderPath] = stationResult;
-            }
+            });
 
-            return result;
+            return new Dictionary<string, Dictionary<int, MonthFileInfo>>(result);
         }
 
         private static void TryUpdateStationNameHolder(string[] holder, string candidate)
@@ -901,7 +920,6 @@ namespace MESInsight.Core
 
                     if (line.Contains("[C->S"))
                     {
-                        // Ak predchádzajúci request nemal response, parsuj ho s RT=0
                         if (plcLine != null)
                         {
                             int before = result.Records.Count;
@@ -925,7 +943,6 @@ namespace MESInsight.Core
                         lineProgress?.Invoke(lineNum, recCount, ProgressPct(readBytes, totalBytes));
                 }
 
-                // Posledný request bez response
                 if (plcLine != null)
                     TryParseRequestOnlyRecord(plcLine, sourceName, result, cutoff);
             }
@@ -941,7 +958,6 @@ namespace MESInsight.Core
 
             string content = cols[3];
 
-            // Musí obsahovať STX
             if (!content.Contains("<STX>") && !content.Contains("REQ_") && !content.Contains("UNIT_"))
                 return;
 
@@ -1020,13 +1036,12 @@ namespace MESInsight.Core
             string merged = mes + " " + plc;
             var msgType = ParseMessageType(mes);
 
-            // For PANEL types — extract positional result values
             string panelResult = null;
             if (!isError)
             {
                 if (msgType == MessageType.PANEL_CHECKIN)
                     panelResult = ExtractPanelPositionalValue(merged, "processdir_")
-                               ?? Attr(merged, "processdir=");
+                                  ?? Attr(merged, "processdir=");
                 else if (msgType == MessageType.PANEL_RESULT)
                     panelResult = ExtractPanelPositionalValue(merged, "result_");
             }
@@ -1074,6 +1089,7 @@ namespace MESInsight.Core
                 string val = Attr(merged, prefix + i + "=");
                 if (val != null) return val;
             }
+
             return null;
         }
 
@@ -1259,7 +1275,9 @@ namespace MESInsight.Core
                 UidIn = ExtractAttribute(mergedBody, "uid_in="),
                 UidOut = ExtractAttribute(mergedBody, "uid_out="),
                 UidType = ExtractAttribute(mergedBody, "uid_type="),
-                Result = isError ? (errorText ?? "ERROR") : ExtractAttribute(mergedBody, "result=") ?? ExtractAttribute(mergedBody, "processdirective="),
+                Result = isError
+                    ? (errorText ?? "ERROR")
+                    : ExtractAttribute(mergedBody, "result=") ?? ExtractAttribute(mergedBody, "processdirective="),
                 CarrierId = ExtractAttribute(mergedBody, "Carrier_ID_val="),
                 Material = ExtractAttribute(mergedBody, "material="),
                 Setup = ExtractAttribute(mergedBody, "setup="),
@@ -1329,16 +1347,16 @@ namespace MESInsight.Core
 
             return new ResponseRecord
             {
-                Timestamp       = timestampRaw,
+                Timestamp = timestampRaw,
                 TimestampParsed = parsedTimestamp,
-                ResponseTime    = responseTime,
-                FileName        = sourceName,
-                Type            = msgType,
-                Uid             = posUid,
-                Result          = result,
-                PanelId         = pid,
-                EquipId         = equipId,
-                MeasValuesRaw   = msgType == MessageType.PANEL_RESULT ? tfile : null
+                ResponseTime = responseTime,
+                FileName = sourceName,
+                Type = msgType,
+                Uid = posUid,
+                Result = result,
+                PanelId = pid,
+                EquipId = equipId,
+                MeasValuesRaw = msgType == MessageType.PANEL_RESULT ? tfile : null
             };
         }
 
@@ -1473,9 +1491,16 @@ namespace MESInsight.Core
             return false;
         }
 
+        private static readonly ConcurrentDictionary<string, DateTime> FileDateCache =
+            new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
         private static DateTime EstimateFileDate(string filePath)
         {
+            if (FileDateCache.TryGetValue(filePath, out DateTime cachedDate))
+                return cachedDate;
+
             string fileName = Path.GetFileName(filePath);
+            DateTime resolvedDate;
 
             Match nm = RxYyyyMmDd.Match(fileName);
             if (nm.Success &&
@@ -1483,32 +1508,49 @@ namespace MESInsight.Core
                 int.TryParse(nm.Groups[2].Value, out int mo) &&
                 int.TryParse(nm.Groups[3].Value, out int d) &&
                 mo >= 1 && mo <= 12 && d >= 1 && d <= 31)
-                return new DateTime(y, mo, d);
+            {
+                resolvedDate = new DateTime(y, mo, d);
+                FileDateCache[filePath] = resolvedDate;
+                return resolvedDate;
+            }
 
             Match mm = RxMmYyyy.Match(fileName);
             if (mm.Success &&
                 int.TryParse(mm.Groups[1].Value, out int mo2) &&
                 int.TryParse(mm.Groups[2].Value, out int y2) &&
                 mo2 >= 1 && mo2 <= 12)
-                return new DateTime(y2, mo2, 1);
+            {
+                resolvedDate = new DateTime(y2, mo2, 1);
+                FileDateCache[filePath] = resolvedDate;
+                return resolvedDate;
+            }
 
             try
             {
                 if (Path.GetExtension(fileName).ToLowerInvariant() == ".zip")
-                    return File.GetLastWriteTime(filePath);
+                {
+                    resolvedDate = File.GetLastWriteTime(filePath);
+                    FileDateCache[filePath] = resolvedDate;
+                    return resolvedDate;
+                }
 
                 using (StreamReader reader = new StreamReader(filePath))
                 {
                     string first = reader.ReadLine();
                     if (first != null && TryParseTimestampFlexible(first, out DateTime parsed))
+                    {
+                        FileDateCache[filePath] = parsed;
                         return parsed;
+                    }
                 }
             }
             catch
             {
             }
 
-            return File.GetLastWriteTime(filePath);
+            resolvedDate = File.GetLastWriteTime(filePath);
+            FileDateCache[filePath] = resolvedDate;
+            return resolvedDate;
         }
 
         #endregion

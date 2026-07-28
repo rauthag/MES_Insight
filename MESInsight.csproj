@@ -133,6 +133,7 @@
         <Compile Include="Charts\ScottPlotTrendData.cs" />
         <Compile Include="Core\AssemblyTreeBuilder.cs" />
         <Compile Include="Core\DataLoader.cs"/>
+        <Compile Include="Core\DataLoaderDiagnostics.cs" />
         <Compile Include="Core\DataModels.cs"/>
         <Compile Include="Core\DateTimeHelper.cs"/>
         <Compile Include="Core\MessageColors.cs" />

@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:lvc="clr-namespace:LiveCharts.Wpf;assembly=LiveCharts.Wpf"
         Title="MES Insight" WindowStartupLocation="Manual"
+        Icon="{StaticResource MesAppIcon}"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="CanResize"
         Background="#0D1117"
         MinWidth="1024" MinHeight="600"
@@ -435,7 +436,7 @@
     <Border x:Name="RootBorder" Background="#0D1117" BorderBrush="#1A3A20" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="36" />
+                <RowDefinition Height="40" />
                 <RowDefinition Height="52" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
@@ -466,8 +467,11 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
-                    <TextBlock Text="⏱" FontSize="14" Foreground="#3FB950" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <TextBlock Text="🗠  MES Insight"
+                    <Image Source="{StaticResource MesAppIconSmall}"
+                           Width="26" Height="26"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0" />
+                    <TextBlock Text="MES Insight"
                                FontSize="13" FontWeight="Light"
                                Foreground="#E6EDF3"
                                VerticalAlignment="Center" />

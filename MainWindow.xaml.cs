@@ -107,11 +107,20 @@ namespace MESInsight
             public int dwFlags;
         }
 
-        [DllImport("user32")]
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT pt, int flags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr handle, int flags);
+
+        [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, MONITORINFO lpmi);
 
-        [DllImport("user32")]
-        private static extern IntPtr MonitorFromWindow(IntPtr handle, int flags);
+        private const double RuntimeRamFactor = 3.5;
+
 
         #region Fields
 
@@ -183,6 +192,8 @@ namespace MESInsight
             ValidateLoadingControls();
             DataContext = this;
             OpenSubsetHistory = uid => OpenSubsetHistoryTab(uid);
+
+            PositionOnMonitorUnderCursor();
             WindowState = WindowState.Maximized;
 
             _chartFactory = new ChartFactory(
@@ -206,7 +217,7 @@ namespace MESInsight
                 if (LoadingStationLog != null)
                     LoadingStationLog.ItemsSource = _stationLogEntries;
 
-                StartupWindow startup = new StartupWindow();
+                StartupWindow startup = CreateOwnedStartupWindow();
                 bool? result = startup.ShowDialog();
 
                 if (result == true && !string.IsNullOrEmpty(startup.SelectedPath))
@@ -263,6 +274,21 @@ namespace MESInsight
             }
 
             Marshal.StructureToPtr(mmi, lParam, true);
+        }
+
+        private void PositionOnMonitorUnderCursor()
+        {
+            if (!GetCursorPos(out POINT cursor)) return;
+
+            IntPtr monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return;
+
+            MONITORINFO monitorInfo = new MONITORINFO();
+            if (!GetMonitorInfo(monitor, monitorInfo)) return;
+
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = monitorInfo.rcWork.left;
+            Top = monitorInfo.rcWork.top;
         }
 
         private void ValidateLoadingControls()
@@ -407,11 +433,10 @@ namespace MESInsight
         {
             Window spinner = ShowScanningSpinner("Scanning stations...");
 
-            Dictionary<int, MonthFileInfo> fileCounts = await Task.Run(() =>
-                DataLoader.CountFilesByMonthCutoffs(commonRoot, LoadOptionsDialog.GetDayOption()));
-
             Dictionary<string, Dictionary<int, MonthFileInfo>> perStationCounts = await Task.Run(() =>
                 DataLoader.CountFilesByStationAndDays(allStations, LoadOptionsDialog.GetDayOption()));
+            Dictionary<int, MonthFileInfo> fileCounts =
+                DataLoader.DeriveGlobalCounts(perStationCounts, LoadOptionsDialog.GetDayOption());
 
             spinner?.Close();
 
@@ -498,13 +523,11 @@ namespace MESInsight
             HideLoadingOverlay();
             RebuildStationBar();
 
-            if (!string.IsNullOrEmpty(rootPath))
-                StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
-
             if (_lazyLoadStations.Count > 0)
                 StartBackgroundLoading();
 
-            StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
+            if (!string.IsNullOrEmpty(rootPath))
+                StartupWindow.SaveRecentPath(rootPath, _loadedStations.Concat(_lazyLoadStations).ToList());
         }
 
         private void BuildStationLogEntries(
@@ -535,48 +558,6 @@ namespace MESInsight
             AddSection("BACKFLUSH STATIONS", backflush.Where(s => stations.Contains(s)).ToList());
         }
 
-        private async Task<int> LoadSingleStationInLoop(List<StationInfo> stations, int i, int totalFiles)
-        {
-            StationInfo st = stations[i];
-
-            if (!await CheckRamAndProceed(stations, i))
-                return totalFiles;
-
-            UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
-
-            DataLoadResult loadResult = await LoadStationFiles(stations, i);
-
-            string displayName = ResolveDisplayName(loadResult.StationName, st.StationName);
-            st.StationName = displayName;
-
-            totalFiles += StoreLoadResult(st, i, loadResult, displayName, totalFiles);
-
-            await BuildAndCacheCharts(st, loadResult, displayName, stations, i, totalFiles);
-
-            HandleEmptyStation(st, loadResult);
-
-            UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
-            RebuildStationBarThrottled();
-
-            await SwitchToFirstStationOrRebuild(stations, i, loadResult);
-
-            return totalFiles;
-        }
-
-        private async Task<bool> CheckRamAndProceed(List<StationInfo> stations, int i)
-        {
-            if (i == 0 || CheckRamBeforeLoading(100000))
-                return true;
-
-            bool proceed = ShowRamWarningDialog();
-            if (!proceed)
-            {
-                for (int j = i; j < stations.Count; j++)
-                    _lazyLoadStations.Add(stations[j]);
-            }
-
-            return proceed;
-        }
 
         private async Task<DataLoadResult> LoadStationFiles(List<StationInfo> stations, int i)
         {
@@ -754,35 +735,6 @@ namespace MESInsight
                     RebuildStationBar();
                 });
             });
-        }
-
-        private async Task LoadLazyStationOnDemand(StationInfo station)
-        {
-            _stationLoadingState[station.FolderPath] = true;
-            RebuildStationBar();
-
-            DataLoader loader = new DataLoader { DateFilter = _dataLoader.DateFilter };
-            DataLoadResult result = await Task.Run(() => loader.Load(station.FolderPath, null));
-
-            string displayName = !string.IsNullOrEmpty(result.StationName)
-                ? result.StationName
-                : station.StationName;
-
-            station.StationName = displayName;
-            _stationDataCache[station.FolderPath] = (result.Records, displayName);
-
-            Dictionary<(MessageType, ChartType), ChartData> charts =
-                await BuildChartsForRecords(result.Records, displayName);
-            _stationChartCache[station.FolderPath] = charts;
-
-            if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
-                _loadedStations.Add(station);
-
-            _lazyLoadStations.Remove(station);
-            _stationLoadingState[station.FolderPath] = false;
-            _stationReadyGlow.Add(station.FolderPath);
-
-            RebuildStationBar();
         }
 
         private async Task LoadOptionalStations()
@@ -1102,16 +1054,6 @@ namespace MESInsight
             return (records, stationName);
         }
 
-        private bool CheckRamBeforeLoading(long estimatedRecordCount)
-        {
-            long availMb = GetAvailableRamMb();
-            if (availMb < 0) return true;
-
-            long estimatedMb = estimatedRecordCount / 1000 * 4;
-            long safetyBufferMb = 500;
-
-            return availMb - estimatedMb >= safetyBufferMb;
-        }
 
         private bool ShowRamWarningDialog()
         {
@@ -1482,7 +1424,7 @@ namespace MESInsight
             NewSessionButton.MouseLeftButtonUp += async (s, e) =>
             {
                 e.Handled = true;
-                var startup = new StartupWindow();
+                var startup = CreateOwnedStartupWindow();
                 if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
                 if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
                     await LoadAllStationsFromPaths(startup.SelectedPaths);
@@ -1568,12 +1510,17 @@ namespace MESInsight
 
         private async void BtnSelectFolder_Click(object sender, RoutedEventArgs e)
         {
-            var startup = new StartupWindow();
+            var startup = CreateOwnedStartupWindow();
             if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
             if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
                 await LoadAllStationsFromPaths(startup.SelectedPaths);
             else
                 await LoadAllStationsFromRoot(startup.SelectedPath);
+        }
+
+        private StartupWindow CreateOwnedStartupWindow()
+        {
+            return new StartupWindow { Owner = this };
         }
 
         private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
@@ -3209,6 +3156,200 @@ namespace MESInsight
 
         private bool _lazyLoadQueueRunning = false;
 
+        private static long EstimateStationDiskMb(string folderPath)
+        {
+            long totalBytes = 0;
+            try
+            {
+                foreach (string filePath in System.IO.Directory.GetFiles(folderPath, "*.*",
+                             System.IO.SearchOption.AllDirectories))
+                {
+                    string ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
+                    if (ext != ".zip" && ext != ".txt" && ext != ".log" && ext != "") continue;
+
+                    try
+                    {
+                        totalBytes += new System.IO.FileInfo(filePath).Length;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return totalBytes / 1024 / 1024;
+        }
+
+        private async Task<bool> CheckRamAndProceed(List<StationInfo> stations, int i)
+        {
+            if (i == 0) return true;
+
+            long nextDiskMb = EstimateStationDiskMb(stations[i].FolderPath);
+            long estimatedMb = (long)(nextDiskMb * RuntimeRamFactor);
+
+            if (CheckRamBeforeLoadingMb(estimatedMb)) return true;
+
+            bool proceed = ShowRamWarningDialog();
+            if (!proceed)
+            {
+                for (int j = i; j < stations.Count; j++)
+                    _lazyLoadStations.Add(stations[j]);
+            }
+
+            return proceed;
+        }
+
+        private bool CheckRamBeforeLoadingMb(long estimatedMb)
+        {
+            long availMb = GetAvailableRamMb();
+            if (availMb < 0) return true;
+
+            const long safetyBufferMb = 500;
+            return availMb - estimatedMb >= safetyBufferMb;
+        }
+
+        private async Task<int> LoadSingleStationInLoop(List<StationInfo> stations, int i, int totalFiles)
+        {
+            StationInfo st = stations[i];
+
+            if (!await CheckRamAndProceed(stations, i))
+                return totalFiles;
+
+            UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
+
+            long memBefore = GC.GetTotalMemory(false);
+            long workingSetBefore = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+
+            DataLoadResult loadResult = await LoadStationFiles(stations, i);
+
+            string displayName = ResolveDisplayName(loadResult.StationName, st.StationName);
+            st.StationName = displayName;
+
+            totalFiles += StoreLoadResult(st, i, loadResult, displayName, totalFiles);
+
+            await BuildAndCacheCharts(st, loadResult, displayName, stations, i, totalFiles);
+
+            long memAfter = GC.GetTotalMemory(false);
+            long workingSetAfter = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+            LogMemoryAnalysisSample(st, loadResult, memBefore, memAfter, workingSetBefore, workingSetAfter);
+
+            HandleEmptyStation(st, loadResult);
+
+            UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
+            RebuildStationBarThrottled();
+
+            await SwitchToFirstStationOrRebuild(stations, i, loadResult);
+
+            return totalFiles;
+        }
+
+        private static void LogMemoryAnalysisSample(
+            StationInfo station, DataLoadResult loadResult,
+            long memBeforeBytes, long memAfterBytes,
+            long workingSetBeforeBytes, long workingSetAfterBytes)
+        {
+            try
+            {
+                long diskSizeBytes = 0;
+                int zipFileCount = 0;
+                int textFileCount = 0;
+
+                foreach (string filePath in System.IO.Directory.GetFiles(station.FolderPath, "*.*",
+                             System.IO.SearchOption.AllDirectories))
+                {
+                    string ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
+                    if (ext != ".zip" && ext != ".txt" && ext != ".log" && ext != "") continue;
+
+                    try
+                    {
+                        diskSizeBytes += new System.IO.FileInfo(filePath).Length;
+                        if (ext == ".zip") zipFileCount++;
+                        else textFileCount++;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                long diskSizeMb = diskSizeBytes / 1024 / 1024;
+                long gcDeltaMb = Math.Max(0, (memAfterBytes - memBeforeBytes) / 1024 / 1024);
+                long workingSetDeltaMb = Math.Max(0, (workingSetAfterBytes - workingSetBeforeBytes) / 1024 / 1024);
+
+                string logDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                string logFilePath = System.IO.Path.Combine(logDirectory, "memory_analysis_log.txt");
+
+                string logLine =
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
+                    " | station=" + station.StationName +
+                    " | files=" + (zipFileCount + textFileCount) + " (zip=" + zipFileCount + ", text=" + textFileCount +
+                    ")" +
+                    " | diskSizeMb=" + diskSizeMb +
+                    " | records=" + loadResult.Records.Count +
+                    " | gcDeltaMb=" + gcDeltaMb +
+                    " | workingSetDeltaMb=" + workingSetDeltaMb +
+                    Environment.NewLine;
+
+                System.IO.File.AppendAllText(logFilePath, logLine);
+            }
+            catch
+            {
+            }
+        }
+
+        private async Task DrainLazyLoadQueue()
+        {
+            _lazyLoadQueueRunning = true;
+
+            while (_lazyLoadQueue.Count > 0)
+            {
+                StationInfo station = _lazyLoadQueue.Dequeue();
+
+                _stationLoadingState[station.FolderPath] = true;
+                RebuildStationBar();
+
+                long memBefore = GC.GetTotalMemory(false);
+                long workingSetBefore = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+
+                DataLoader loader = new DataLoader { DateFilter = _dataLoader.DateFilter };
+                DataLoadResult result = await Task.Run(() => loader.Load(station.FolderPath, null));
+
+                string displayName = !string.IsNullOrEmpty(result.StationName)
+                    ? result.StationName
+                    : station.StationName;
+
+                station.StationName = displayName;
+                _stationDataCache[station.FolderPath] = (result.Records, displayName);
+
+                Dictionary<(MessageType, ChartType), ChartData> charts =
+                    await BuildChartsForRecords(result.Records, displayName);
+                _stationChartCache[station.FolderPath] = charts;
+
+                long memAfter = GC.GetTotalMemory(false);
+                long workingSetAfter = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+                LogMemoryAnalysisSample(station, result, memBefore, memAfter, workingSetBefore, workingSetAfter);
+
+                if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
+                    _loadedStations.Add(station);
+
+                _lazyLoadStations.Remove(station);
+                _stationLoadingState[station.FolderPath] = false;
+
+                if (result.Records.Count > 0)
+                    _stationReadyGlow.Add(station.FolderPath);
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    RebuildStationBar();
+                    ToastNotification.Show(_toastCanvas, ToastKind.StationLoaded, displayName);
+                });
+            }
+
+            _lazyLoadQueueRunning = false;
+        }
+
         private async Task EnqueueLazyLoad(StationInfo station)
         {
             if (_stationReadyGlow.Contains(station.FolderPath))
@@ -3234,49 +3375,6 @@ namespace MESInsight
                 await DrainLazyLoadQueue();
         }
 
-        private async Task DrainLazyLoadQueue()
-        {
-            _lazyLoadQueueRunning = true;
-
-            while (_lazyLoadQueue.Count > 0)
-            {
-                StationInfo station = _lazyLoadQueue.Dequeue();
-
-                _stationLoadingState[station.FolderPath] = true;
-                RebuildStationBar();
-
-                DataLoader loader = new DataLoader { DateFilter = _dataLoader.DateFilter };
-                DataLoadResult result = await Task.Run(() => loader.Load(station.FolderPath, null));
-
-                string displayName = !string.IsNullOrEmpty(result.StationName)
-                    ? result.StationName
-                    : station.StationName;
-
-                station.StationName = displayName;
-                _stationDataCache[station.FolderPath] = (result.Records, displayName);
-
-                Dictionary<(MessageType, ChartType), ChartData> charts =
-                    await BuildChartsForRecords(result.Records, displayName);
-                _stationChartCache[station.FolderPath] = charts;
-
-                if (!_loadedStations.Any(s => s.FolderPath == station.FolderPath))
-                    _loadedStations.Add(station);
-
-                _lazyLoadStations.Remove(station);
-                _stationLoadingState[station.FolderPath] = false;
-
-                if (result.Records.Count > 0)
-                    _stationReadyGlow.Add(station.FolderPath);
-
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    RebuildStationBar();
-                    ToastNotification.Show(_toastCanvas, ToastKind.StationLoaded, displayName);
-                });
-            }
-
-            _lazyLoadQueueRunning = false;
-        }
 
         private void StartGlowOnReadyChevron(string folderPath)
         {
@@ -3463,7 +3561,7 @@ namespace MESInsight
         {
             HideLoadingOverlay();
         }
-        
+
         private void SidebarScroll_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
         {
             var sv = sender as System.Windows.Controls.ScrollViewer;
@@ -3471,7 +3569,6 @@ namespace MESInsight
             sv.ScrollToVerticalOffset(sv.VerticalOffset - e.Delta / 3.0);
             e.Handled = true;
         }
-
 
         #endregion
     }
