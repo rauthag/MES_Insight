@@ -171,12 +171,31 @@ namespace MESInsight
             new Dictionary<MessageType, LiveCharts.Wpf.AxisSection>();
 
         private Dictionary<MessageType, UIElement> _renderedChartCache = new Dictionary<MessageType, UIElement>();
+        private Action<DateTime> _boxPlotNavigateToDay;
+
+        private Dictionary<MessageType, Action<DateTime>> _boxPlotNavByMessageType =
+            new Dictionary<MessageType, Action<DateTime>>();
+
+        private DateTime? _lastSelectedDay;
 
         private readonly UidIndex _uidIndex = new UidIndex();
         private readonly MESInsight.Assembly.AssemblyIndex _assemblyIndex = new MESInsight.Assembly.AssemblyIndex();
         private bool _assemblyPanelBuilt = false;
         private bool _assemblyIndexReady = false;
         private bool _isCyclingTabs = false;
+
+        private enum QuickChartSection
+        {
+            Trend,
+            Histogram,
+            Timeline,
+            BoxPlot
+        }
+
+        private const string TagTrendAnchor = "ChartAnchor:Trend";
+        private const string TagHistogramAnchor = "ChartAnchor:Histogram";
+        private const string TagTimelineAnchor = "ChartAnchor:Timeline";
+        private const string TagBoxPlotAnchor = "ChartAnchor:BoxPlot";
 
         public static Action<string> OpenSubsetHistory;
 
@@ -973,7 +992,8 @@ namespace MESInsight
                 if (!preparedInputs.TryGetValue(messageType, out var input)) continue;
                 if (input.Records.Count == 0) continue;
 
-                foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
+                foreach (var chartType in new[]
+                             { ChartType.Trend, ChartType.Histogram, ChartType.Timeline, ChartType.BoxPlot })
                 {
                     var data = _chartFactory.BuildSingle(chartType, input);
 
@@ -1242,6 +1262,8 @@ namespace MESInsight
             _scottPlotByMessageType.Clear();
             _timelineContainerByMessageType.Clear();
             _recordsGroupedByDay.Clear();
+            _boxPlotNavigateToDay = null;
+            _boxPlotNavByMessageType.Clear();
 
             _chartFactory = new ChartFactory(
                 _dayRecordsPanelBuilder,
@@ -1275,6 +1297,8 @@ namespace MESInsight
 
         private void UpdateSelectedDayPanel(DateTime date, List<ResponseRecord> records, MessageType messageType)
         {
+            _lastSelectedDay = date;
+
             if (TxtSelectedDayHeader != null)
                 TxtSelectedDayHeader.Text = "STATS FOR " + date.ToString("dd.MM.yyyy");
 
@@ -1303,6 +1327,8 @@ namespace MESInsight
             TxtDayMax.Text = "Max: " + sorted[sorted.Count - 1] + " ms";
 
             UpdateDayPassFailSection(relevant, messageType);
+
+            _boxPlotNavigateToDay?.Invoke(date);
         }
 
         private void UpdateDayPassFailSection(List<ResponseRecord> records, MessageType messageType)
@@ -1374,6 +1400,10 @@ namespace MESInsight
             TrackUidButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
             NewSessionButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
             TrackUidInputHost.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            QuickTrendButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            QuickHistogramButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            QuickTimelineButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            QuickBoxPlotButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             ReportBugButton.MouseEnter += (s, e) =>
             {
@@ -1432,6 +1462,55 @@ namespace MESInsight
                     await LoadAllStationsFromRoot(startup.SelectedPath);
             };
 
+            ExportExcelButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
+
+            ExportExcelButton.MouseEnter += (s, e) =>
+            {
+                ExportExcelIcon.Foreground = new SolidColorBrush(Color.FromRgb(255, 220, 80));
+                ExportExcelLabel.Foreground = new SolidColorBrush(Color.FromRgb(255, 220, 80));
+            };
+            ExportExcelButton.MouseLeave += (s, e) =>
+            {
+                ExportExcelIcon.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+                ExportExcelLabel.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+            };
+
+            ExportExcelButton.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                ShowExportOptionsMenu();
+            };
+
+            WireQuickChartButton(
+                QuickTrendButton,
+                QuickTrendLabel,
+                QuickTrendIcon,
+                Color.FromRgb(217, 112, 30),
+                () => ScrollToQuickChartSection(QuickChartSection.Trend));
+
+            WireQuickChartButton(
+                QuickHistogramButton,
+                QuickHistogramLabel,
+                QuickHistogramIcon,
+                Color.FromRgb(68, 142, 77),
+                () => ScrollToQuickChartSection(QuickChartSection.Histogram));
+
+            WireQuickChartButton(
+                QuickTimelineButton,
+                QuickTimelineLabel,
+                QuickTimelineIcon,
+                Color.FromRgb(56, 182, 255),
+                () => ScrollToQuickChartSection(QuickChartSection.Timeline));
+
+            WireQuickChartButton(
+                QuickBoxPlotButton,
+                QuickBoxPlotLabel,
+                QuickBoxPlotIcon,
+                Color.FromRgb(163, 113, 247),
+                () => ScrollToQuickChartSection(QuickChartSection.BoxPlot));
+
+            UpdateQuickChartNavigationState();
+
             KeyDown += (s, e) =>
             {
                 if (e.Key == System.Windows.Input.Key.K &&
@@ -1441,6 +1520,254 @@ namespace MESInsight
                     e.Handled = true;
                 }
             };
+        }
+
+        private void WireQuickChartButton(
+            Border button,
+            TextBlock label,
+            TextBlock icon,
+            Color hoverColor,
+            Action onClick)
+        {
+            if (button == null || label == null) return;
+
+            button.MouseEnter += (s, e) =>
+            {
+                var textBrush = new SolidColorBrush(hoverColor);
+                label.Foreground = textBrush;
+                if (icon != null) icon.Foreground = textBrush;
+                button.Background = new SolidColorBrush(Color.FromArgb(30,
+                    hoverColor.R, hoverColor.G, hoverColor.B));
+            };
+
+            button.MouseLeave += (s, e) =>
+            {
+                var normalBrush = new SolidColorBrush(Color.FromRgb(201, 209, 217));
+                label.Foreground = normalBrush;
+                if (icon != null) icon.Foreground = normalBrush;
+                button.Background = Brushes.Transparent;
+            };
+
+            button.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                onClick?.Invoke();
+            };
+        }
+
+        private void UpdateQuickChartNavigationState()
+        {
+            bool canUse = false;
+            if (MainTabControl?.SelectedItem is TabItem tab)
+            {
+                var parsed = TryParseMessageType(tab.Tag?.ToString() ?? "");
+                canUse = parsed.HasValue && parsed.Value != MessageType.ALL;
+            }
+
+            var state = canUse ? 1.0 : 0.35;
+            if (QuickTrendButton != null) QuickTrendButton.Opacity = state;
+            if (QuickHistogramButton != null) QuickHistogramButton.Opacity = state;
+            if (QuickTimelineButton != null) QuickTimelineButton.Opacity = state;
+            if (QuickBoxPlotButton != null) QuickBoxPlotButton.Opacity = state;
+        }
+
+        private void ScrollToQuickChartSection(QuickChartSection section)
+        {
+            if (!(MainTabControl.SelectedItem is TabItem tab)) return;
+            var type = TryParseMessageType(tab.Tag?.ToString() ?? "");
+            if (!type.HasValue || type.Value == MessageType.ALL) return;
+
+            var panel = GetChartPanelForMessageType(type.Value);
+            if (panel == null) return;
+
+            if (panel.Children.Count == 0)
+                RenderCachedChartForMessageType(type.Value);
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var scrollViewer = FindParentScrollViewer(panel);
+                if (scrollViewer == null) return;
+
+                var anchorTag = GetAnchorTag(section);
+                var target = FindDescendantByTag(panel, anchorTag);
+
+                if (target == null && section == QuickChartSection.Timeline)
+                    target = FindDescendantByTag(panel, TagTrendAnchor);
+
+                if (target == null) return;
+
+                ScrollElementIntoViewSmooth(scrollViewer, target, topPadding: 10);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void ShowExportOptionsMenu()
+        {
+            ContextMenu menu = new ContextMenu
+            {
+                Background = new SolidColorBrush(Color.FromRgb(13, 30, 18)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 80, 44)),
+                BorderThickness = new Thickness(1)
+            };
+
+            MenuItem BuildItem(string header, string subtitle, bool enabled, Action onClick)
+            {
+                StackPanel content = new StackPanel { Margin = new Thickness(4, 2, 4, 2) };
+                content.Children.Add(new TextBlock
+                {
+                    Text = header,
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(enabled
+                        ? Color.FromRgb(180, 235, 195)
+                        : Color.FromRgb(90, 110, 95))
+                });
+                if (!string.IsNullOrEmpty(subtitle))
+                    content.Children.Add(new TextBlock
+                    {
+                        Text = subtitle,
+                        FontSize = 9,
+                        Foreground = new SolidColorBrush(Color.FromRgb(110, 140, 120)),
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+
+                MenuItem item = new MenuItem
+                {
+                    Header = content,
+                    IsEnabled = enabled,
+                    Background = new SolidColorBrush(Color.FromRgb(13, 30, 18))
+                };
+
+                if (enabled)
+                    item.Click += (s, e) => onClick();
+
+                return item;
+            }
+
+            menu.Items.Add(BuildItem(
+                "Full period",
+                "Complete loaded date range, no Timeline",
+                true,
+                () => RunExcelExport(ExportScope.FullPeriod, null)));
+
+            string dayLabel = _lastSelectedDay.HasValue
+                ? _lastSelectedDay.Value.ToString("dd.MM.yyyy")
+                : null;
+
+            menu.Items.Add(BuildItem(
+                dayLabel != null ? "Selected day (" + dayLabel + ")" : "Selected day",
+                dayLabel != null ? "Includes Timeline for this day" : "Click a day in Trend chart first",
+                _lastSelectedDay.HasValue,
+                () => RunExcelExport(ExportScope.SelectedDay, _lastSelectedDay)));
+
+            menu.PlacementTarget = ExportExcelButton;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+
+        private async void RunExcelExport(ExportScope scope, DateTime? day)
+        {
+            if (_activeStation == null)
+            {
+                MessageBox.Show("No station loaded.", "Export", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (_chartCache.Count == 0)
+            {
+                MessageBox.Show("Chart data not available.", "Export", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string stationName = _activeStation.StationName ?? _activeStation.FolderPath;
+
+            ShowLoadingOverlay(stationName, "Preparing charts for export...", 30);
+            await CycleThroughAllTabsToTriggerWpfLayoutRendering(scope, day);
+            await Task.Delay(300);
+            HideLoadingOverlay();
+
+            ExcelExporter.Export(
+                stationName,
+                _chartCache,
+                _recordsGroupedByDay,
+                _filteredRecords,
+                mt => GetChartPanelForMessageType(mt),
+                scope,
+                day);
+        }
+
+        private static string GetAnchorTag(QuickChartSection section)
+        {
+            switch (section)
+            {
+                case QuickChartSection.Trend: return TagTrendAnchor;
+                case QuickChartSection.Histogram: return TagHistogramAnchor;
+                case QuickChartSection.Timeline: return TagTimelineAnchor;
+                case QuickChartSection.BoxPlot: return TagBoxPlotAnchor;
+                default: return TagTrendAnchor;
+            }
+        }
+
+        private static FrameworkElement FindDescendantByTag(DependencyObject root, string tag)
+        {
+            if (root == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is FrameworkElement fe && (fe.Tag as string) == tag)
+                    return fe;
+
+                var nested = FindDescendantByTag(child, tag);
+                if (nested != null)
+                    return nested;
+            }
+
+            return null;
+        }
+
+        private static void ScrollElementIntoViewSmooth(ScrollViewer scrollViewer, FrameworkElement target,
+            double topPadding)
+        {
+            if (scrollViewer == null || target == null) return;
+
+            Point viewportPoint = target.TranslatePoint(new Point(0, 0), scrollViewer);
+            double wanted = scrollViewer.VerticalOffset + viewportPoint.Y - topPadding;
+            wanted = Math.Max(0, Math.Min(wanted, scrollViewer.ScrollableHeight));
+
+            SmoothScrollViewerVerticalTo(scrollViewer, wanted);
+        }
+
+        private static void SmoothScrollViewerVerticalTo(ScrollViewer scrollViewer, double target)
+        {
+            if (scrollViewer == null) return;
+
+            double start = scrollViewer.VerticalOffset;
+            double distance = target - start;
+            if (Math.Abs(distance) < 1) return;
+
+            int steps = 16;
+            int step = 0;
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(16)
+            };
+
+            timer.Tick += (s, e) =>
+            {
+                step++;
+                double t = (double)step / steps;
+                double eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                double current = start + distance * eased;
+                scrollViewer.ScrollToVerticalOffset(current);
+
+                if (step >= steps)
+                {
+                    scrollViewer.ScrollToVerticalOffset(target);
+                    timer.Stop();
+                }
+            };
+
+            timer.Start();
         }
 
         private void ToggleTrackUidExpand()
@@ -1537,6 +1864,7 @@ namespace MESInsight
         private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateSidebarStats();
+            UpdateQuickChartNavigationState();
 
             if (!(MainTabControl.SelectedItem is TabItem tab)) return;
 
@@ -1699,7 +2027,7 @@ namespace MESInsight
         private async Task BuildAllChartDataFromFilteredRecords()
         {
             var messageTypes = GetAllSupportedMessageTypes();
-            int totalSteps = messageTypes.Length * 3;
+            int totalSteps = messageTypes.Length * 4;
             int doneCount = 0;
 
             string station = TxtStationName.Text;
@@ -1751,7 +2079,8 @@ namespace MESInsight
 
                     string typeName = messageType.ToString().Replace("_", " ");
 
-                    foreach (var chartType in new[] { ChartType.Trend, ChartType.Histogram, ChartType.Timeline })
+                    foreach (var chartType in new[]
+                                 { ChartType.Trend, ChartType.Histogram, ChartType.Timeline, ChartType.BoxPlot })
                     {
                         int pct = 20 + (doneCount * 60 / totalSteps);
                         ShowLoadingOverlay(station,
@@ -1796,6 +2125,14 @@ namespace MESInsight
                 var allTimeline = _chartFactory.BuildSingle(ChartType.Timeline, allInput);
                 if (allTimeline != null)
                     _chartCache[(MessageType.ALL, ChartType.Timeline)] = allTimeline;
+
+                var allHistogram = _chartFactory.BuildSingle(ChartType.Histogram, allInput);
+                if (allHistogram != null)
+                    _chartCache[(MessageType.ALL, ChartType.Histogram)] = allHistogram;
+
+                var allBoxPlot = _chartFactory.BuildSingle(ChartType.BoxPlot, allInput);
+                if (allBoxPlot != null)
+                    _chartCache[(MessageType.ALL, ChartType.BoxPlot)] = allBoxPlot;
             }
         }
 
@@ -2298,6 +2635,10 @@ namespace MESInsight
                 {
                     if (targetPanel.Children.Count == 0)
                         targetPanel.Children.Add(_renderedChartCache[messageType]);
+
+                    if (_boxPlotNavByMessageType.TryGetValue(messageType, out var cachedNav))
+                        _boxPlotNavigateToDay = cachedNav;
+
                     _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(messageType);
                     return;
                 }
@@ -2310,14 +2651,48 @@ namespace MESInsight
 
                 _chartCache.TryGetValue((messageType, ChartType.Trend), out ChartData trendData);
                 _chartCache.TryGetValue((messageType, ChartType.Histogram), out ChartData histogramData);
+                _chartCache.TryGetValue((messageType, ChartType.BoxPlot), out ChartData boxPlotData);
 
                 var wrapper = new StackPanel();
 
                 if (trendData?.ScottPlotTrend != null)
-                    wrapper.Children.Add(_chartFactory.RenderScottPlot(trendData, context));
+                {
+                    var trendRoot = _chartFactory.RenderScottPlot(trendData, context);
+                    if (trendRoot is StackPanel trendStack && trendStack.Children.Count >= 2)
+                    {
+                        if (trendStack.Children[0] is FrameworkElement trendSection)
+                            trendSection.Tag = TagTrendAnchor;
+                        if (trendStack.Children[1] is FrameworkElement timelineSection)
+                            timelineSection.Tag = TagTimelineAnchor;
+                    }
+
+                    if (trendRoot != null)
+                        wrapper.Children.Add(trendRoot);
+                }
+
+                if (boxPlotData != null)
+                {
+                    var boxPlot = _chartFactory.Render(ChartType.BoxPlot, boxPlotData, context);
+                    if (boxPlot is StackPanel bp && bp.Tag is Action<DateTime> nav)
+                    {
+                        _boxPlotNavByMessageType[messageType] = nav;
+                        _boxPlotNavigateToDay = nav;
+                    }
+
+                    if (boxPlot is FrameworkElement boxPlotSection)
+                        boxPlotSection.Tag = TagBoxPlotAnchor;
+                    if (boxPlot != null)
+                        wrapper.Children.Add(boxPlot);
+                }
 
                 if (histogramData?.Charts != null && histogramData.Charts.Count > 0)
-                    wrapper.Children.Add(_chartFactory.Render(ChartType.Histogram, histogramData, context));
+                {
+                    var histogram = _chartFactory.Render(ChartType.Histogram, histogramData, context);
+                    if (histogram is FrameworkElement histogramSection)
+                        histogramSection.Tag = TagHistogramAnchor;
+                    if (histogram != null)
+                        wrapper.Children.Add(histogram);
+                }
 
                 _renderedChartCache[messageType] = wrapper;
                 targetPanel.Children.Add(wrapper);
@@ -2327,6 +2702,13 @@ namespace MESInsight
                 {
                     scrollViewer.PreviewMouseWheel += (s, e) =>
                     {
+                        var boxPlotSection = FindBoxPlotSection(targetPanel);
+                        if (boxPlotSection != null && IsMouseOverElement(boxPlotSection, e))
+                        {
+                            e.Handled = true;
+                            return;
+                        }
+
                         if (IsMouseOverWpfPlot(targetPanel))
                             e.Handled = true;
                     };
@@ -2339,6 +2721,22 @@ namespace MESInsight
                 MessageBox.Show("Error displaying chart for " + messageType + ":\n\n" + ex.Message,
                     "Chart Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
+        }
+
+        private static FrameworkElement FindBoxPlotSection(StackPanel panel)
+        {
+            foreach (UIElement child in panel.Children)
+                if (child is FrameworkElement fe && fe.Tag?.ToString() == TagBoxPlotAnchor)
+                    return fe;
+            return null;
+        }
+
+        private static bool IsMouseOverElement(FrameworkElement element, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            var pos = e.GetPosition(element);
+            return pos.X >= 0 && pos.Y >= 0 &&
+                   pos.X <= element.ActualWidth &&
+                   pos.Y <= element.ActualHeight;
         }
 
         private static ScrollViewer FindParentScrollViewer(DependencyObject child)
@@ -3513,12 +3911,12 @@ namespace MESInsight
             }
         }
 
-        private async Task CycleThroughAllTabsToTriggerWpfLayoutRendering()
+        private async Task CycleThroughAllTabsToTriggerWpfLayoutRendering(ExportScope scope, DateTime? day)
         {
             _isCyclingTabs = true;
             var originalTab = MainTabControl.SelectedItem;
 
-            foreach (var messageType in GetAllSupportedMessageTypes())
+            foreach (var messageType in GetAllSupportedMessageTypes().Concat(new[] { MessageType.ALL }))
             {
                 foreach (TabItem tab in MainTabControl.Items)
                     if (tab.Tag?.ToString() == messageType.ToString())
@@ -3527,7 +3925,26 @@ namespace MESInsight
                         break;
                     }
 
-                await Task.Delay(20);
+                await Task.Delay(60);
+                UpdateLayout();
+
+                bool hasTrend = _chartCache.TryGetValue((messageType, ChartType.Trend), out var trendData)
+                                && trendData?.ScottPlotTrend != null;
+
+                if (scope == ExportScope.FullPeriod || !day.HasValue)
+                {
+                    if (hasTrend)
+                        _scottPlotRenderer?.ResetZoomForExport(messageType);
+                    _scottPlotRenderer?.InitializeTimelineWithFirstAvailableDay(messageType);
+                }
+                else
+                {
+                    if (hasTrend)
+                        _scottPlotRenderer?.ZoomToDayForExport(messageType, trendData.ScottPlotTrend, day.Value);
+                }
+
+                await Task.Delay(120);
+                UpdateLayout();
             }
 
             _tabsUserHasAlreadySeen.Clear();

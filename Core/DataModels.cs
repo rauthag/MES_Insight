@@ -64,6 +64,8 @@ namespace MESInsight.Core
         public List<ResponseRecord> FilteredRecords { get; set; }
         public int MaxResponseTime { get; set; }
         public ChartSeries TrendChartDaily { get; set; }
+        public BoxPlotData BoxPlotDaily { get; set; }
+        public BoxPlotData BoxPlotFull { get; set; }
     }
 
     public class ChartBucket
@@ -78,6 +80,38 @@ namespace MESInsight.Core
         public int RangeStart { get; set; }
         public int RangeEnd { get; set; }
         public SolidColorBrush BarColor { get; set; }
+    }
+    
+    public class BoxPlotData
+    {
+        public List<DayBoxStats> PerDay { get; set; } = new List<DayBoxStats>();
+ 
+        public double FullMin { get; set; }
+        public double FullQ1 { get; set; }
+        public double FullMedian { get; set; }
+        public double FullQ3 { get; set; }
+        public double FullMax { get; set; }
+        public double FullMean { get; set; }
+        public double FullStdDev { get; set; }
+        public double FullWhiskerLow { get; set; }
+        public double FullWhiskerHigh { get; set; }
+        public List<double> FullOutliers { get; set; } = new List<double>();
+    }
+ 
+    public class DayBoxStats
+    {
+        public DateTime Date { get; set; }
+        public double Min { get; set; }
+        public double Q1 { get; set; }
+        public double Median { get; set; }
+        public double Q3 { get; set; }
+        public double Max { get; set; }
+        public double Mean { get; set; }
+        public double StdDev { get; set; }
+        public double WhiskerLow { get; set; }
+        public double WhiskerHigh { get; set; }
+        public List<double> Outliers { get; set; } = new List<double>();
+        public int Count { get; set; }
     }
 
     public enum TimelineEventType
@@ -113,7 +147,8 @@ namespace MESInsight.Core
     {
         Trend,
         Histogram,
-        Timeline
+        Timeline,
+        BoxPlot
     }
 
     public enum MessageType

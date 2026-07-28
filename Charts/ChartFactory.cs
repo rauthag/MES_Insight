@@ -37,8 +37,12 @@ namespace MESInsight.Charts
             {
                 new ScottPlotTrendChart(),
                 new HistogramChart(),
-                new TimelineChart()
+                new TimelineChart(),
+                new BoxPlotChartBuilder()
             };
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "boxplot_debug.txt"),
+                "Builders: " + string.Join(", ", _builders.Select(b => b.GetChartType().ToString())) + "\n");
 
             _scottPlotRenderer = new ScottPlotTrendChartRenderer(
                 dayRecordsPanelBuilder,
@@ -65,7 +69,8 @@ namespace MESInsight.Charts
                     onShowAllRecordsRequested,
                     onDaySelected),
                 new HistogramChartRenderer(dayRecordsPanelBuilder),
-                new TimelineChartRenderer()
+                new TimelineChartRenderer(),
+                new BoxPlotChartRenderer()
             };
         }
 
@@ -150,6 +155,11 @@ namespace MESInsight.Charts
 
         public ChartData BuildSingle(ChartType chartType, ChartInputData input)
         {
+            var foundBuilder = _builders.FirstOrDefault(b => b.GetChartType() == chartType);
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "boxplot_debug.txt"),
+                "BuildSingle: " + chartType + " | found: " + (foundBuilder != null) + " | canBuild: " + (foundBuilder?.CanBuild(input.Records) ?? false) + " | records: " + input.Records.Count + "\n");
+            
             var builder = _builders.FirstOrDefault(b => b.GetChartType() == chartType);
             if (builder == null || !builder.CanBuild(input.Records)) return null;
             return builder.Build(input);

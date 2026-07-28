@@ -3,141 +3,106 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <DrawingImage x:Key="MesAppIcon">
-            <DrawingImage.Drawing>
-                <DrawingGroup>
-                    <DrawingGroup
-                        ClipGeometry="M34.3,233.1 L125.7,62.9 Q138,40 164,40 L348,40 Q374,40 386.3,62.9 L477.7,233.1 Q490,256 477.7,278.9 L386.3,449.1 Q374,472 348,472 L164,472 Q138,472 125.7,449.1 L34.3,278.9 Q22,256 34.3,233.1 Z">
-                        <GeometryDrawing Brush="#D9701E">
-                            <GeometryDrawing.Geometry>
-                                <RectangleGeometry Rect="0,0,512,512" />
-                            </GeometryDrawing.Geometry>
-                        </GeometryDrawing>
+        <DrawingGroup x:Key="MesAppIconDrawing">
+            <GeometryDrawing>
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="12" StartLineCap="Round" EndLineCap="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <LineGeometry StartPoint="40,440" EndPoint="460,440" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                        <GeometryDrawing Brush="#3FB950">
-                            <GeometryDrawing.Geometry>
-                                <PathGeometry Figures="M0,95 C180,45 250,220 512,140 L512,0 L0,0 Z" />
-                            </GeometryDrawing.Geometry>
-                        </GeometryDrawing>
+            <GeometryDrawing Brush="#75A87B">
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="10" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="75,320,54,120" RadiusX="6" RadiusY="6" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                        <GeometryDrawing Brush="#58A6FF">
-                            <GeometryDrawing.Geometry>
-                                <PathGeometry Figures="M0,405 C200,455 300,325 512,395 L512,512 L0,512 Z" />
-                            </GeometryDrawing.Geometry>
-                        </GeometryDrawing>
-                    </DrawingGroup>
+            <GeometryDrawing Brush="#5D9B65">
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="10" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="149,220,54,220" RadiusX="6" RadiusY="6" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                    <GeometryDrawing Brush="#8C000000">
-                        <GeometryDrawing.Geometry>
-                            <PathGeometry
-                                Figures="M125,397 L125,127 L173,127 L220,249 L267,127 L315,127 L315,397 L271,397 L271,253 L235,336 L205,336 L169,253 L169,397 Z" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
+            <GeometryDrawing Brush="#448E4D">
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="10" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="223,270,54,170" RadiusX="6" RadiusY="6" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                    <GeometryDrawing Brush="#8C000000">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="347,127,48,48" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
+            <GeometryDrawing Brush="#36753D">
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="10" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="297,170,54,270" RadiusX="6" RadiusY="6" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                    <GeometryDrawing Brush="#8C000000">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="347,213,48,184" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
+            <GeometryDrawing Brush="#275C2C">
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="10" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="371,110,54,330" RadiusX="6" RadiusY="6" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                    <GeometryDrawing Brush="#FFFFFF">
-                        <GeometryDrawing.Geometry>
-                            <PathGeometry
-                                Figures="M120,390 L120,120 L168,120 L215,242 L262,120 L310,120 L310,390 L266,390 L266,246 L230,329 L200,329 L164,246 L164,390 Z" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
+            <GeometryDrawing>
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="42" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <PathGeometry Figures="M40,260 L160,140 L230,190 L370,50" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                    <GeometryDrawing Brush="#FFFFFF">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="342,120,48,48" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
+            <GeometryDrawing Brush="#1E1E1E">
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#1E1E1E" Thickness="12" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <PathGeometry Figures="M430,-10 L405,85 L335,15 Z" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-                    <GeometryDrawing Brush="#FFFFFF">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="342,206,48,184" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-                </DrawingGroup>
-            </DrawingImage.Drawing>
-        </DrawingImage>
+            <GeometryDrawing>
+                <GeometryDrawing.Pen>
+                    <Pen Brush="#D9701E" Thickness="26" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <PathGeometry Figures="M40,260 L160,140 L230,190 L370,50" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
 
-        <DrawingImage x:Key="MesAppIconSmall">
-            <DrawingImage.Drawing>
-                <DrawingGroup>
-                    <DrawingGroup
-                        ClipGeometry="M34.3,233.1 L125.7,62.9 Q138,40 164,40 L348,40 Q374,40 386.3,62.9 L477.7,233.1 Q490,256 477.7,278.9 L386.3,449.1 Q374,472 348,472 L164,472 Q138,472 125.7,449.1 L34.3,278.9 Q22,256 34.3,233.1 Z">
-                        <GeometryDrawing Brush="#D9701E">
-                            <GeometryDrawing.Geometry>
-                                <RectangleGeometry Rect="0,0,512,512" />
-                            </GeometryDrawing.Geometry>
-                        </GeometryDrawing>
+            <GeometryDrawing Brush="#D9701E">
+                <GeometryDrawing.Geometry>
+                    <PathGeometry Figures="M430,-10 L405,85 L335,15 Z" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
+        </DrawingGroup>
 
-                        <GeometryDrawing Brush="#3FB950">
-                            <GeometryDrawing.Geometry>
-                                <PathGeometry Figures="M0,95 C180,45 250,220 512,140 L512,0 L0,0 Z" />
-                            </GeometryDrawing.Geometry>
-                        </GeometryDrawing>
-
-                        <GeometryDrawing Brush="#58A6FF">
-                            <GeometryDrawing.Geometry>
-                                <PathGeometry Figures="M0,405 C200,455 300,325 512,395 L512,512 L0,512 Z" />
-                            </GeometryDrawing.Geometry>
-                        </GeometryDrawing>
-                    </DrawingGroup>
-
-                    <GeometryDrawing Brush="#73000000">
-                        <GeometryDrawing.Geometry>
-                            <PathGeometry
-                                Figures="M125,397 L125,127 L173,127 L220,249 L267,127 L315,127 L315,397 L271,397 L271,253 L235,336 L205,336 L169,253 L169,397 Z" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-
-                    <GeometryDrawing Brush="#73000000">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="347,127,48,48" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-
-                    <GeometryDrawing Brush="#73000000">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="347,213,48,184" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-
-                    <GeometryDrawing Brush="#FFFFFF">
-                        <GeometryDrawing.Geometry>
-                            <PathGeometry
-                                Figures="M120,390 L120,120 L168,120 L215,242 L262,120 L310,120 L310,390 L266,390 L266,246 L230,329 L200,329 L164,246 L164,390 Z" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-
-                    <GeometryDrawing Brush="#FFFFFF">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="342,120,48,48" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-
-                    <GeometryDrawing Brush="#FFFFFF">
-                        <GeometryDrawing.Geometry>
-                            <RectangleGeometry Rect="342,206,48,184" RadiusX="8" RadiusY="8" />
-                        </GeometryDrawing.Geometry>
-                    </GeometryDrawing>
-                </DrawingGroup>
-            </DrawingImage.Drawing>
-        </DrawingImage>
+        <DrawingImage x:Key="MesAppIcon" Drawing="{StaticResource MesAppIconDrawing}" />
+        <DrawingImage x:Key="MesAppIconSmall" Drawing="{StaticResource MesAppIconDrawing}" />
         <FontFamily x:Key="InterFont">pack://application:,,,/Fonts/#Inter 18pt</FontFamily>
         <FontFamily x:Key="InterThin">pack://application:,,,/Fonts/#Inter 18pt Thin</FontFamily>
         <FontFamily x:Key="InterLight">pack://application:,,,/Fonts/#Inter 18pt Light</FontFamily>
 
         <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{StaticResource InterFont}" />
+        </Style>
+        <Style TargetType="Window">
+            <Setter Property="Icon" Value="{StaticResource MesAppIcon}" />
         </Style>
         <Style TargetType="Button">
             <Setter Property="FontFamily" Value="{StaticResource InterFont}" />

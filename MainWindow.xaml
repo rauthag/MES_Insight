@@ -479,12 +479,70 @@
 
                 <TextBlock Grid.Column="1" x:Name="TxtStationName"
                            Text=""
+                           Visibility="Collapsed"
                            FontSize="11"
                            Foreground="#6E7681"
                            VerticalAlignment="Center"
                            HorizontalAlignment="Center" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+
+                    <!-- Quick chart navigation -->
+                    <Border x:Name="QuickTrendButton" Cursor="Hand" Padding="8,0" Height="36"
+                            Style="{StaticResource TopBarActionBorderStyle}"
+                            ToolTip="Move to Trend chart">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="QuickTrendIcon" Text="📈" FontSize="13"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBlock x:Name="QuickTrendLabel" Text="Trend" FontSize="12"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center"
+                            Opacity="0.9" />
+
+                    <Border x:Name="QuickHistogramButton" Cursor="Hand" Padding="8,0" Height="36"
+                            Style="{StaticResource TopBarActionBorderStyle}"
+                            ToolTip="Move to Histogram">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="QuickHistogramIcon" Text="📊" FontSize="13"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBlock x:Name="QuickHistogramLabel" Text="Histogram" FontSize="12"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center"
+                            Opacity="0.9" />
+
+                    <Border x:Name="QuickTimelineButton" Cursor="Hand" Padding="8,0" Height="36"
+                            Style="{StaticResource TopBarActionBorderStyle}"
+                            ToolTip="Move to Timeline">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="QuickTimelineIcon" Text="🕒" FontSize="13"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBlock x:Name="QuickTimelineLabel" Text="Timeline" FontSize="12"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center"
+                            Opacity="0.9" />
+
+                    <Border x:Name="QuickBoxPlotButton" Cursor="Hand" Padding="8,0" Height="36"
+                            Style="{StaticResource TopBarActionBorderStyle}"
+                            ToolTip="Move to BoxPlot">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="QuickBoxPlotIcon" Text="⟦│⟧" FontSize="12"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBlock x:Name="QuickBoxPlotLabel" Text="BoxPlot" FontSize="12"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    
+                    <Border Width="1" Height="18" Background="#30363D" Margin="8,0" VerticalAlignment="Center"
+                            Opacity="0.9" />
 
                     <!-- Report Bug -->
                     <Border x:Name="ReportBugButton" Cursor="Hand" Padding="10,0" Height="36"
@@ -495,6 +553,22 @@
                                        FontFamily="Segoe UI Symbol"
                                        Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,5,0" />
                             <TextBlock x:Name="ReportBugLabel" Text="Report Bug" FontSize="12"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Separator -->
+                    <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center"
+                            Opacity="0.9" />
+                    
+                    <!-- Export to Excel -->
+                    <Border x:Name="ExportExcelButton" Cursor="Hand" Padding="10,0" Height="36"
+                            Style="{StaticResource TopBarActionBorderStyle}"
+                            ToolTip="Export charts and statistics to Excel — ⚠ WIP / experimental, results may be incomplete">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="ExportExcelIcon" Text="↓" FontSize="14"
+                                       Foreground="#C9D1D9" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <TextBlock x:Name="ExportExcelLabel" Text="Export" FontSize="12"
                                        Foreground="#C9D1D9" VerticalAlignment="Center" />
                         </StackPanel>
                     </Border>
@@ -534,6 +608,7 @@
                                        MouseLeftButtonUp="TrackUidClose_Click" />
                         </Grid>
                     </Border>
+
 
                     <!-- Separator -->
                     <Border Width="1" Height="18" Background="#30363D" Margin="4,0" VerticalAlignment="Center"

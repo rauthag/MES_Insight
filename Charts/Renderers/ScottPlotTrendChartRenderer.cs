@@ -1034,5 +1034,42 @@ namespace MESInsight.Charts.Renderers
             }
             catch { }
         }
+        
+        public void ResetZoomForExport(MessageType messageType)
+        {
+            if (!_plotByMessageType.TryGetValue(messageType, out var wpfPlot) || wpfPlot == null) return;
+            var limits = wpfPlot.Tag as double[];
+            if (limits == null) return;
+
+            wpfPlot.Plot.Axes.SetLimitsX(left: limits[0], right: limits[1]);
+            wpfPlot.Plot.Axes.SetLimitsY(bottom: limits[2], top: limits[3]);
+            wpfPlot.Refresh();
+        }
+
+        public void ZoomToDayForExport(MessageType messageType, ScottPlotTrendData trend, DateTime day)
+        {
+            if (!_plotByMessageType.TryGetValue(messageType, out var wpfPlot) || wpfPlot == null) return;
+            var limits = wpfPlot.Tag as double[];
+            if (limits == null || trend?.XToDate == null || trend.XToDate.Count == 0) return;
+
+            double nearest = trend.XToDate.Keys
+                .OrderBy(k => Math.Abs((trend.XToDate[k].Date - day.Date).TotalDays))
+                .First();
+
+            if (trend.XToDate[nearest].Date != day.Date)
+            {
+                ResetZoomForExport(messageType);
+                return;
+            }
+
+            double halfWindow = 14.0;
+            double zLeft  = Math.Max(limits[0], nearest - halfWindow);
+            double zRight = Math.Min(limits[1], nearest + halfWindow);
+            wpfPlot.Plot.Axes.SetLimitsX(left: zLeft, right: zRight);
+            UpdateMarkerSizesForZoom(wpfPlot, trend);
+            wpfPlot.Refresh();
+
+            UpdateTimelineForDay(messageType, day);
+        }
     }
 }

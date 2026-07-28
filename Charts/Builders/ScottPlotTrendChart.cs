@@ -12,7 +12,9 @@ namespace MESInsight.Charts.Builders
 
         public ChartType GetChartType() => ChartType.Trend;
 
+        //TODO:
         public bool CanBuild(List<ResponseRecord> records) => records.Count >= 2;
+        //public bool CanBuild(List<ResponseRecord> records) => records != null && records.Count > 0;
 
         public ChartData Build(ChartInputData input)
         {
@@ -58,7 +60,6 @@ namespace MESInsight.Charts.Builders
                 FilteredRecords = items
             };
         }
-        
 
         private CompressionMapping BuildCompressionMapping(
             List<KeyValuePair<DateTime, List<ResponseRecord>>> groups)
@@ -104,11 +105,9 @@ namespace MESInsight.Charts.Builders
 
             return m;
         }
-
-        // Scale ticks to days-since-epoch for cleaner double values
+        
         private static double TicksToDouble(long ticks) => ticks / (double)TimeSpan.TicksPerDay;
-
-        // ── Daily data ────────────────────────────────────────────────────────
+        
 
         private DailyDataRaw BuildDailyData(
             List<KeyValuePair<DateTime, List<ResponseRecord>>> groups,
@@ -147,7 +146,7 @@ namespace MESInsight.Charts.Builders
 
             return raw;
         }
-
+        
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private static double CalcYMin(List<ScottPlotDailyStats> stats)
