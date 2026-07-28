@@ -35,6 +35,9 @@ namespace MESInsight
         private const long WarningSizeMb = 4000;
         private const long CriticalSizeMb = 7000;
         private const double RamEstimationFactor = 3.5;
+        private const double RamReserveRatio = 0.15;
+        private const double RamReserveRatioSoft = 0.08;
+        private const double RamReserveRatioHard = 0.04;
 
         private static readonly MessageType[] AllMessageTypes =
         {
@@ -80,6 +83,13 @@ namespace MESInsight
                 out globalWarningLabel, out globalAutoAdjustNotice);
 
             _autoAdjustNotice = globalAutoAdjustNotice;
+
+            foreach (StationLoadEntry entry in allEntries)
+                entry.EnabledBox.IsChecked = false;
+
+            StationLoadEntry defaultEntry = SelectDefaultStationEntry(allEntries, perStationCounts, initDays);
+            if (defaultEntry != null)
+                defaultEntry.EnabledBox.IsChecked = true;
 
             ProgressBar loadBar;
             TextBlock totalSizeLabel, totalWarningLabel;
@@ -146,6 +156,49 @@ namespace MESInsight
             if (idx < 0) idx = Array.IndexOf(DayOptions, 180);
             if (idx < 0) idx = 0;
             return idx;
+        }
+
+        private static StationLoadEntry SelectDefaultStationEntry(
+            List<StationLoadEntry> allEntries,
+            Dictionary<string, Dictionary<int, MonthFileInfo>> perStationCounts,
+            int days)
+        {
+            if (allEntries.Count == 0) return null;
+
+            return allEntries
+                .OrderBy(e => GetStationSizeMb(e.Station, days, perStationCounts))
+                .ThenBy(e => e.Station.StationName)
+                .FirstOrDefault();
+        }
+
+        private static long ComputeRamBudgetMb()
+        {
+            long availMb = GetAvailableRamMb();
+            long totalMb = GetTotalRamMb();
+            if (availMb < 0 || totalMb <= 0) return -1;
+
+            long reserveMb = (long)(totalMb * RamReserveRatio);
+            return Math.Max(0, availMb - reserveMb);
+        }
+
+        private static long ComputeRamBudgetSoftMb()
+        {
+            long availMb = GetAvailableRamMb();
+            long totalMb = GetTotalRamMb();
+            if (availMb < 0 || totalMb <= 0) return -1;
+
+            long reserveMb = (long)(totalMb * RamReserveRatioSoft);
+            return Math.Max(0, availMb - reserveMb);
+        }
+
+        private static long ComputeRamBudgetHardMb()
+        {
+            long availMb = GetAvailableRamMb();
+            long totalMb = GetTotalRamMb();
+            if (availMb < 0 || totalMb <= 0) return -1;
+
+            long reserveMb = (long)(totalMb * RamReserveRatioHard);
+            return Math.Max(0, availMb - reserveMb);
         }
 
         private StackPanel BuildDialogContent(
@@ -362,7 +415,11 @@ namespace MESInsight
                     AutoAdjustDateRangeIfNeeded(ctx.AllEntries, ctx.GlobalSlider, ctx.PerStation);
                     recalculate();
                 };
-                entry.EnabledBox.Unchecked += (s, e) => recalculate();
+                entry.EnabledBox.Unchecked += (s, e) =>
+                {
+                    AutoAdjustDateRangeIfNeeded(ctx.AllEntries, ctx.GlobalSlider, ctx.PerStation);
+                    recalculate();
+                };
             }
 
             UpdateSliderDisplay(ctx.GlobalSlider, ctx.ValueLabel, ctx.SizeLabel, ctx.WarningLabel,
@@ -371,6 +428,7 @@ namespace MESInsight
             int initDays = DayOptions[(int)Math.Round(ctx.GlobalSlider.Value)];
             ApplyStationVisuals(ctx.AllEntries, initDays, ctx.PerStation);
 
+            AutoAdjustDateRangeIfNeeded(ctx.AllEntries, ctx.GlobalSlider, ctx.PerStation);
             recalculate();
 
             _ramTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -425,30 +483,45 @@ namespace MESInsight
                 return;
             }
 
-            long availMb = GetAvailableRamMb();
-            long budgetMb = availMb > 0 ? (long)(availMb * 0.6) : 2000;
-            int currentIdx = (int)Math.Round(globalSlider.Value);
+            long hardBudgetMb = ComputeRamBudgetHardMb();
+            if (hardBudgetMb < 0) hardBudgetMb = 1000;
 
-            if (EstimateTotalRamAtIndex(enabled, perStationCounts, currentIdx) <= budgetMb)
+            long softBudgetMb = ComputeRamBudgetSoftMb();
+            if (softBudgetMb < 0) softBudgetMb = 2500;
+            if (softBudgetMb < hardBudgetMb) softBudgetMb = hardBudgetMb;
+
+            if (EstimateTotalRamAtIndex(enabled, perStationCounts, 0) > hardBudgetMb)
+            {
+                globalSlider.Value = 0;
+                SetAutoAdjustNotice("⚠  Even the smallest range (" + FormatDayCount(DayOptions[0]) +
+                                    ") is heavy for the currently selected stations — free up memory or unselect some stations");
+                return;
+            }
+
+            int bestIdx = 0;
+            for (int idx = DayOptions.Length - 1; idx >= 0; idx--)
+            {
+                if (EstimateTotalRamAtIndex(enabled, perStationCounts, idx) <= softBudgetMb)
+                {
+                    bestIdx = idx;
+                    break;
+                }
+            }
+
+            int currentIdx = (int)Math.Round(globalSlider.Value);
+            if (bestIdx == currentIdx)
             {
                 SetAutoAdjustNotice("");
                 return;
             }
 
-            for (int idx = currentIdx - 1; idx >= 0; idx--)
-            {
-                if (EstimateTotalRamAtIndex(enabled, perStationCounts, idx) <= budgetMb)
-                {
-                    globalSlider.Value = idx;
-                    SetAutoAdjustNotice("ℹ  Date range auto-narrowed to " + FormatDayCount(DayOptions[idx]) +
-                                        " to fit the selected stations");
-                    return;
-                }
-            }
+            globalSlider.Value = bestIdx;
 
-            globalSlider.Value = 0;
-            SetAutoAdjustNotice("⚠  Even the smallest range (" + FormatDayCount(DayOptions[0]) +
-                                ") may be heavy with this many stations selected");
+            SetAutoAdjustNotice(bestIdx < currentIdx
+                ? "ℹ  Date range adjusted to " + FormatDayCount(DayOptions[bestIdx]) +
+                  " to comfortably fit the selected stations in memory"
+                : "ℹ  Date range expanded to " + FormatDayCount(DayOptions[bestIdx]) +
+                  " — plenty of RAM available for the selected stations");
         }
 
         private void SetAutoAdjustNotice(string text)
@@ -578,8 +651,8 @@ namespace MESInsight
         {
             if (fileCounts == null) return 14;
 
-            long availableRamMb = GetAvailableRamMb();
-            long budgetMb = availableRamMb > 0 ? (long)(availableRamMb * 0.6) : 500;
+            long budgetMb = ComputeRamBudgetSoftMb();
+            if (budgetMb < 0) budgetMb = 2500;
 
             foreach (int days in DayOptions)
                 if (fileCounts.TryGetValue(days, out MonthFileInfo info) && info.FileCount > 0 &&
@@ -671,8 +744,8 @@ namespace MESInsight
             List<StationLoadEntry> entries, int currentDays,
             Dictionary<string, Dictionary<int, MonthFileInfo>> perStationCounts)
         {
-            long availMb = GetAvailableRamMb();
-            long budgetMb = availMb > 0 ? availMb : long.MaxValue;
+            long budgetMb = ComputeRamBudgetSoftMb();
+            if (budgetMb < 0) budgetMb = long.MaxValue;
             long accumulated = 0;
 
             foreach (StationLoadEntry entry in entries)
@@ -971,7 +1044,7 @@ namespace MESInsight
 
             foreach (StationInfo st in stations)
             {
-                CheckBox cb = new CheckBox { IsChecked = defaultChecked, IsEnabled = defaultChecked };
+                CheckBox cb = new CheckBox { IsChecked = false, IsEnabled = true };
                 StationLoadEntry entry = new StationLoadEntry { Station = st, EnabledBox = cb };
                 allEntries.Add(entry);
                 sectionEntries.Add(entry);
@@ -987,7 +1060,7 @@ namespace MESInsight
             Dictionary<string, Dictionary<int, MonthFileInfo>> perStationCounts = null)
         {
             StackPanel stack = new StackPanel();
-            CheckBox cbSection = new CheckBox { IsChecked = defaultChecked };
+            CheckBox cbSection = new CheckBox { IsChecked = false };
 
             cbSection.Content = BuildSectionTitle(title, stationCount, accentColor);
             stack.Children.Add(cbSection);
@@ -1116,7 +1189,8 @@ namespace MESInsight
                 return;
             }
 
-            long budgetMb = Math.Max(0, availMb - 500);
+            long budgetMb = ComputeRamBudgetSoftMb();
+            if (budgetMb < 0) budgetMb = Math.Max(0, availMb - 500);
 
             List<(StationLoadEntry entry, long mb)> bySize = sectionEntries
                 .Select(e => (entry: e, mb: EstimateRamMb(GetStationSizeMb(e.Station, currentDays, perStationCounts))))

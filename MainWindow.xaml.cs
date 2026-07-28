@@ -1336,7 +1336,9 @@ namespace MESInsight
             if (DayPassFailSection == null) return;
 
             var sourceType = messageType == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : messageType;
-            var dayRecords = records.Where(r => r.Type == sourceType).ToList();
+            var dayRecords = messageType == MessageType.ALL
+                ? records
+                : records.Where(r => r.Type == sourceType).ToList();
 
             if (dayRecords.Count < 2)
             {
@@ -1344,7 +1346,7 @@ namespace MESInsight
                 return;
             }
 
-            var stats = _statsCalculator.Calculate(dayRecords, sourceType);
+            var stats = _statsCalculator.Calculate(dayRecords, messageType == MessageType.ALL ? MessageType.ALL : sourceType);
             if (stats == null)
             {
                 DayPassFailSection.Visibility = Visibility.Collapsed;
@@ -1451,15 +1453,11 @@ namespace MESInsight
                 foreach (var tb in FindVisualChildren<TextBlock>(NewSessionButton))
                     tb.Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217));
             };
+            
             NewSessionButton.MouseLeftButtonUp += async (s, e) =>
             {
                 e.Handled = true;
-                var startup = CreateOwnedStartupWindow();
-                if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
-                if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
-                    await LoadAllStationsFromPaths(startup.SelectedPaths);
-                else
-                    await LoadAllStationsFromRoot(startup.SelectedPath);
+                await StartNewSessionWithConfirmation();
             };
 
             ExportExcelButton.MouseLeftButtonDown += (s, e) => e.Handled = true;
@@ -1521,6 +1519,119 @@ namespace MESInsight
                 }
             };
         }
+        
+        private async Task StartNewSessionWithConfirmation()
+{
+    if (_loadedStations.Count > 0 || _lazyLoadStations.Count > 0 || _allRecords.Count > 0)
+    {
+        MessageBoxResult result = MessageBox.Show(
+            "This will unload all currently loaded stations, charts and cached data from memory.\n\nDo you want to continue?",
+            "Start New Session",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+
+        if (result != MessageBoxResult.Yes) return;
+    }
+
+    ShowLoadingOverlay("Clearing session...", "Releasing memory...", 0);
+    await Task.Delay(50);
+
+    ClearEntireSessionState();
+
+    await Task.Run(() =>
+    {
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+    });
+
+    HideLoadingOverlay();
+
+    var startup = CreateOwnedStartupWindow();
+    if (startup.ShowDialog() != true || string.IsNullOrEmpty(startup.SelectedPath)) return;
+
+    if (startup.SelectedPaths != null && startup.SelectedPaths.Count > 1)
+        await LoadAllStationsFromPaths(startup.SelectedPaths);
+    else
+        await LoadAllStationsFromRoot(startup.SelectedPath);
+}
+
+private void ClearEntireSessionState()
+{
+    _bgCts?.Cancel();
+    _bgCts?.Dispose();
+    _bgCts = null;
+    _bgLoadingRunning = false;
+
+    _lazyLoadQueue.Clear();
+    _lazyLoadQueueRunning = false;
+
+    _allRecords = new List<ResponseRecord>();
+    _filteredRecords.Clear();
+
+    _loadedStations.Clear();
+    _lazyLoadStations.Clear();
+    _activeStation = null;
+    _pendingOptionalStations.Clear();
+    _stationReadyGlow.Clear();
+    _stationLoadingState.Clear();
+
+    _stationDataCache.Clear();
+    _stationChartCache.Clear();
+    _chartCache.Clear();
+
+    _recordsGroupedByDay.Clear();
+    _dayRecordsPanelByMessageType.Clear();
+    _scottPlotByMessageType.Clear();
+    _timelineContainerByMessageType.Clear();
+    _trendChartByMessageType.Clear();
+    _selectedDayHighlightByMessageType.Clear();
+    _renderedChartCache.Clear();
+
+    _boxPlotNavigateToDay = null;
+    _boxPlotNavByMessageType.Clear();
+    _lastSelectedDay = null;
+
+    _tabsUserHasAlreadySeen.Clear();
+    _isCyclingTabs = false;
+    _assemblyPanelBuilt = false;
+    _assemblyIndexReady = false;
+
+    _uidIndex.Build(new List<ResponseRecord>());
+    _assemblyIndex.Build(new List<ResponseRecord>());
+
+    _statsCalculator.InvalidateCache();
+
+    _stationLogEntries.Clear();
+
+    foreach (MessageType mt in GetAllSupportedMessageTypes())
+    {
+        var panel = GetChartPanelForMessageType(mt);
+        panel?.Children.Clear();
+    }
+    PanelAll?.Children.Clear();
+    PanelAssembly?.Children.Clear();
+
+    var subsetTabs = MainTabControl.Items.OfType<TabItem>()
+        .Where(t => t.Tag?.ToString().StartsWith("SUBSET_") == true)
+        .ToList();
+    foreach (var tab in subsetTabs)
+        MainTabControl.Items.Remove(tab);
+
+    if (StationBarPanel != null)
+        StationBarPanel.Children.Clear();
+
+    TxtStationName.Text = "";
+    ClearSidebarStats();
+
+    if (SelectedDayContent != null) SelectedDayContent.Visibility = Visibility.Collapsed;
+    if (SelectedDayPlaceholder != null) SelectedDayPlaceholder.Visibility = Visibility.Visible;
+    if (DayPassFailSection != null) DayPassFailSection.Visibility = Visibility.Collapsed;
+    if (PassFailSection != null) PassFailSection.Visibility = Visibility.Collapsed;
+
+    _dataLoader.DateFilter = null;
+}
 
         private void WireQuickChartButton(
             Border button,
@@ -2954,32 +3065,128 @@ namespace MESInsight
             if (PassFailSection == null) return;
             PassFailChartHost.Content = null;
 
-            if (type == MessageType.ALL)
-            {
-                BuildQualityOverviewForAll();
-                return;
-            }
-
-            var sourceType = type == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : type;
-            var records = _filteredRecords.Where(r => r.Type == sourceType).ToList();
-
-            if (records.Count < 2)
-            {
-                PassFailSection.Visibility = Visibility.Collapsed;
-                return;
-            }
-
             var stats = _statsCalculator.Calculate(_filteredRecords, type);
-            if (stats == null)
+            var records = type == MessageType.ALL
+                ? _filteredRecords
+                : _filteredRecords
+                    .Where(r => r.Type == (type == MessageType.UNIT_INFO ? MessageType.UNIT_RESULT : type)).ToList();
+
+            if (stats == null || records.Count < 2)
             {
                 PassFailSection.Visibility = Visibility.Collapsed;
                 return;
             }
+
+            var wrapper = new StackPanel();
 
             PassFailSectionLabel.Text = "RESPONSE TIME";
-            PassFailChartHost.Content = MESInsight.UI.HexagonPieChart.BuildResponseTimeWidget(
-                records, stats.Average, stats.P95, chartSize: 140);
+            wrapper.Children.Add(MESInsight.UI.HexagonPieChart.BuildResponseTimeWidget(
+                records, stats.Average, stats.P95, chartSize: 140));
+
+            if (type == MessageType.ALL)
+            {
+                var overview = BuildQualityOverviewContent();
+                if (overview != null)
+                {
+                    wrapper.Children.Add(new Border
+                    {
+                        Height = 1, Background = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+                        Margin = new Thickness(0, 10, 0, 10)
+                    });
+                    wrapper.Children.Add(overview);
+                }
+            }
+
+            PassFailChartHost.Content = wrapper;
             PassFailSection.Visibility = Visibility.Visible;
+        }
+
+        private UIElement BuildQualityOverviewContent()
+        {
+            var overviewTypes = new[]
+            {
+                MessageType.UNIT_RESULT, MessageType.PANEL_RESULT,
+                MessageType.SEMI_VALIDATION2, MessageType.UNIT_CHECKIN, MessageType.PANEL_CHECKIN
+            };
+
+            string GetResultField(ResponseRecord r)
+            {
+                if (r.Type == MessageType.SEMI_VALIDATION2 || r.Type == MessageType.SEMI_VALIDATION)
+                    return r.ProcDirAssy;
+                return r.Result;
+            }
+
+            var stack = new StackPanel();
+            bool any = false;
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "QUALITY OVERVIEW", FontSize = 8, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(110, 118, 129)), Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            foreach (var t in overviewTypes)
+            {
+                var recs = _filteredRecords
+                    .Where(r => r.Type == t && !string.IsNullOrEmpty(GetResultField(r)))
+                    .ToList();
+                if (recs.Count == 0) continue;
+
+                any = true;
+                var passValues = GetPassValues(t);
+                int pass = recs.Count(r => passValues.Contains(GetResultField(r)?.ToUpper()));
+                double pct = pass * 100.0 / recs.Count;
+                Color typeColor = GetTypeColor(t);
+                Color pctColor = pct >= 90
+                    ? Color.FromRgb(63, 185, 80)
+                    : pct >= 70
+                        ? Color.FromRgb(210, 153, 34)
+                        : Color.FromRgb(248, 81, 73);
+
+                var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var lbl = new TextBlock
+                {
+                    Text = GetShortTypeLabel(t), FontSize = 9, FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromArgb(200, typeColor.R, typeColor.G, typeColor.B)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var pctTxt = new TextBlock
+                {
+                    Text = pct.ToString("F0") + "%", FontSize = 9, FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(pctColor),
+                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(pctTxt, 1);
+                row.Children.Add(lbl);
+                row.Children.Add(pctTxt);
+
+                var barContainer = new Grid { Margin = new Thickness(0, 3, 0, 0) };
+                barContainer.Children.Add(new Border
+                {
+                    Height = 3, CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(Color.FromRgb(33, 38, 45))
+                });
+                var fill = new Border
+                {
+                    Height = 3, CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(pctColor),
+                    HorizontalAlignment = HorizontalAlignment.Left
+                };
+                barContainer.Children.Add(fill);
+                double capturedPct = pct;
+                barContainer.SizeChanged += (s, e) => fill.Width = e.NewSize.Width * capturedPct / 100.0;
+                barContainer.Loaded += (s, e) => fill.Width = barContainer.ActualWidth * capturedPct / 100.0;
+
+                var rowStack = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+                rowStack.Children.Add(row);
+                rowStack.Children.Add(barContainer);
+                stack.Children.Add(rowStack);
+            }
+
+            return any ? (UIElement)stack : null;
         }
 
         private void BuildQualityOverviewForAll()
