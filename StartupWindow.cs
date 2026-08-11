@@ -81,6 +81,7 @@ namespace MESInsight
         private static string RecentPathFile => IOPath.Combine(AppDir, "recent.txt");
         private static string StationCacheFile => IOPath.Combine(AppDir, "station_cache.txt");
         private static string RemotePathFile => IOPath.Combine(AppDir, "remote_path.txt");
+        private static string SamplePathFile => IOPath.Combine(AppDir, "sample_path.txt");
         private static readonly string SampleDataPath = FindSampleDataPath();
 
         private Canvas _canvas;
@@ -2064,6 +2065,17 @@ namespace MESInsight
 
         private static string FindSampleDataPath()
         {
+            // 1) Explicit override from file next to exe (sample_path.txt)
+            string configuredPath = LoadSamplePathOverride();
+            if (!string.IsNullOrEmpty(configuredPath) && Directory.Exists(configuredPath))
+                return configuredPath;
+
+            // 2) Optional environment override
+            string envPath = NormalizeConfiguredPath(Environment.GetEnvironmentVariable("MESINSIGHT_SAMPLE_DATA"));
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+                return envPath;
+
+            // 3) Auto-discovery: walk up from executable folder
             string dir = IOPath.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
             for (int i = 0; i < 5; i++)
             {
@@ -2074,9 +2086,38 @@ namespace MESInsight
                 dir = parent;
             }
 
+            // 4) Final fallback: SampleData next to executable
             return IOPath.Combine(
                 IOPath.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
                 "SampleData");
+        }
+
+        private static string LoadSamplePathOverride()
+        {
+            try
+            {
+                if (!File.Exists(SamplePathFile)) return null;
+                return NormalizeConfiguredPath(File.ReadAllText(SamplePathFile));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string NormalizeConfiguredPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
+            string normalized = path.Trim().Trim('"');
+            if (normalized.Length == 0) return null;
+
+            if (!IOPath.IsPathRooted(normalized))
+                normalized = IOPath.GetFullPath(IOPath.Combine(AppDir, normalized));
+            else
+                normalized = IOPath.GetFullPath(normalized);
+
+            return normalized;
         }
 
 

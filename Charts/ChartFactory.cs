@@ -40,9 +40,6 @@ namespace MESInsight.Charts
                 new TimelineChart(),
                 new BoxPlotChartBuilder()
             };
-            System.IO.File.AppendAllText(
-                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "boxplot_debug.txt"),
-                "Builders: " + string.Join(", ", _builders.Select(b => b.GetChartType().ToString())) + "\n");
 
             _scottPlotRenderer = new ScottPlotTrendChartRenderer(
                 dayRecordsPanelBuilder,
