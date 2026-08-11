@@ -7,14 +7,16 @@ using System.Windows;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("MES Insight")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyTitle("MES Insight 1.0")]
+[assembly: AssemblyDescription("MES communication response time between PLC and MES analyzer")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("Lukas Paucin")]
 [assembly: AssemblyProduct("MES Insight")]
-[assembly: AssemblyCopyright("")]
-[assembly: AssemblyTrademark("Developed by Lukas Paucin --- github.com/rauthag")]
+[assembly: AssemblyCopyright("© 2025 Lukas Paucin | lukas.paucin@gmail.com | github.com/rauthag")]
+[assembly: AssemblyTrademark("© 2025 Lukas Paucin | lukas.paucin@gmail.com | github.com/rauthag")]
 [assembly: AssemblyCulture("")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
 // to COM components.  If you need to access a type in this assembly from
@@ -48,5 +50,3 @@ using System.Windows;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
