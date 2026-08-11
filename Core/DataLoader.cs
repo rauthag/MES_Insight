@@ -352,10 +352,12 @@ namespace MESInsight.Core
             }
         }
 
-        public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null)
+        public DataLoadResult Load(string path, Action<string, int, string> progressCallback = null,
+            Func<bool> shouldCancel = null)
         {
             DataLoadResult result = new DataLoadResult();
 
+            if (shouldCancel?.Invoke() == true) return result;
             if (!Directory.Exists(path)) return result;
 
             StationInfo info = BuildStationInfo(path, path);
@@ -373,15 +375,28 @@ namespace MESInsight.Core
             ParallelOptions opts = new ParallelOptions
                 { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
 
-            Parallel.ForEach(files, opts, file =>
+            Parallel.ForEach(files, opts, (file, loopState) =>
             {
+                if (shouldCancel?.Invoke() == true)
+                {
+                    loopState.Stop();
+                    return;
+                }
+
                 int pct = (Interlocked.Increment(ref processed) * 95) / Math.Max(1, files.Length);
                 string fileName = Path.GetFileName(file);
                 string ext = Path.GetExtension(file).ToLower();
 
-                DataLoadResult local = LoadSingleFile(file, fileName, ext, pct, lastUiTick, progressCallback);
+                DataLoadResult local = LoadSingleFile(file, fileName, ext, pct, lastUiTick, progressCallback,
+                    shouldCancel);
 
                 if (local == null) return;
+
+                if (shouldCancel?.Invoke() == true)
+                {
+                    loopState.Stop();
+                    return;
+                }
 
                 foreach (ResponseRecord r in local.Records)
                     bag.Add(r);
@@ -392,6 +407,12 @@ namespace MESInsight.Core
 
             result.Records = bag.OrderBy(r => r.TimestampParsed).ToList();
             result.StationName = nameHolder[0] ?? "";
+
+            if (shouldCancel?.Invoke() == true)
+            {
+                progressCallback?.Invoke("Loading cancelled", 100, result.StationName);
+                return result;
+            }
 
             progressCallback?.Invoke("Processing message types...", 100, result.StationName);
 
@@ -746,8 +767,10 @@ namespace MESInsight.Core
         #region File Loading
 
         private DataLoadResult LoadSingleFile(string file, string fileName, string ext, int pct,
-            long[] lastUiTick, Action<string, int, string> progressCallback)
+            long[] lastUiTick, Action<string, int, string> progressCallback, Func<bool> shouldCancel)
         {
+            if (shouldCancel?.Invoke() == true) return null;
+
             if (ext == ".zip")
             {
                 if (!ZipIsInDateRange(file, DateFilter)) return null;
@@ -755,19 +778,21 @@ namespace MESInsight.Core
                 progressCallback?.Invoke($"Reading {fileName}", pct, "Opening ZIP archive...");
 
                 DataLoadResult zipResult = new DataLoadResult();
-                LoadFromZip(file, zipResult, DateFilter);
+                LoadFromZip(file, zipResult, DateFilter, shouldCancel);
                 return zipResult;
             }
 
             if (!ShouldProcessFile(fileName)) return null;
             if (NeedsProbe(fileName) && !ProbeFileForMesData(file)) return null;
 
-            return LoadTextFile(file, fileName, ext, pct, lastUiTick, progressCallback);
+            return LoadTextFile(file, fileName, ext, pct, lastUiTick, progressCallback, shouldCancel);
         }
 
         private DataLoadResult LoadTextFile(string file, string fileName, string ext, int pct,
-            long[] lastUiTick, Action<string, int, string> progressCallback)
+            long[] lastUiTick, Action<string, int, string> progressCallback, Func<bool> shouldCancel)
         {
+            if (shouldCancel?.Invoke() == true) return null;
+
             DataLoadResult local = new DataLoadResult();
 
             if (ext == ".log" && IsGhpLogFile(fileName))
@@ -776,7 +801,7 @@ namespace MESInsight.Core
 
                 using (Stream fs = File.OpenRead(file))
                     ReadGhpFormatLines(fs, fileName, local, DateFilter,
-                        MakeGhpProgressCallback(fileName, pct, lastUiTick, progressCallback));
+                        MakeGhpProgressCallback(fileName, pct, lastUiTick, progressCallback), shouldCancel);
 
                 return local;
             }
@@ -785,7 +810,10 @@ namespace MESInsight.Core
 
             using (Stream fs = File.OpenRead(file))
                 ReadOldFormatLines(fs, fileName, local, DateFilter,
-                    MakeOldFormatProgressCallback(fileName, pct, lastUiTick, progressCallback));
+                    MakeOldFormatProgressCallback(fileName, pct, lastUiTick, progressCallback), shouldCancel);
+
+            if (shouldCancel?.Invoke() == true)
+                return local;
 
             if (local.Records.Count == before)
             {
@@ -793,7 +821,7 @@ namespace MESInsight.Core
 
                 using (Stream fs = File.OpenRead(file))
                     ReadGhpFormatLines(fs, fileName, local, DateFilter,
-                        MakeGhpProgressCallback(fileName, pct, lastUiTick, progressCallback));
+                        MakeGhpProgressCallback(fileName, pct, lastUiTick, progressCallback), shouldCancel);
             }
 
             return local;
@@ -840,13 +868,17 @@ namespace MESInsight.Core
             }
         }
 
-        private static void LoadFromZip(string zipFile, DataLoadResult result, DateTime? cutoff = null)
+        private static void LoadFromZip(string zipFile, DataLoadResult result, DateTime? cutoff = null,
+            Func<bool> shouldCancel = null)
         {
             try
             {
                 using (ZipArchive zip = ZipFile.OpenRead(zipFile))
                     foreach (ZipArchiveEntry entry in zip.Entries)
-                        TryLoadZipEntry(entry, Path.GetFileName(zipFile), result, cutoff);
+                    {
+                        if (shouldCancel?.Invoke() == true) break;
+                        TryLoadZipEntry(entry, Path.GetFileName(zipFile), result, cutoff, shouldCancel);
+                    }
             }
             catch
             {
@@ -854,8 +886,10 @@ namespace MESInsight.Core
         }
 
         private static void TryLoadZipEntry(ZipArchiveEntry entry, string zipName, DataLoadResult result,
-            DateTime? cutoff = null)
+            DateTime? cutoff = null, Func<bool> shouldCancel = null)
         {
+            if (shouldCancel?.Invoke() == true) return;
+
             string entryName = entry.Name;
             string sourceName = zipName + " > " + entryName;
             string ext = Path.GetExtension(entryName).ToLowerInvariant();
@@ -865,7 +899,7 @@ namespace MESInsight.Core
             if (ext == ".log" && IsGhpLogFile(entryName))
             {
                 using (Stream stream = entry.Open())
-                    ReadGhpFormatLines(stream, sourceName, result, cutoff);
+                    ReadGhpFormatLines(stream, sourceName, result, cutoff, null, shouldCancel);
 
                 return;
             }
@@ -876,11 +910,13 @@ namespace MESInsight.Core
             DataLoadResult temp = new DataLoadResult();
 
             using (Stream stream = entry.Open())
-                ReadOldFormatLines(stream, sourceName, temp, cutoff);
+                ReadOldFormatLines(stream, sourceName, temp, cutoff, null, shouldCancel);
+
+            if (shouldCancel?.Invoke() == true) return;
 
             if (temp.Records.Count == 0)
                 using (Stream stream = entry.Open())
-                    ReadGhpFormatLines(stream, sourceName, temp, cutoff);
+                    ReadGhpFormatLines(stream, sourceName, temp, cutoff, null, shouldCancel);
 
             foreach (ResponseRecord r in temp.Records)
                 result.Records.Add(r);
@@ -900,7 +936,7 @@ namespace MESInsight.Core
         #region Old Format Parsing
 
         private static void ReadOldFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
-            DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
+            DateTime? cutoff = null, Action<int, int, int> lineProgress = null, Func<bool> shouldCancel = null)
         {
             long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
             long readBytes = 0;
@@ -913,6 +949,8 @@ namespace MESInsight.Core
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
+                    if (shouldCancel?.Invoke() == true) return;
+
                     lineNum++;
                     readBytes += line.Length + 2;
 
@@ -1098,7 +1136,7 @@ namespace MESInsight.Core
         #region GHP Format Parsing
 
         private static void ReadGhpFormatLines(Stream dataStream, string sourceName, DataLoadResult result,
-            DateTime? cutoff = null, Action<int, int, int> lineProgress = null)
+            DateTime? cutoff = null, Action<int, int, int> lineProgress = null, Func<bool> shouldCancel = null)
         {
             var pendingRequests = new Dictionary<string, string>();
             long totalBytes = dataStream.CanSeek ? dataStream.Length : 0;
@@ -1111,6 +1149,8 @@ namespace MESInsight.Core
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
+                    if (shouldCancel?.Invoke() == true) return;
+
                     lineNum++;
                     readBytes += line.Length + 2;
 

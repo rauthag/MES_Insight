@@ -1070,6 +1070,16 @@
                                        VerticalAlignment="Center" Margin="16,0,0,0" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
                                         Margin="0,0,6,0">
+                                <Button x:Name="BtnSkipStation" Content="Skip station" Click="BtnSkipStation_Click"
+                                        Width="88" Height="28" Padding="8,0" Margin="0,0,6,0"
+                                        Background="#1F3A2A" Foreground="#3FB950" BorderBrush="#2EA043"
+                                        BorderThickness="1" FontSize="10" FontWeight="SemiBold" Cursor="Hand"
+                                        ToolTip="Skip current station and continue with next" />
+                                <Button x:Name="BtnCancelLoading" Content="Cancel loading" Click="BtnCancelLoading_Click"
+                                        Width="100" Height="28" Padding="8,0" Margin="0,0,8,0"
+                                        Background="#3B1F1F" Foreground="#FF7B72" BorderBrush="#A04040"
+                                        BorderThickness="1" FontSize="10" FontWeight="SemiBold" Cursor="Hand"
+                                        ToolTip="Stop loading immediately and keep only already loaded data" />
                                 <Button Content="—" Click="BtnMinimizeLoadingOverlay_Click"
                                         Width="32" Height="32" Padding="0" Margin="0,0,2,0"
                                         Background="Transparent" Foreground="#4E5A4E"

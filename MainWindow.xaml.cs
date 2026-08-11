@@ -162,6 +162,11 @@ namespace MESInsight
         private HashSet<string> _stationReadyGlow = new HashSet<string>();
         private bool _bgLoadingRunning = false;
         private System.Threading.CancellationTokenSource _bgCts = null;
+        private System.Threading.CancellationTokenSource _loadingLoopCts = null;
+        private System.Threading.CancellationTokenSource _activeStationLoadCts = null;
+        private volatile bool _cancelAllLoadingRequested = false;
+        private volatile bool _skipCurrentStationRequested = false;
+        private string _currentLoadingStationName = "";
         private Canvas _toastCanvas;
 
         private Dictionary<MessageType, CartesianChart> _trendChartByMessageType =
@@ -492,6 +497,12 @@ namespace MESInsight
             _pendingOptionalStations = new List<StationInfo>();
             _isBackgroundLoading = true;
             _isOverlayMinimized = false;
+            _cancelAllLoadingRequested = false;
+            _skipCurrentStationRequested = false;
+            _currentLoadingStationName = "";
+
+            _loadingLoopCts?.Dispose();
+            _loadingLoopCts = new System.Threading.CancellationTokenSource();
 
             ShowLoadingOverlay("Loading...", "Preparing...", 0);
             await Task.Yield();
@@ -512,15 +523,29 @@ namespace MESInsight
             int totalFiles = 0;
 
             for (int i = 0; i < stations.Count; i++)
+            {
+                if (_cancelAllLoadingRequested || (_loadingLoopCts?.IsCancellationRequested ?? false))
+                    break;
+
                 totalFiles = await LoadSingleStationInLoop(stations, i, totalFiles);
+            }
+
+            bool wasCancelled = _cancelAllLoadingRequested || (_loadingLoopCts?.IsCancellationRequested ?? false);
+
+            int loadedCount = _loadedStations.Count(s =>
+                _stationDataCache.ContainsKey(s.FolderPath) &&
+                _stationDataCache[s.FolderPath].records != null &&
+                _stationDataCache[s.FolderPath].records.Count > 0);
 
             int totalRecords = stations.Sum(s =>
                 _stationDataCache.ContainsKey(s.FolderPath) && _stationDataCache[s.FolderPath].records != null
                     ? _stationDataCache[s.FolderPath].records.Count
                     : 0);
 
-            ShowLoadingOverlay("All stations ready",
-                stations.Count + " stations  ·  " + totalRecords.ToString("N0") + " records total",
+            ShowLoadingOverlay(wasCancelled ? "Loading cancelled" : "All stations ready",
+                (wasCancelled
+                    ? loadedCount + " / " + stations.Count + " stations loaded"
+                    : stations.Count + " stations") + "  ·  " + totalRecords.ToString("N0") + " records total",
                 100, fileCount: totalFiles, recordCount: totalRecords, typeCount: stations.Count);
 
             await Task.Delay(150);
@@ -532,17 +557,24 @@ namespace MESInsight
 
             if (firstWithRecords != null)
                 await SwitchToStation(firstWithRecords);
-            else if (_lazyLoadStations.Count > 0)
+            else if (!wasCancelled && _lazyLoadStations.Count > 0)
                 StartBackgroundLoading();
 
-            if (_pendingOptionalStations.Count > 0)
+            if (!wasCancelled && _pendingOptionalStations.Count > 0)
                 RebuildStationBarWithOptionalButton();
 
             _isBackgroundLoading = false;
+            _currentLoadingStationName = "";
+
+            _activeStationLoadCts?.Dispose();
+            _activeStationLoadCts = null;
+            _loadingLoopCts?.Dispose();
+            _loadingLoopCts = null;
+
             HideLoadingOverlay();
             RebuildStationBar();
 
-            if (_lazyLoadStations.Count > 0)
+            if (!wasCancelled && _lazyLoadStations.Count > 0)
                 StartBackgroundLoading();
 
             if (!string.IsNullOrEmpty(rootPath))
@@ -578,7 +610,7 @@ namespace MESInsight
         }
 
 
-        private async Task<DataLoadResult> LoadStationFiles(List<StationInfo> stations, int i)
+        private async Task<DataLoadResult> LoadStationFiles(List<StationInfo> stations, int i, Func<bool> shouldCancel)
         {
             StationInfo st = stations[i];
             int stationCountSafe = Math.Max(1, stations.Count);
@@ -586,6 +618,8 @@ namespace MESInsight
 
             return await Task.Run(() => _dataLoader.Load(st.FolderPath, (status, percent, extra) =>
             {
+                if (shouldCancel?.Invoke() == true) return;
+
                 if (status.StartsWith("Reading "))
                     System.Threading.Interlocked.Increment(ref liveFileCount);
 
@@ -604,7 +638,7 @@ namespace MESInsight
                         st.StationName, innerPct,
                         detail: detail, fileCount: fc, typeCount: stations.Count);
                 }));
-            }));
+            }, shouldCancel));
         }
 
         private string BuildLoadingDetail(string status, int fileCount, string extra)
@@ -1563,6 +1597,15 @@ private void ClearEntireSessionState()
     _bgCts?.Dispose();
     _bgCts = null;
     _bgLoadingRunning = false;
+
+    _cancelAllLoadingRequested = true;
+    _skipCurrentStationRequested = true;
+    _activeStationLoadCts?.Cancel();
+    _activeStationLoadCts?.Dispose();
+    _activeStationLoadCts = null;
+    _loadingLoopCts?.Cancel();
+    _loadingLoopCts?.Dispose();
+    _loadingLoopCts = null;
 
     _lazyLoadQueue.Clear();
     _lazyLoadQueueRunning = false;
@@ -3820,15 +3863,54 @@ private void ClearEntireSessionState()
         {
             StationInfo st = stations[i];
 
+            if (_cancelAllLoadingRequested || (_loadingLoopCts?.IsCancellationRequested ?? false))
+                return totalFiles;
+
             if (!await CheckRamAndProceed(stations, i))
                 return totalFiles;
 
             UpdateStationBarLoadingState(st.FolderPath, isLoading: true);
+            _currentLoadingStationName = st.StationName;
+
+            _activeStationLoadCts?.Dispose();
+            _activeStationLoadCts = new System.Threading.CancellationTokenSource();
+            Func<bool> shouldCancel = () =>
+                _skipCurrentStationRequested ||
+                _cancelAllLoadingRequested ||
+                (_loadingLoopCts?.IsCancellationRequested ?? false) ||
+                _activeStationLoadCts.IsCancellationRequested;
 
             long memBefore = GC.GetTotalMemory(false);
             long workingSetBefore = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
 
-            DataLoadResult loadResult = await LoadStationFiles(stations, i);
+            DataLoadResult loadResult = await LoadStationFiles(stations, i, shouldCancel);
+
+            if (shouldCancel())
+            {
+                _stationDataCache.Remove(st.FolderPath);
+                _stationChartCache.Remove(st.FolderPath);
+                _loadedStations.Remove(st);
+
+                UpdateStationBarLoadingState(st.FolderPath, isLoading: false);
+                RebuildStationBarThrottled();
+
+                int stationCountSafe = Math.Max(1, stations.Count);
+                int skipPct = 5 + ((i + 1) * 88 / stationCountSafe);
+                string actionText = _cancelAllLoadingRequested ? "Cancelling loading..." : "Station skipped";
+
+                ShowLoadingOverlay(
+                    "Station " + (i + 1) + " / " + stations.Count,
+                    st.StationName,
+                    skipPct,
+                    detail: actionText,
+                    fileCount: totalFiles,
+                    typeCount: stations.Count);
+
+                _skipCurrentStationRequested = false;
+                _activeStationLoadCts?.Dispose();
+                _activeStationLoadCts = null;
+                return totalFiles;
+            }
 
             string displayName = ResolveDisplayName(loadResult.StationName, st.StationName);
             st.StationName = displayName;
@@ -3847,6 +3929,10 @@ private void ClearEntireSessionState()
             RebuildStationBarThrottled();
 
             await SwitchToFirstStationOrRebuild(stations, i, loadResult);
+
+            _skipCurrentStationRequested = false;
+            _activeStationLoadCts?.Dispose();
+            _activeStationLoadCts = null;
 
             return totalFiles;
         }
@@ -4080,6 +4166,8 @@ private void ClearEntireSessionState()
         {
             if (LoadingOverlay == null) return;
 
+            UpdateLoadingActionButtons();
+
             long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             bool isThrottled = (nowMs - _lastOverlayUpdateMs) < 200;
 
@@ -4179,6 +4267,61 @@ private void ClearEntireSessionState()
             if (LoadingOverlay == null) return;
             LoadingOverlay.Visibility = Visibility.Collapsed;
             _skipButtonTimer?.Stop();
+            UpdateLoadingActionButtons();
+        }
+
+        private void UpdateLoadingActionButtons()
+        {
+            bool showActions = _isBackgroundLoading;
+
+            if (BtnSkipStation != null)
+            {
+                BtnSkipStation.Visibility = showActions ? Visibility.Visible : Visibility.Collapsed;
+                BtnSkipStation.IsEnabled = showActions && !_cancelAllLoadingRequested;
+                BtnSkipStation.ToolTip = string.IsNullOrEmpty(_currentLoadingStationName)
+                    ? "Skip current station and continue with next"
+                    : "Skip station: " + _currentLoadingStationName;
+            }
+
+            if (BtnCancelLoading != null)
+            {
+                BtnCancelLoading.Visibility = showActions ? Visibility.Visible : Visibility.Collapsed;
+                BtnCancelLoading.IsEnabled = showActions;
+            }
+        }
+
+        private void BtnSkipStation_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isBackgroundLoading) return;
+
+            _skipCurrentStationRequested = true;
+            _activeStationLoadCts?.Cancel();
+
+            ShowLoadingOverlay(
+                "Skipping station...",
+                string.IsNullOrEmpty(_currentLoadingStationName) ? "Current station" : _currentLoadingStationName,
+                (int)LoadingProgress.Value,
+                detail: "Waiting for current parser step to stop...");
+        }
+
+        private void BtnCancelLoading_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isBackgroundLoading)
+            {
+                HideLoadingOverlay();
+                return;
+            }
+
+            _cancelAllLoadingRequested = true;
+            _skipCurrentStationRequested = true;
+            _activeStationLoadCts?.Cancel();
+            _loadingLoopCts?.Cancel();
+
+            ShowLoadingOverlay(
+                "Cancelling loading...",
+                "Stopping station parsing",
+                (int)LoadingProgress.Value,
+                detail: "Only already loaded stations will be kept.");
         }
 
         private void BtnCloseLoadingOverlay_Click(object sender, RoutedEventArgs e)

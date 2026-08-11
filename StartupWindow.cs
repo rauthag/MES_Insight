@@ -890,10 +890,15 @@ namespace MESInsight
             if (entries.Count == 0)
                 return WrapExpanded("\u21BB  Recent Data", BuildRecentEmptyState());
 
-            var existsMap = CheckPathsExist(entries.Select(e => e.Path).ToList());
             var inner = new StackPanel();
+            var rows = new List<(Border row, RecentEntry entry)>();
+
             foreach (var entry in entries)
-                inner.Children.Add(BuildRecentEntryRow(entry, existsMap));
+            {
+                var row = BuildRecentEntryRowPending(entry);
+                inner.Children.Add(row);
+                rows.Add((row, entry));
+            }
 
             var stack = new StackPanel();
             stack.Children.Add(new ScrollViewer
@@ -902,7 +907,89 @@ namespace MESInsight
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Content = inner
             });
-            return WrapExpanded("\u21BB  Recent Data", stack);
+
+            var result = WrapExpanded("\u21BB  Recent Data", stack);
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                var paths = entries.Select(e => e.Path).ToList();
+                var existsMap = CheckPathsExist(paths);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    for (int i = 0; i < rows.Count; i++)
+                    {
+                        var (row, entry) = rows[i];
+                        bool exists = existsMap.ContainsKey(entry.Path) && existsMap[entry.Path];
+                        UpdateRecentEntryRow(row, entry, exists);
+                    }
+                }));
+            });
+
+            return result;
+        }
+
+        private Border BuildRecentEntryRowPending(RecentEntry entry)
+        {
+            string folderName = IOPath.GetFileName(entry.Path.TrimEnd('\\', '/'));
+
+            var rowStack = new StackPanel();
+            rowStack.Children.Add(new TextBlock
+            {
+                Text = folderName,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(160, 190, 170))
+            });
+            rowStack.Children.Add(new TextBlock
+            {
+                Text = entry.Path,
+                FontSize = 10,
+                FontFamily = new FontFamily("Consolas"),
+                Foreground = new SolidColorBrush(Color.FromRgb(70, 100, 80)),
+                TextWrapping = TextWrapping.NoWrap
+            });
+            rowStack.Children.Add(new TextBlock
+            {
+                Text = "⏳  Checking...",
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 140, 110)),
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+
+            return new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(12, 30, 18)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 70, 40)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, 0, 6),
+                Cursor = Cursors.Arrow,
+                Child = rowStack,
+                Tag = entry
+            };
+        }
+
+        private void UpdateRecentEntryRow(Border row, RecentEntry entry, bool exists)
+        {
+            if (!(row.Child is StackPanel rowStack)) return;
+            rowStack.Children.Clear();
+
+            string folderName = IOPath.GetFileName(entry.Path.TrimEnd('\\', '/'));
+            rowStack.Children.Add(BuildRecentEntryTitle(folderName, exists));
+            rowStack.Children.Add(BuildRecentEntryPath(entry.Path, exists));
+
+            if (!exists)
+                rowStack.Children.Add(BuildRecentEntryWarning());
+            else if (entry.Stations.Count > 0)
+                rowStack.Children.Add(BuildRecentEntryStationInfo(entry));
+
+            row.Background = new SolidColorBrush(exists ? Color.FromRgb(12, 30, 18) : Color.FromRgb(20, 14, 14));
+            row.BorderBrush = new SolidColorBrush(exists ? Color.FromRgb(30, 70, 40) : Color.FromRgb(60, 30, 30));
+            row.Cursor = exists ? Cursors.Hand : Cursors.Arrow;
+
+            if (exists)
+                WireRecentEntryClick(row, entry);
         }
 
         private static UIElement BuildRecentEmptyState()
@@ -919,9 +1006,23 @@ namespace MESInsight
         private static Dictionary<string, bool> CheckPathsExist(List<string> paths)
         {
             var map = new Dictionary<string, bool>();
-            Parallel.ForEach(paths, p =>
+            Parallel.ForEach(paths, new ParallelOptions { MaxDegreeOfParallelism = 4 }, p =>
             {
-                bool ex = Directory.Exists(p);
+                bool ex = false;
+                try
+                {
+                    if (p.StartsWith(@"\\"))
+                    {
+                        // UNC paths need more time for first connection
+                        var task = System.Threading.Tasks.Task.Run(() => Directory.Exists(p));
+                        ex = task.Wait(8000) && task.Result;
+                    }
+                    else
+                    {
+                        ex = Directory.Exists(p);
+                    }
+                }
+                catch { ex = false; }
                 lock (map) map[p] = ex;
             });
             return map;
@@ -2190,10 +2291,34 @@ namespace MESInsight
             }
         }
 
+        private static readonly (string Drive, string UncRoot)[] DriveToUncMap =
+        {
+            (@"F:\", @"\\vt1.vitesco.com\smt\"),
+            (@"T:\", @"\\vt1.vitesco.com\fst1\"),
+        };
+
+        private const string UncShareTail = "didv0952";
+
+        private static string NormalizeRecentPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            path = path.Trim();
+
+            foreach (var (drive, uncRoot) in DriveToUncMap)
+            {
+                if (path.StartsWith(drive, StringComparison.OrdinalIgnoreCase))
+                    return uncRoot + path.Substring(drive.Length);
+            }
+
+            return path;
+        }
+
         public static void SaveRecentPath(string path, List<StationInfo> stations = null)
         {
             try
             {
+                path = NormalizeRecentPath(path);
+
                 string dir = IOPath.GetDirectoryName(RecentPathFile) ?? "";
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 var lines = File.Exists(RecentPathFile)
@@ -2213,7 +2338,7 @@ namespace MESInsight
                 var entry = new List<string> { "P:" + path };
                 if (stations != null)
                     foreach (var st in stations)
-                        entry.Add("  S:" + st.StationName + "|" + st.FolderPath + "|" + st.LineName + "|" +
+                        entry.Add("  S:" + st.StationName + "|" + NormalizeRecentPath(st.FolderPath) + "|" + st.LineName + "|" +
                                   st.ComputerName);
                 lines.InsertRange(0, entry);
                 int pCount = 0, cutAt = lines.Count;
@@ -2245,7 +2370,7 @@ namespace MESInsight
                 {
                     if (line.StartsWith("P:"))
                     {
-                        current = new RecentEntry { Path = line.Substring(2) };
+                        current = new RecentEntry { Path = NormalizeRecentPath(line.Substring(2)) };
                         result.Add(current);
                     }
                     else if (line.StartsWith("  S:") && current != null)
@@ -2255,7 +2380,7 @@ namespace MESInsight
                         if (p.Length >= 2)
                             current.Stations.Add((
                                 p[0],
-                                p[1],
+                                NormalizeRecentPath(p[1]),
                                 p.Length > 2 ? p[2] : "",
                                 p.Length > 3 ? p[3] : ""
                             ));
